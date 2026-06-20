@@ -14,11 +14,14 @@ function _wfbm(x, y, s, o) { let a = 0.5, f = 1, sum = 0, n = 0; for (let i = 0;
 let WEIRD = null;
 function _weirdInit() {
   const tier = (currentCourse && currentCourse.weirdTier) || 1, seed = (getSeed() | 0) >>> 0;
-  // locked from the proto (CLO_e22); scale with tier
-  const warp = [0, 195, 215, 245][tier], amp = [0, 155, 170, 190][tier], soft = [0, 2.75, 2.95, 3.15][tier];
-  const wf = 1 / [0, 245, 232, 220][tier], hf = 1 / 270, bias = [0, 6, 0, -8][tier];
-  const eps = [0, 20, 18, 16][tier], cell = 30, midY = H * 0.42;
-  WEIRD = { tier, seed, warp, amp, soft, wf, hf, bias, eps, cell, midY, cups: [], baseSurf: (x) => midY + amp * (_wfbm(x * hf, 0.137, seed, 4) - 0.5) * 2 };
+  // ── ONE harshness dial (0 = gentle rolling, 1 = wild overhangs/caves). The course sets `harshness`
+  // directly; otherwise it derives from weirdTier. ?harsh=<0..1> overrides live for tuning. ──
+  let h = (currentCourse && currentCourse.harshness != null) ? currentCourse.harshness : [0, 0.28, 0.6, 0.92][tier];
+  if (typeof location !== 'undefined') { const m = /[?&]harsh=([0-9.]+)/.exec(location.search); if (m) h = Math.max(0, Math.min(1, parseFloat(m[1]))); }
+  const L = (a, b) => a + (b - a) * h;
+  const warp = L(135, 265), amp = L(120, 200), soft = L(2.5, 3.2), wf = 1 / L(260, 214), hf = 1 / 270;
+  const bias = L(18, -14), eps = L(22, 15), cell = 30, midY = H * 0.42;
+  WEIRD = { tier, harsh: h, seed, warp, amp, soft, wf, hf, bias, eps, cell, midY, cups: [], baseSurf: (x) => midY + amp * (_wfbm(x * hf, 0.137, seed, 4) - 0.5) * 2 };
 }
 function _surfY(x) {
   let y = WEIRD.baseSurf(x);
@@ -124,7 +127,7 @@ function _loopEdges(loop) {
 // Pick the cup x by scanning the valid distance range for the FLATTEST, BROADEST patch of ground —
 // the lesson from the original (archetypes end the hole on a flat spot / GoM cups sit on plateaus).
 // Avoids dropping the cup into a V-notch between peaks.
-function _pickCupX(lo, hi, teeY) {
+function _pickCupX(teeX, lo, hi, teeY) {
   let bestX = (lo + hi) / 2, best = 1e9;
   for (let x = lo; x <= hi; x += 12) {
     let mn = 1e9, mx = -1e9, sum = 0, n = 0;
@@ -132,9 +135,12 @@ function _pickCupX(lo, hi, teeY) {
     const spread = mx - mn, center = sum / n;       // flatness (smaller = flatter)
     const elev = center - teeY;                     // +down from the tee (easy), -up (hard uphill carry)
     const sideL = _topSolid(x - 125), sideR = _topSolid(x + 125);
-    const dip = Math.max(0, center - sideL) + Math.max(0, center - sideR);   // center lower than its sides → a DIP (steep up-ramps / wedges, harder to reach)
-    // want: flat, reachable (level/downhill from tee), and OPEN (a plateau/flat, not a pit between rises).
-    const score = spread + (elev < 0 ? -elev * 0.9 : elev * 0.15) + dip * 0.5;
+    const dip = Math.max(0, center - sideL) + Math.max(0, center - sideR);   // center lower than its sides → a DIP
+    // insurmountable WALL between tee and cup: the highest point on the path (a peak the shot can't clear)
+    let wall = 1e9; for (let wx = teeX + 40; wx < x - 40; wx += 22) { const wy = _topSolid(wx); if (wy < wall) wall = wy; }
+    const wallH = Math.max(0, Math.min(teeY, center) - (wall < 1e8 ? wall : Math.min(teeY, center)));
+    // want: flat, reachable (level/downhill from tee), OPEN (not a pit), and no big blocking wall en route.
+    const score = spread + (elev < 0 ? -elev * 0.9 : elev * 0.15) + dip * 0.5 + Math.max(0, wallH - 70) * 0.4;
     if (score < best) { best = score; bestX = x; }
   }
   return bestX;
@@ -152,7 +158,7 @@ function generateWeirdHole(holeIndex) {
   const difficulty = getDifficulty(holeIndex);
   const effW = Math.max(960, W), maxDist = (typeof window !== 'undefined' && window.RG && window.RG._holeDistCap) ? window.RG._holeDistCap : (effW - 190);
   const dMin = currentCourse.holeDistMin != null ? currentCourse.holeDistMin : 480, dMax = currentCourse.holeDistMax != null ? currentCourse.holeDistMax : 800;
-  const cupX = _pickCupX(teeX + dMin, teeX + Math.min(dMax, maxDist), teeY);   // flat + reachable spot → a real green plateau
+  const cupX = _pickCupX(teeX, teeX + dMin, teeX + Math.min(dMax, maxDist), teeY);   // flat + reachable spot → a real green plateau
   // green level = surfY at the cup (warp + bias are suppressed there) → the surface sits exactly here,
   // so the rim, the rendered ground, terrainYAt and the flag all agree, on a thick landable shelf.
   const greenY = WEIRD.baseSurf(cupX);
@@ -238,12 +244,7 @@ function _weirdBuildCache(h) {
   // overlap that would leave a sky sliver.
   c2.fillStyle = mat.color; c2.beginPath();
   for (const lp of h._loops) { c2.moveTo(lp[0].x - x0, lp[0].y); for (let i = 1; i < lp.length; i++) c2.lineTo(lp[i].x - x0, lp[i].y); c2.closePath(); }
-  c2.fill('evenodd');
-  // a lighter lip along up-facing facet edges (the DG top-edge look) — but NOT across a cup/tee green,
-  // where the engine draws the dynamic cup notch on top (the lip would bleed a light line into the hole).
-  c2.strokeStyle = mat.colorLight || _lighten(mat.color, 24); c2.lineWidth = 3;
-  const nearGreen = (mx) => { for (const c of WEIRD.cups) if (Math.abs(mx - c.x) < CUP_WIDTH) return true; return false; };
-  for (const arr of (h._edges || [])) for (const e of arr) { if (e.ny < -0.45 && !nearGreen((e.ax + e.bx) / 2)) { c2.beginPath(); c2.moveTo(e.ax - x0, e.ay + 1.5); c2.lineTo(e.bx - x0, e.by + 1.5); c2.stroke(); } }
+  c2.fill('evenodd');                                // solid terrain only — no top-edge lip line
   h._weirdCache = cv; h._weirdCacheX0 = x0; h._cacheReady = true;
 }
 function _lighten(hex, amt) { hex = hex.replace('#', ''); const r = Math.min(255, parseInt(hex.slice(0, 2), 16) + amt), g = Math.min(255, parseInt(hex.slice(2, 4), 16) + amt), b = Math.min(255, parseInt(hex.slice(4, 6), 16) + amt); return 'rgb(' + r + ',' + g + ',' + b + ')'; }
