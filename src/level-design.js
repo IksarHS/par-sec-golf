@@ -425,6 +425,61 @@ const archetypes = {
     ];
   },
 
+  // ── SPECIAL "something lived here" archetypes (rare set-pieces — a course's signature hole) ───────────
+  // RUINS: a colonnade of broken pillars on a foundation; the cup rests among the toppled columns.
+  ruins(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(Math.max(sy, H * 0.6));
+    const v = [{ x: sx, y: clampY(sy) }, { x: sx + dist * 0.16, y: base }];
+    const n = 4 + Math.floor(randRange(0, 3));                  // 4–6 columns
+    const span = dist * 0.6, gap = span / n, cupIdx = Math.floor(n / 2);
+    let x = sx + dist * 0.2;
+    for (let i = 0; i < n; i++) {
+      const ph = randRange(45, 80) + random() * (70 + diff * 60);   // broken column height (varied)
+      const pw = randRange(15, 24);
+      v.push({ x, y: base });                                   // foundation
+      if (i === cupIdx) v.push({ x: x + gap * 0.3, y: base, cup: true });  // cup among the ruins
+      v.push({ x: x + gap * 0.5, y: base });
+      v.push({ x: x + gap * 0.5 + 3, y: clampY(base - ph) });   // column up (jagged broken top)
+      v.push({ x: x + gap * 0.5 + pw, y: clampY(base - ph) });
+      v.push({ x: x + gap * 0.5 + pw + 3, y: base });           // column down
+      x += gap;
+    }
+    v.push({ x: endX - 60, y: base }); v.push({ x: endX, y: base });
+    return v;
+  },
+
+  // LAUNCHPAD: a raised launch platform (cup on the pad) over a flame trench, with a tall gantry tower beside.
+  launchpad(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(Math.max(sy, H * 0.64));
+    const px = sx + dist * randRange(0.46, 0.58), padY = clampY(base - 12);
+    const g = clampY(base - 150 - diff * 70);                   // gantry height
+    return [
+      { x: sx, y: clampY(sy) },
+      { x: px - 120, y: base },
+      { x: px - 92, y: base }, { x: px - 80, y: clampY(base + 48) },   // flame trench
+      { x: px - 52, y: clampY(base + 48) }, { x: px - 40, y: padY },   // up onto the pad
+      { x: px, y: padY, cup: true },                            // CUP on the launch pad
+      { x: px + 52, y: padY }, { x: px + 64, y: base },
+      { x: px + 86, y: base }, { x: px + 90, y: g },            // gantry tower up
+      { x: px + 106, y: g }, { x: px + 110, y: base },          // gantry top + down
+      { x: endX - 60, y: base }, { x: endX, y: base },
+    ];
+  },
+
+  // OBELISK: a lone monolith standing on a plain — a landmark; the cup waits at its foot.
+  obelisk(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(Math.max(sy, H * 0.62));
+    const ox = sx + dist * randRange(0.42, 0.56), top = clampY(base - 170 - diff * 80);
+    return [
+      { x: sx, y: clampY(sy) },
+      { x: ox - 90, y: base },
+      { x: ox - 13, y: base }, { x: ox - 11, y: top },          // monolith up (tall, narrow)
+      { x: ox + 11, y: top }, { x: ox + 13, y: base },          // monolith top + down
+      { x: ox + 70, y: base, cup: true },                       // cup at the monolith's foot
+      { x: endX - 60, y: base }, { x: endX, y: base },
+    ];
+  },
+
   // ── new NON-water complex archetypes ────────────────────────────────────────────────────────────────
   // CRATER: a raised rim with the cup sunk in a bowl on top — lob UP then drop INTO the crater (cup-anywhere).
   crater(sx, sy, dist, cupY, diff) {
@@ -1093,6 +1148,9 @@ ARCHETYPE_TABLE.push(['sea_stack', 0.0, 5.0, 1]);     // cup crowns a freestandi
 ARCHETYPE_TABLE.push(['crater', 0.0, 5.0, 1]);        // cup in a bowl atop a raised rim
 ARCHETYPE_TABLE.push(['punchbowl', 0.0, 5.0, 1]);     // forgiving funnel that gathers to the cup
 ARCHETYPE_TABLE.push(['ziggurat', 0.0, 5.0, 1]);      // stepped climb to a cup on the top terrace
+ARCHETYPE_TABLE.push(['ruins', 0.0, 5.0, 1]);         // special: colonnade of broken columns, cup among them
+ARCHETYPE_TABLE.push(['launchpad', 0.0, 5.0, 1]);     // special: launch platform + gantry, cup on the pad
+ARCHETYPE_TABLE.push(['obelisk', 0.0, 5.0, 1]);       // special: a lone monolith, cup at its foot
 
 // ── Main Terrain Generation ──────────────────────────────
 function generateHoleTerrain(holeIndex) {
@@ -1178,7 +1236,10 @@ function generateHoleTerrain(holeIndex) {
   }
 
   // Pick archetype and generate vertices
-  const archName = pickArchetype(difficulty);
+  // Special signature hole: a course may force one archetype at one hole index (e.g. ruins/launchpad once a course).
+  const archName = (currentCourse && currentCourse.specialHole && holeIndex === currentCourse.specialHoleAt && archetypes[currentCourse.specialHole])
+    ? currentCourse.specialHole
+    : pickArchetype(difficulty);
   const archFunc = archetypes[archName];
   const startX = teeX + 40; // small gap after tee
   let rawVerts = archFunc(startX, teeY, dist, cupTargetY, difficulty);

@@ -21,6 +21,7 @@
       bone: ['sand', '#cabfa0'], teal: ['ice', '#3f9aa6'], frost: ['ice', '#9fd8e8'],
       ash: ['rock', '#46464f'], ember: ['rock', '#c2603a'], cobalt: ['rock', '#4f6fc0'],
       cactus: ['grass', '#4f7d39'], stone: ['rock', '#8b8e94'],   // cactus = green obstacle; stone = grey-rock accent
+      earthgreen: ['grass', '#4f8a3e'], sulfur: ['sand', '#d6c63e'], cyan: ['ice', '#79c6cf'],   // solar-system bodies
     };
     for (const k in CUSTOM) if (!MATERIALS[k]) { const c = CUSTOM[k]; MATERIALS[k] = Object.assign(phys(c[0]), { color: c[1], colorLight: c[1] }); }
   }
@@ -148,6 +149,36 @@
     validate: true,
     phys: { gravityScale: 1, windScale: 1 },
   };
+
+  // ── THE SOLAR SYSTEM ── 12 courses, Earth → Uranus + moons. Each = a palette (land + sky), gravity, an
+  // optional liquid (water/lava/methane with its own colour), an archetype mix for its vibe, and a signature
+  // SPECIAL hole (ruins / launchpad / obelisk — "something was here") at one index.
+  const SOLAR = [
+    // id, name, land, sky, grav, archetypes, [dMin,dMax], waterBias|null, surfCol, deepCol, special, atIdx
+    ['earth', 'Earth', 'earthgreen', '#3a6a8a', 1.0, ['gom', 'gom_smooth', 'gom_lake', 'punchbowl', 'island_green'], [0.15, 0.7], 0.4, 'rgba(50,120,180,0.9)', 'rgba(10,40,90,0.97)', 'ruins', 4],
+    ['luna', 'Luna', 'stone', '#05050a', 0.55, ['crater', 'gom', 'deep_pocket', 'fortress', 'gom_smooth'], [0.2, 0.85], null, null, null, 'launchpad', 5],
+    ['mars', 'Mars', 'crimson', '#c08868', 0.6, ['gom', 'canyon_cup', 'cenote', 'deep_plunge', 'crater'], [0.3, 0.9], 0.25, 'rgba(80,135,150,0.85)', 'rgba(20,45,60,0.96)', 'obelisk', 6],
+    ['phobos', 'Phobos', 'ash', '#08080e', 0.5, ['gauntlet', 'gom', 'narrow_gap', 'twin_peaks', 'spire_drown'], [0.4, 0.95], null, null, null, null, 0],
+    ['jupiter', 'Jupiter', 'ember', '#7a5038', 1.2, ['gom_islands', 'gauntlet', 'gom', 'fortress'], [0.4, 0.9], null, null, null, null, 0],
+    ['europa', 'Europa', 'frost', '#1a2838', 0.55, ['gom', 'island_green', 'sea_stack', 'gom_islands', 'gom_lake'], [0.25, 0.8], 0.66, 'rgba(95,175,205,0.9)', 'rgba(10,40,72,0.97)', 'sea_stack', 7],
+    ['io', 'Io', 'sulfur', '#241208', 0.55, ['gom', 'cenote', 'crater', 'deep_plunge', 'canyon_cup'], [0.3, 0.9], 0.4, 'rgba(228,95,28,0.93)', 'rgba(112,18,8,0.98)', null, 0],
+    ['ganymede', 'Ganymede', 'slate', '#10161f', 0.55, ['gom', 'ziggurat', 'stepped_descent', 'gom_smooth', 'crater'], [0.25, 0.85], 0.35, 'rgba(85,145,185,0.88)', 'rgba(15,38,68,0.96)', null, 0],
+    ['titan', 'Titan', 'amber', '#b8722a', 0.5, ['gom', 'gom_lake', 'island_green', 'punchbowl', 'gom_smooth'], [0.2, 0.78], 0.55, 'rgba(120,78,36,0.9)', 'rgba(40,22,8,0.97)', 'ruins', 5],
+    ['enceladus', 'Enceladus', 'bone', '#16222e', 0.5, ['gom', 'sea_stack', 'island_green', 'crater', 'gom_islands'], [0.25, 0.82], 0.7, 'rgba(150,205,225,0.9)', 'rgba(30,72,102,0.97)', null, 0],
+    ['uranus', 'Uranus', 'cyan', '#aaccd0', 0.95, ['gom_islands', 'gom_smooth', 'gauntlet', 'gom'], [0.3, 0.85], 0.5, 'rgba(90,192,202,0.88)', 'rgba(15,62,82,0.96)', null, 0],
+    ['miranda', 'Miranda', 'plum', '#0e0a16', 0.5, ['deep_plunge', 'canyon_cup', 'cenote', 'fortress', 'narrow_gap', 'spire_drown'], [0.5, 0.97], null, null, null, 'obelisk', 6],
+  ];
+  for (const [id, nm, mat, sky, grav, arch, diff, wbias, wcol, wdeep, special, atIdx] of SOLAR) {
+    const c = {
+      name: nm, worldName: nm, sky: sky, defaultMaterial: mat, materials: [mat],
+      gen: 'faceted', archetypes: arch, difficultyRange: diff,
+      holeDistMin: 440, holeDistMax: 760, holeCount: 9, validate: true,
+      phys: { gravityScale: grav, windScale: 1 },
+    };
+    if (wbias != null) { c.floodWater = true; c.waterBias = wbias; c.waterColor = wcol; c.waterDeep = wdeep; }
+    if (special) { c.specialHole = special; c.specialHoleAt = atIdx; }
+    COURSES[id] = c;
+  }
 
   // expose the generator so lab.js + the harness build planets at any complexity from the SAME logic
   const API = { buildConfig: buildConfig, archetypesFor: archetypesFor, MATS: MATS, SKIES: SKIES, NAMES: NAMES, count: N };
