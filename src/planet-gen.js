@@ -100,6 +100,7 @@
       gomObstacles: true,                                  // cacti (Phase O)
       gomWater: true,                                       // flat water pools (Phase W)
       validate: true,                                       // simulate-and-validate: re-roll any unsinkable hole
+      gomCaves: true,                                       // overhangs the ball passes under (Phase C)
       phys: { gravityScale: 1, windScale: 1 },
     };
   }

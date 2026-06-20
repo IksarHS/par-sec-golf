@@ -34,23 +34,30 @@ function placeWater(holeIndex) {
   _waters.push({ x0: x0, x1: x1, surfaceY: surfaceY, hole: holeIndex });
 }
 
-function isInWater(x) { for (const w of _waters) if (x >= w.x0 && x <= w.x1) return true; return false; }
+function isInWater(x) { for (const w of _waters) if (x >= w.x0 && x <= w.x1 && terrainYAt(x) > w.surfaceY) return true; return false; }
 
 function drawWater() {
   if (typeof ctx === 'undefined' || !_waters.length) return;
   _waterFrame++;
+  // PER-COLUMN fill: water settles onto the terrain — each column fills from the flat surface DOWN to the
+  // terrain, ONLY where terrain is below the waterline. Conforms to the basin exactly; never overlaps
+  // terrain or covers bumps that poke above the surface. (Steady state of "water colliding with terrain".)
+  ctx.fillStyle = 'rgba(74,150,210,0.88)';
   for (const w of _waters) {
-    // flat top at surfaceY [x0..x1]; bottom follows the terrain → a flat-topped pool conforming to the basin
-    ctx.beginPath();
-    ctx.moveTo(w.x0, w.surfaceY); ctx.lineTo(w.x1, w.surfaceY);
-    for (let x = w.x1; x >= w.x0; x -= 6) ctx.lineTo(x, Math.max(w.surfaceY, terrainYAt(x)));
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(74,150,210,0.86)'; ctx.fill();
-    // subtle animated surface — a soft shimmer line gently rippling along the top
-    ctx.strokeStyle = 'rgba(175,215,240,0.65)'; ctx.lineWidth = 2; ctx.beginPath();
-    for (let x = w.x0; x <= w.x1; x += 5) {
-      const yy = w.surfaceY + Math.sin(x * 0.05 + _waterFrame * 0.06) * 1.6 + Math.sin(x * 0.013 - _waterFrame * 0.03) * 1.2;
-      if (x === w.x0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+    for (let x = w.x0; x <= w.x1; x += 2) {
+      const ty = terrainYAt(x);
+      if (ty > w.surfaceY + 0.5) ctx.fillRect(x, w.surfaceY, 2.4, ty - w.surfaceY);
+    }
+  }
+  // animated surface shimmer — only along stretches that actually hold water
+  ctx.strokeStyle = 'rgba(185,222,246,0.6)'; ctx.lineWidth = 2;
+  for (const w of _waters) {
+    ctx.beginPath(); let pen = false;
+    for (let x = w.x0; x <= w.x1; x += 4) {
+      if (terrainYAt(x) > w.surfaceY + 0.5) {
+        const yy = w.surfaceY + Math.sin(x * 0.05 + _waterFrame * 0.06) * 1.5 + Math.sin(x * 0.013 - _waterFrame * 0.03) * 1.1;
+        if (!pen) { ctx.moveTo(x, yy); pen = true; } else ctx.lineTo(x, yy);
+      } else pen = false;
     }
     ctx.stroke();
   }
@@ -62,7 +69,7 @@ function collideWater() {
   let inWater = false;
   for (const w of _waters) {
     if (w.hole !== currentHole) continue;
-    if (ball.x >= w.x0 && ball.x <= w.x1 && ball.y >= w.surfaceY - BALL_RADIUS) { inWater = true; break; }
+    if (ball.x >= w.x0 && ball.x <= w.x1 && ball.y >= w.surfaceY - BALL_RADIUS && terrainYAt(ball.x) > w.surfaceY) { inWater = true; break; }
   }
   if (inWater) {
     const safe = _waterSafe || ((window.RG && RG._lastSafe) ? RG._lastSafe : { x: holes[currentHole].teeX });
