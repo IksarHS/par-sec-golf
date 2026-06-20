@@ -30,9 +30,11 @@ skies.
   polygons (no field, no marching squares → no lacerations), swept circle-vs-segment collision.
   **Reachable by construction**: the cup stays on the heightfield floor; the mass floats high over a
   mid-hole chasm and never blocks the cup approach.
-- **Completability**: the gnarly cup-trapping archetypes (fortress / narrow_gap / canyon_cup) were dropped
-  from the top tier (they were the only source of the rare unsinkable cup). Verified: a full sweep with
-  the bot's OWN 45-shot stuck detection → **24/24 complete**, masses present.
+- **Completability**: verified by a HEADLESS DETERMINISTIC harness (`tools/verify.cjs`) that loads the real
+  engine into Node and plays every planet with the real autoplay bot. The gnarly cup-trapping archetypes
+  (fortress / narrow_gap / canyon_cup / deep_pocket) are IN the top tier — the harness proves they're
+  completable (my earlier flaky browser sweeps wrongly blamed them). Evidence: **320 planet-runs, 0 fails**
+  (24×5 + p17-24×10 + p19-24×20). Reproduce: `node tools/verify.cjs all 5`.
 
 ## Files
 - `src/planet-gen.js` — the 24 planets + the complexity→archetype/difficulty mapping + custom colours.
@@ -40,21 +42,23 @@ skies.
 - `src/level-design.js` — `gen:'faceted'` skips micro-noise; hooks `generateOverhangs` after each hole;
   (a bot-based `_validateHole`/`_genValidatedHole` scaffold exists but is unhooked — see Improvements).
 - `run.html` — loads the above; generic `?course=<id>` dev shortcut.
+- `tools/verify.cjs` — **headless deterministic completability harness**. Loads the REAL engine in Node
+  (vm context + minimal browser stubs), plays every planet with the real autoplay bot. No browser, no
+  flakiness, reproducible (seed → identical terrain). Verified faithful: p12 seed 777 geometry is
+  bit-for-bit identical to the browser, and both complete it. `node tools/verify.cjs all 5` |
+  `… p24 5` | `… p12 geom 777`.
 
 ## Improvements toward the goal (next steps)
 1. **TRUE caves/overhangs (toward the 134/351 references)** via the research's **floor + folded-back
    ceiling polygon** representation — terrain that folds over itself with the cup *inside* a pocket. The
    floating masses approximate the "floating-mass" GoM holes; this would add the carved-cave ones.
-2. **A reachability validator — but DECOUPLED.** Attempted inline (run the autoplay bot's solver per hole,
-   re-roll failures). It proved too fragile to ship: the bot's sims are coupled to LIVE game state —
-   `isBallInCup`/`isBallOffScreen` are camera-relative (validating a hole the camera isn't on reads as
-   instant OOB), results are state-dependent (pass in one context, fail in another), the floaty low-gravity
-   makes the solver return near-zero-power shots that never sink long holes in the validation context, and
-   nested `update()` during live lazy-gen corrupts the holes array. It ended up a no-op (rejected ~all,
-   shipped random re-rolls; courses completed only because the base archetypes are solid). REVERTED. The
-   right design is a SELF-CONTAINED ballistic sim (its own ball/gravity/heightfield + set-piece collision,
-   no camera/`currentHole`/live-loop coupling) or a standalone headless harness — then re-enable
-   simulate-and-validate to put the cup-trapping archetypes back / crank complexity safely.
+2. **Reachability validation — SOLVED via the headless harness** (`tools/verify.cjs`), not inline. The
+   inline bot-sim validator was abandoned (coupled to live state: camera-relative OOB, state-dependence,
+   nested-`update()` corruption — it became a no-op). The harness replaces it: deterministic, faithful,
+   reproducible verification of ANY generation change before it ships. It already let us safely put the
+   gnarly cup-trapping archetypes back (verified 320/320). NEXT: wire the harness into CI / a pre-ship
+   check, and optionally add inline re-rolling that calls the SAME headless play logic (no live-state
+   coupling) so generation can self-heal unsinkable holes at runtime.
 3. **Richer set-pieces**: multiple interlocking masses, arches/bridges spanning a chasm, a cup placed
    inside a cave — to approach the layered 351 silhouette.
 4. **Discrete accent objects** (rock spikes, cacti, water) — GoM's real accents (terrain-colour bands read
