@@ -19,7 +19,7 @@
       rust: ['rock', '#a85a36'], slate: ['rock', '#586878'], plum: ['rock', '#6e4a6e'],
       amber: ['sand', '#d99a3c'], rose: ['sand', '#c77d8a'], gold: ['sand', '#c2a24a'],
       bone: ['sand', '#cabfa0'], teal: ['ice', '#3f9aa6'], frost: ['ice', '#9fd8e8'],
-      ash: ['rock', '#46464f'], ember: ['rock', '#c2603a'],
+      ash: ['rock', '#46464f'], ember: ['rock', '#c2603a'], cobalt: ['rock', '#4f6fc0'],
     };
     for (const k in CUSTOM) if (!MATERIALS[k]) { const c = CUSTOM[k]; MATERIALS[k] = Object.assign(phys(c[0]), { color: c[1], colorLight: c[1] }); }
   }
@@ -81,13 +81,24 @@
 
   // The GoM generator as a real course (?course=gom): the engine drives physics, one-hole camera, fill+pan;
   // the 'gom' archetype emits the terrain. difficultyRange ramps simple→complex across the 9 holes.
-  COURSES['gom'] = {
-    name: 'Mars', worldName: 'Mars', sky: '#9fb0a8',
-    defaultMaterial: 'crimson', materials: ['crimson'],
-    gen: 'faceted', archetypes: ['gom'],
-    difficultyRange: [0.15, 1.15], holeDistMin: 420, holeDistMax: 760, holeCount: 9,
-    phys: { gravityScale: 1, windScale: 1 },
-  };
+  // The GoM generator in several BIOMES (matches the user's colourful targets). Same generator, different
+  // material + sky per course — clean, no per-frame hooks. ?course=gom (Mars) / gom-cobalt / gom-teal / …
+  const GOM_BIOMES = [
+    ['gom', 'Mars', 'crimson', '#9fb0a8'],
+    ['gom-cobalt', 'Cobalt', 'cobalt', '#aab4e0'],
+    ['gom-teal', 'Tealwastes', 'teal', '#b2dde4'],
+    ['gom-jade', 'Jade Reach', 'jade', '#bfe0c4'],
+    ['gom-rose', 'Roselands', 'rose', '#ecd2d8'],
+  ];
+  for (const [id, nm, mat, sky] of GOM_BIOMES) {
+    COURSES[id] = {
+      name: nm, worldName: nm, sky: sky,
+      defaultMaterial: mat, materials: [mat],
+      gen: 'faceted', archetypes: ['gom'],
+      difficultyRange: [0.15, 1.15], holeDistMin: 420, holeDistMax: 760, holeCount: 9,
+      phys: { gravityScale: 1, windScale: 1 },
+    };
+  }
 
   // expose the generator so lab.js + the harness build planets at any complexity from the SAME logic
   const API = { buildConfig: buildConfig, archetypesFor: archetypesFor, MATS: MATS, SKIES: SKIES, NAMES: NAMES, count: N };
