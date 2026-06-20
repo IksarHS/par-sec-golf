@@ -31,7 +31,7 @@
     ['rolling_hills', 'valley', 'shelf', 'cliff_drop'],                              // t1  ~0.2  (angular)
     ['mesa', 'peak_obstacle', 'stepped_descent', 'dramatic_ridge'],                  // t2  ~0.4  (dramatic)
     ['canyon', 'twin_peaks', 'deep_plunge', 'shelf_drop_shelf', 'cliff_valley_climb'], // t3 ~0.6 (big)
-    ['compound_terrain', 'dramatic_ridge', 'deep_plunge', 'twin_peaks', 'stepped_descent'], // t4 ~0.8 (dramatic but reachable — cup-trapping archetypes dropped for completability)
+    ['compound_terrain', 'dramatic_ridge', 'deep_plunge', 'twin_peaks', 'stepped_descent', 'fortress', 'narrow_gap', 'canyon_cup', 'deep_pocket'], // t4 ~0.8 (gnarly cup-trapping archetypes added back — measuring completability via tools/verify.cjs)
   ];
   function archetypesFor(c) {
     const upto = Math.min(TIERS.length, 1 + Math.floor(c / 0.2 + 0.001));
