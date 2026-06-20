@@ -160,8 +160,8 @@ function drawObjects() {
       }
       ctx.restore();
     } else {
-      // Non-sprite: fill with terrain color
-      ctx.fillStyle = GROUND;
+      // Non-sprite: fill with the object's own material colour (e.g. green cactus), else terrain colour
+      ctx.fillStyle = (ov.mat && typeof MATERIALS !== 'undefined' && MATERIALS[ov.mat] && MATERIALS[ov.mat].color) || GROUND;
       ctx.fill();
     }
   }

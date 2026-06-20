@@ -38,7 +38,7 @@ vm.createContext(sandbox);
 // ── load the real engine (concatenate so top-level let/const are shared across files) ──
 const FILES = [
   'src/shared.js', 'src/worlds/run.js', 'src/planet-gen.js', 'src/level-design.js',
-  'src/modes/desert-golfing.js', 'src/set-pieces.js', 'src/gameplay.js', 'src/roguelike/playtest-bot.js',
+  'src/modes/desert-golfing.js', 'src/set-pieces.js', 'src/water.js', 'src/gameplay.js', 'src/roguelike/playtest-bot.js',
 ];
 let combined = '';
 for (const f of FILES) combined += `\n/* ===== ${f} ===== */\n` + read(f);

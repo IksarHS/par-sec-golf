@@ -20,6 +20,7 @@
       amber: ['sand', '#d99a3c'], rose: ['sand', '#c77d8a'], gold: ['sand', '#c2a24a'],
       bone: ['sand', '#cabfa0'], teal: ['ice', '#3f9aa6'], frost: ['ice', '#9fd8e8'],
       ash: ['rock', '#46464f'], ember: ['rock', '#c2603a'], cobalt: ['rock', '#4f6fc0'],
+      cactus: ['grass', '#4f7d39'], stone: ['rock', '#8b8e94'],   // cactus = green obstacle; stone = grey-rock accent
     };
     for (const k in CUSTOM) if (!MATERIALS[k]) { const c = CUSTOM[k]; MATERIALS[k] = Object.assign(phys(c[0]), { color: c[1], colorLight: c[1] }); }
   }
@@ -96,6 +97,9 @@
       defaultMaterial: mat, materials: [mat],
       gen: 'faceted', archetypes: ['gom', 'gom_smooth'],   // mix angular + smooth holes (like real GoM)
       difficultyRange: [0.15, 1.15], holeDistMin: 420, holeDistMax: 760, holeCount: 9,
+      gomObstacles: true,                                  // cacti (Phase O)
+      gomWater: true,                                       // flat water pools (Phase W)
+      validate: true,                                       // simulate-and-validate: re-roll any unsinkable hole
       phys: { gravityScale: 1, windScale: 1 },
     };
   }

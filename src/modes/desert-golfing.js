@@ -663,6 +663,8 @@ MODE = {
     // Phase 2: overhang set-pieces (planets) — explicit slabs over the heightfield floor.
     let sp = false;
     if (typeof collideSetPieces === 'function') sp = collideSetPieces();
+    // Phase W: water hazard (flat pools) — splash → reshoot from last safe.
+    if (typeof collideWater === 'function') collideWater();
     ball.onGround = terrain || obj || lip || sp;
     return terrain || obj || lip || sp;
   },
@@ -794,6 +796,8 @@ MODE = {
     if (currentCourse && currentCourse.gen === 'field' && typeof moonDrawLips === 'function') moonDrawLips();
     // Phase 2: overhang set-pieces (planets) — draw the slabs over the heightfield.
     if (typeof drawSetPieces === 'function') drawSetPieces();
+    // Phase W: flat water pools (drawn over the terrain so the basin reads as flat water, not angular).
+    if (typeof drawWater === 'function') drawWater();
 
     // Water layer — if current course uses water material, draw a flat blue band
     if (currentCourse?.materials?.includes('water')) {

@@ -213,7 +213,7 @@ const archetypes = {
   // short flat green so the ball settles + the cup fill reads. Matches the user's GoM targets (gom-targets/).
   gom(sx, sy, dist, cupY, diff) {
     const verts = [];
-    const drama = 55 + diff * 215;                 // vertical scale grows with difficulty
+    const drama = 50 + diff * 178;                 // vertical scale grows with difficulty (capped so deep valleys stay escapable)
     const endX = sx + dist;
     let x = sx, y = sy, features = 0;
     // low diff → mostly flat + gentle (steam_01 opener); high diff → cliffs + deep valleys (gap-crossing).
@@ -225,11 +225,10 @@ const archetypes = {
       else if (r < cliffP) {                                                                            // cliff (sharp step)
         const ny = clampY(y + (random() < 0.5 ? -1 : 1) * randRange(drama * 0.6, drama * 1.2));
         x += randRange(6, 18); verts.push({ x, y: ny }); y = ny; x += step * 0.45; verts.push({ x, y }); features++;
-      } else {                                                                                          // valley (dip to cross) — may hold WATER
-        const vy = clampY(y + randRange(drama * 0.9, drama * 1.5));
-        const water = diff > 0.45 && random() < 0.4 ? 'water' : undefined;   // some deep valleys are lethal water (gated to harder holes)
-        x += step * 0.35; verts.push({ x, y }); x += randRange(30, 64); verts.push({ x, y: vy, mat: water });
-        x += randRange(30, 64); verts.push({ x, y: vy, mat: water }); x += step * 0.35; verts.push({ x, y }); features++;
+      } else {                                                                                          // valley (dip to cross) — a basin; water.js may pool flat water in it
+        const vy = clampY(y + randRange(drama * 0.7, drama * 1.1));
+        x += step * 0.35; verts.push({ x, y }); x += randRange(30, 64); verts.push({ x, y: vy });
+        x += randRange(30, 64); verts.push({ x, y: vy }); x += step * 0.35; verts.push({ x, y }); features++;
       }
     }
     // guarantee drama on harder holes: if the random walk came out tame, carve one big feature
@@ -1020,6 +1019,11 @@ function generateHoleTerrain(holeIndex) {
   if (typeof generateOverhangs === 'function' && currentCourse && currentCourse.planetComplexity != null) {
     generateOverhangs(holes[holeIndex], currentCourse.planetComplexity);
   }
+  // Phase W: flat water pools in deep basins (water.js, its own system — not terrain). BEFORE cacti so
+  // cactus placement can avoid the pools.
+  if (typeof placeWater === 'function') placeWater(holeIndex);
+  // Phase O: cacti — sparse green obstacles the ball bounces off (GoM refs 575/351). Never near cup/water.
+  if (currentCourse && currentCourse.gomObstacles) placeCacti(holeIndex);
 
   // Enforce strict X-monotonicity — remove any vertex that goes backwards.
   // Background verts from earlier holes or cup insertion can create overlaps.
@@ -1098,6 +1102,26 @@ function generateHandDefinedHole(holeIndex) {
       if (od.rotation) obj.rotation = od.rotation;
       objects.push(obj);
     }
+  }
+}
+
+// Phase O: sparse cactus obstacles on the fairway (GoM refs 575/351). Small green saguaro-ish silhouettes
+// the ball bounces off (collideWithObjects). Kept clear of the cup, tee, and water → never seals a hole.
+function placeCacti(holeIndex) {
+  const h = holes[holeIndex]; if (!h || typeof terrainYAt !== 'function') return;
+  const teeX = h.teeX, cupX = h.cupX, span = cupX - teeX; if (span < 320) return;
+  const count = random() < 0.55 ? (random() < 0.30 ? 2 : 1) : 0;
+  for (let k = 0; k < count; k++) {
+    const cx = teeX + span * randRange(0.28, 0.72);
+    if (Math.abs(cx - cupX) < 95 || Math.abs(cx - teeX) < 70) continue;                 // clear cup + tee
+    if (typeof isInWater === 'function' && isInWater(cx)) continue;                       // not in a water pool
+    const surfY = terrainYAt(cx), hgt = randRange(22, 36), w = randRange(5, 7.5);
+    const v = [                                                                          // small saguaro silhouette
+      { x: cx - w, y: surfY }, { x: cx - w, y: surfY - hgt * 0.55 }, { x: cx - w * 1.9, y: surfY - hgt * 0.55 }, { x: cx - w * 1.9, y: surfY - hgt * 0.78 }, { x: cx - w, y: surfY - hgt * 0.80 },
+      { x: cx - w * 0.8, y: surfY - hgt }, { x: cx + w * 0.8, y: surfY - hgt },
+      { x: cx + w, y: surfY - hgt * 0.68 }, { x: cx + w * 1.9, y: surfY - hgt * 0.68 }, { x: cx + w * 1.9, y: surfY - hgt * 0.88 }, { x: cx + w, y: surfY - hgt * 0.88 }, { x: cx + w, y: surfY },
+    ];
+    objects.push({ x: cx, y: surfY, verts: v, mat: 'cactus' });
   }
 }
 
@@ -1293,7 +1317,7 @@ function _validateHole(i) {
   if (_inValidation) return true;                                  // never recurse (the bot's update() can re-enter generation)
   if (typeof window === 'undefined' || !window.RG || !RG.bot || !RG.bot.calculateShot || !RG.bot.simulateShot) return true;
   if (!holes[i] || typeof terrainYAt !== 'function' || typeof ball === 'undefined') return true;
-  const save = { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, r: ball.atRest, og: ball.onGround, st: state, ch: currentHole };
+  const save = { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, r: ball.atRest, og: ball.onGround, st: state, ch: currentHole, cx: (typeof camera !== 'undefined' ? camera.x : 0), cy: (typeof camera !== 'undefined' ? camera.y : 0) };
   const sSteps = window.RG_BOT_STEPS; window.RG_BOT_STEPS = 14;
   _inValidation = true;
   let ok = false, minD = Infinity;
@@ -1302,6 +1326,9 @@ function _validateHole(i) {
     ball.x = h.teeX; ball.y = terrainYAt(h.teeX) - BALL_RADIUS; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true; state = STATE_AIM;
     let prevD = Infinity;
     for (let shot = 0; shot < 6 && !ok; shot++) {
+      // CRITICAL: frame the camera on the ball — isBallOffScreen() is camera-relative, so a ball at hole i
+      // while the camera is elsewhere reads as instant OOB and every hole looks unsinkable.
+      if (typeof camera !== 'undefined') { camera.x = ball.x - W * 0.25; camera.y = 0; }
       const s = RG.bot.calculateShot(); if (!s) break;
       const r = RG.bot.simulateShot(s.vx, s.vy);
       if (r.scored) { ok = true; break; }
@@ -1317,25 +1344,31 @@ function _validateHole(i) {
   _inValidation = false;
   window.RG_BOT_STEPS = sSteps;
   ball.x = save.x; ball.y = save.y; ball.vx = save.vx; ball.vy = save.vy; ball.atRest = save.r; ball.onGround = save.og; state = save.st; currentHole = save.ch;
+  if (typeof camera !== 'undefined') { camera.x = save.cx; camera.y = save.cy; }
   return ok;
 }
 function _genValidatedHole(i) {
   if (_inValidation) { generateHoleTerrain(i); return; }            // re-entrant (during a sim) → plain generate, no recurse
-  for (let attempt = 0; attempt < 8; attempt++) {
+  const LAST = 13;
+  for (let attempt = 0; attempt <= LAST; attempt++) {
     generateHoleTerrain(i);
     if (_validateHole(i)) return;
-    if (holes.length > i) holes.length = i;                         // drop the unsinkable hole; re-roll (PRNG advances → different hole)
+    if (attempt < LAST && holes.length > i) holes.length = i;       // drop + re-roll (PRNG advances → different hole); KEEP the last attempt so holes[i] always exists
   }
   // exhausted (very rare): keep the last build; the stroke-budget skip is the final backstop.
 }
 
 function ensureHolesAhead(upToHole) {
+  if (_inValidation) return;   // a validation sim's update() can re-enter here; generating ahead would desync
   // Cap at course hole count if defined
   const maxHoles = currentCourse?.holeCount ?? Infinity;
-  const cap = Math.min(upToHole, maxHoles - 1);
+  // Courses can opt into simulate-and-validate (re-roll any unsinkable hole). Generate the WHOLE course
+  // up-front then (never lazily mid-play — a validation sim runs update(), which corrupts mid-transition).
+  const _validate = currentCourse && currentCourse.validate && isFinite(maxHoles);
+  const cap = _validate ? (maxHoles - 1) : Math.min(upToHole, maxHoles - 1);
   // Make sure terrain and cups exist for holes up to cap
   for (let i = holes.length; i <= cap; i++) {
-    generateHoleTerrain(i);
+    if (_validate) _genValidatedHole(i); else generateHoleTerrain(i);
     holes[i].flagVisible = true;
   }
   // Overlay editor-saved edits on top (game only; the editor applies its own).
