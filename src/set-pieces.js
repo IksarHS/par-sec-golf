@@ -20,26 +20,39 @@ function _spEdges(loop) {
   return edges;
 }
 
-// Build 0-2 overhang slabs for a hole. `complexity` 0..1 gates frequency/size. Deterministic via random().
+// Build 0-2 floating ANGULAR MASSES over chasms for a hole — GoM-style floating terrain chunks the ball
+// passes UNDER (through the chasm) or lands ON. We find a deep dip (chasm) in the mid-hole and float an
+// angular polygon near its rim with clearance below. `complexity` 0..1 gates frequency/size. Reachable by
+// construction: the cup is on the heightfield floor; the mass floats high over a chasm mid-hole (clear
+// gap below), never blocking the cup approach.
 function generateOverhangs(hole, complexity) {
   if (!hole || complexity == null || complexity < 0.5 || typeof terrainYAt !== 'function') return;
-  const teeX = hole.teeX, cupX = hole.cupX, span = cupX - teeX; if (span < 240) return;
+  const teeX = hole.teeX, cupX = hole.cupX, span = cupX - teeX; if (span < 300) return;
+  const want = (random() < (complexity - 0.45) * 1.5) ? (random() < (complexity - 0.66) ? 2 : 1) : 0;
   const pieces = [];
-  const want = (random() < (complexity - 0.45) * 1.3) ? (random() < (complexity - 0.6) ? 2 : 1) : 0;
   for (let k = 0; k < want; k++) {
-    // span in the MIDDLE of the hole (never over the tee or the cup → cup approach stays open)
-    const fx = 0.30 + (k * 0.30) + random() * 0.12;
-    const x0 = teeX + span * fx, x1 = x0 + span * (0.14 + random() * 0.12 + complexity * 0.06);
-    if (x1 > cupX - 90) continue;                       // keep clear of the cup green
-    let floorTop = 1e9; for (let x = x0 - 10; x <= x1 + 10; x += 8) { const y = terrainYAt(x); if (y < floorTop) floorTop = y; }
-    const gap = BALL_RADIUS * 4.5 + random() * 26;      // clearance so the ball can roll/loft UNDER it
-    const th = 26 + random() * (30 + complexity * 40);
-    const ceilB = floorTop - gap, ceilT = ceilB - th;
-    if (ceilT < H * 0.08) continue;                     // don't poke off the top
-    // a slightly trapezoidal slab so it reads angular, not a plain bar
-    const lean = (random() - 0.5) * 26;
-    const slab = [{ x: x0 + lean, y: ceilT }, { x: x1 + lean, y: ceilT }, { x: x1, y: ceilB }, { x: x0, y: ceilB }];
-    pieces.push({ pts: slab, edges: _spEdges(slab) });
+    // find the deepest CHASM (local low flanked by higher terrain) in a mid-hole window
+    const lo = teeX + span * (0.24 + k * 0.28), hi = Math.min(cupX - 130, teeX + span * (0.6 + k * 0.24));
+    let chasmX = -1, deepest = 0;
+    for (let x = lo; x < hi; x += 15) {
+      const y = terrainYAt(x), depth = Math.min(y - terrainYAt(x - 72), y - terrainYAt(x + 72));
+      if (depth > deepest) { deepest = depth; chasmX = x; }
+    }
+    if (chasmX < 0 || deepest < 60) continue;                    // need a real chasm to float over
+    const rimY = Math.min(terrainYAt(chasmX - 72), terrainYAt(chasmX + 72));   // the higher rim
+    const w = 56 + random() * 56 + complexity * 44, hh = 28 + random() * 34;
+    const cx = chasmX + (random() - 0.5) * 30, cy = rimY - 8 - random() * (30 + complexity * 30);  // float near/above the rim
+    if (cy - hh < H * 0.06) continue;
+    // a 5-point ANGULAR convex blob (reads as a chunk of terrain, not a UI bar)
+    const j = () => (random() - 0.5);
+    const mass = [
+      { x: cx - w * 0.5, y: cy + hh * (0.15 + random() * 0.2) },
+      { x: cx - w * (0.28 + j() * 0.1), y: cy - hh * (0.4 + random() * 0.3) },
+      { x: cx + w * (0.3 + j() * 0.1), y: cy - hh * (0.3 + random() * 0.35) },
+      { x: cx + w * 0.5, y: cy + hh * (0.2 + random() * 0.2) },
+      { x: cx + j() * w * 0.2, y: cy + hh * (0.55 + random() * 0.25) },
+    ];
+    pieces.push({ pts: mass, edges: _spEdges(mass) });
   }
   if (pieces.length) hole._overhangs = pieces;
 }
