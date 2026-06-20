@@ -216,8 +216,8 @@ const archetypes = {
     const drama = 55 + diff * 215;                 // vertical scale grows with difficulty
     const endX = sx + dist;
     let x = sx, y = sy, features = 0;
-    // higher difficulty → fewer flats, more cliffs/valleys (punchier late holes)
-    const flatP = 0.34 - diff * 0.20, slopeP = flatP + 0.24, cliffP = slopeP + 0.18 + diff * 0.10;
+    // low diff → mostly flat + gentle (steam_01 opener); high diff → cliffs + deep valleys (gap-crossing).
+    const flatP = 0.58 - diff * 0.38, slopeP = flatP + 0.26, cliffP = slopeP + 0.10 + diff * 0.10;
     while (x < endX - 190) {
       const step = randRange(70, 140), r = random();
       if (r < flatP) { x += step; verts.push({ x, y: clampY(y) }); }                                   // flat / plateau
@@ -232,7 +232,7 @@ const archetypes = {
       }
     }
     // guarantee drama on harder holes: if the random walk came out tame, carve one big feature
-    if (features < 1 + Math.round(diff * 3) && endX - sx > 360) {
+    if (features < Math.round(diff * 3.5) && endX - sx > 360) {   // only force drama on harder holes (easy holes may be calm)
       const fx = sx + (endX - sx) * randRange(0.3, 0.6), big = drama * randRange(1.1, 1.6) * (random() < 0.5 ? -1 : 1);
       verts.push({ x: fx - 30, y: clampY(y) }); verts.push({ x: fx, y: clampY(y + big) }); verts.push({ x: fx + randRange(40, 90), y: clampY(y + big) }); verts.push({ x: fx + randRange(110, 170), y: clampY(y) });
       verts.sort((a, b) => a.x - b.x);
