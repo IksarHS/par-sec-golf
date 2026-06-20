@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Water Sim — pour into a crevice</title>
+<style>
+  html, body { margin: 0; background: #11161c; color: #cfe3ee; font: 13px monospace; overflow: hidden; }
+  #wrap { display: flex; flex-direction: column; align-items: center; height: 100vh; justify-content: center; gap: 10px; }
+  canvas { background: #aebfc9; image-rendering: auto; cursor: crosshair; box-shadow: 0 8px 40px rgba(0,0,0,.5); }
+  #bar { display: flex; gap: 16px; align-items: center; opacity: .85; }
+  button { font: 12px monospace; background: #243240; color: #cfe3ee; border: 1px solid #3a5366; padding: 5px 10px; cursor: pointer; }
+  button:hover { background: #2e4254; }
+  b { color: #7fc4e8; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="1000" height="600"></canvas>
+  <div id="bar">
+    <span><b>Hold left-mouse</b> to pour water into a crevice</span>
+    <button id="reset">Reset</button>
+    <button id="drain">Drain</button>
+    <label><input type="checkbox" id="showgrid"> show CA cells</label>
+    <span id="stat"></span>
+  </div>
+</div>
+<script>
+// ── 2D water: compressible cellular-automata VOLUME (fills arbitrary crevices, settles flat, leak-free
+// via double-buffer) + a per-column SPRING surface skin (slosh + a smooth, flush rendered surface).
+// Recipe from the research: w-shadow compressible CA + the classic spring-column 2D-water surface.
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+const CS = 5;                                  // cell size (px)
+const GW = (W / CS) | 0, GH = (H / CS) | 0;    // grid dims
+const N = GW * GH;
+const idx = (x, y) => y * GW + x;
+
+// ── CA constants ──
+const MaxMass = 1.0, MaxCompress = 0.02, MinMass = 1e-4, MaxSpeed = 1.0, MinFlow = 0.01;
+function stable(total) {                        // how much the LOWER of a vertical pair holds at equilibrium
+  if (total <= MaxMass) return MaxMass;
+  if (total < 2 * MaxMass + MaxCompress) return (MaxMass * MaxMass + total * MaxCompress) / (MaxMass + MaxCompress);
+  return (total + MaxCompress) / 2;
+}
+
+let mass = new Float32Array(N), nmass = new Float32Array(N);
+let solid = new Uint8Array(N);
+
+// ── terrain: a landscape with crevices/basins + one OVERHANG ledge (to prove arbitrary shapes work) ──
+function terrainTop(cx) {                       // grid-y of the ground surface at column cx
+  const X = cx / GW;
+  let h = GH * 0.42 + Math.sin(cx * 0.05) * 5 + Math.sin(cx * 0.013 + 1) * 7;
+  // deep narrow V crevice ~28% across
+  const v = Math.abs(cx - GW * 0.28); if (v < 14) h += (14 - v) * 4.2;
+  // wide rounded basin ~62% across
+  const b = (cx - GW * 0.62) / (GW * 0.13); if (Math.abs(b) < 1) h += (1 - b * b) * 60;
+  // a step up on the right
+  if (X > 0.82) h -= 40;
+  return Math.min(GH - 2, Math.round(h));
+}
+function buildTerrain() {
+  solid.fill(0);
+  for (let cx = 0; cx < GW; cx++) {
+    const t = terrainTop(cx);
+    for (let cy = t; cy < GH; cy++) solid[idx(cx, cy)] = 1;
+  }
+  // OVERHANG ledge: a solid bar jutting out over the basin, with open air beneath → water can sit under it
+  const oy0 = Math.round(GH * 0.30), oy1 = oy0 + 4;
+  const ox0 = Math.round(GW * 0.70), ox1 = Math.round(GW * 0.80);
+  for (let cy = oy0; cy <= oy1; cy++) for (let cx = ox0; cx <= ox1; cx++) solid[idx(cx, cy)] = 1;
+}
+
+// ── spring surface skin (one per column) ──
+let sH = new Float32Array(GW), sV = new Float32Array(GW), sOn = new Uint8Array(GW);
+const TENSION = 0.020, DAMP = 0.030, SPREAD = 0.18, PASSES = 6;
+
+function reset() { mass.fill(0); nmass.fill(0); buildTerrain(); sOn.fill(0); }
+reset();
+
+// ── CA step (double-buffered, leak-free) ──
+function caStep() {
+  nmass.set(mass);
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW; x++) {
+      const i = idx(x, y);
+      if (solid[i]) continue;
+      let rem = mass[i];
+      if (rem <= 0) continue;
+      // DOWN (with compression)
+      if (y + 1 < GH && !solid[i + GW]) {
+        let f = stable(rem + mass[i + GW]) - mass[i + GW];
+        if (f > MinFlow) f *= 0.5;
+        f = f < 0 ? 0 : (f > Math.min(MaxSpeed, rem) ? Math.min(MaxSpeed, rem) : f);
+        nmass[i] -= f; nmass[i + GW] += f; rem -= f;
+      }
+      // LEFT
+      if (rem > 0 && x > 0 && !solid[i - 1]) {
+        let f = (mass[i] - mass[i - 1]) / 4;
+        if (f > MinFlow) f *= 0.5;
+        f = f < 0 ? 0 : (f > rem ? rem : f);
+        nmass[i] -= f; nmass[i - 1] += f; rem -= f;
+      }
+      // RIGHT
+      if (rem > 0 && x + 1 < GW && !solid[i + 1]) {
+        let f = (mass[i] - mass[i + 1]) / 4;
+        if (f > MinFlow) f *= 0.5;
+        f = f < 0 ? 0 : (f > rem ? rem : f);
+        nmass[i] -= f; nmass[i + 1] += f; rem -= f;
+      }
+      // UP (only the over-compressed excess)
+      if (rem > 0 && y > 0 && !solid[i - GW]) {
+        let f = rem - stable(rem + mass[i - GW]);
+        if (f > MinFlow) f *= 0.5;
+        f = f < 0 ? 0 : (f > Math.min(MaxSpeed, rem) ? Math.min(MaxSpeed, rem) : f);
+        nmass[i] -= f; nmass[i - GW] += f; rem -= f;
+      }
+    }
+  }
+  const t = mass; mass = nmass; nmass = t;
+}
+
+// ── sync the spring surface to the CA fill level, then run the spring/wave update (slosh) ──
+function surfaceStep() {
+  for (let x = 0; x < GW; x++) {
+    // topmost cell in this column holding appreciable water
+    let topY = -1;
+    for (let y = 0; y < GH; y++) { if (!solid[idx(x, y)] && mass[idx(x, y)] > 0.18) { topY = y; break; } }
+    if (topY < 0) {                                  // no water here
+      if (sOn[x]) { sOn[x] = 0; }
+      continue;
+    }
+    // sub-cell surface from the partial top cell, in pixels
+    const fillFrac = Math.min(1, mass[idx(x, topY)]);
+    const targetPx = (topY + (1 - fillFrac)) * CS;
+    if (!sOn[x]) { sH[x] = targetPx; sV[x] = 0; sOn[x] = 1; }   // appear at level (no pop)
+    // spring toward the true fill level → oscillates (slosh) around it, then damps to settle
+    sV[x] += TENSION * (targetPx - sH[x]) - DAMP * sV[x];
+    sH[x] += sV[x];
+  }
+  // wave spread between neighbouring active columns
+  for (let p = 0; p < PASSES; p++) {
+    for (let x = 0; x < GW; x++) {
+      if (!sOn[x]) continue;
+      if (x > 0 && sOn[x - 1]) { const d = SPREAD * (sH[x] - sH[x - 1]); sV[x - 1] += d; sH[x - 1] += d; }
+      if (x + 1 < GW && sOn[x + 1]) { const d = SPREAD * (sH[x] - sH[x + 1]); sV[x + 1] += d; sH[x + 1] += d; }
+    }
+  }
+}
+
+// ── render ──
+const showgrid = document.getElementById('showgrid');
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  // terrain
+  ctx.fillStyle = '#b0463e';
+  for (let x = 0; x < GW; x++) {
+    let runY = -1;
+    for (let y = 0; y <= GH; y++) {
+      const s = y < GH && solid[idx(x, y)];
+      if (s && runY < 0) runY = y;
+      else if (!s && runY >= 0) { ctx.fillRect(x * CS, runY * CS, CS + 0.5, (y - runY) * CS); runY = -1; }
+    }
+  }
+  // optional CA cell debug
+  if (showgrid.checked) {
+    for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+      const m = mass[idx(x, y)]; if (m > MinMass && !solid[idx(x, y)]) { ctx.fillStyle = 'rgba(80,170,230,' + Math.min(.5, m * .4) + ')'; ctx.fillRect(x * CS, y * CS, CS, CS); }
+    }
+  }
+  // water body: per column, from the SMOOTH spring surface down to the bottom of the water column. The top
+  // edge is the spring curve (smooth + sloshing); sides/bottom hug the terrain → flush, no stair-steps.
+  ctx.fillStyle = 'rgba(74,150,210,0.86)';
+  ctx.beginPath();
+  let open = false;
+  for (let x = 0; x <= GW; x++) {
+    const on = x < GW && sOn[x];
+    if (on && !open) { ctx.moveTo(x * CS, sH[x]); open = true; }
+    else if (on) ctx.lineTo(x * CS + CS * 0.5, sH[x]);
+    if ((!on || x === GW) && open) {
+      // close this span down the terrain and back along the bottom
+      const xe = x;
+      for (let xx = xe - 1; xx >= 0 && sOn[xx]; xx--) { } // (bottom traced below)
+      // trace bottom: from xe-1 back to span start along the lowest water in each column
+      let sx = xe - 1; while (sx > 0 && sOn[sx - 1]) sx--;
+      for (let xx = xe - 1; xx >= sx; xx--) {
+        let botY = 0; for (let y = GH - 1; y >= 0; y--) { if (!solid[idx(xx, y)] && mass[idx(xx, y)] > 0.05) { botY = (y + 1) * CS; break; } }
+        ctx.lineTo(xx * CS + CS * 0.5, botY);
+      }
+      ctx.closePath(); ctx.fill(); ctx.beginPath(); open = false;
+    }
+  }
+  // surface highlight line
+  ctx.strokeStyle = 'rgba(190,225,245,0.7)'; ctx.lineWidth = 2; ctx.beginPath(); open = false;
+  for (let x = 0; x < GW; x++) {
+    if (sOn[x]) { if (!open) { ctx.moveTo(x * CS, sH[x]); open = true; } else ctx.lineTo(x * CS + CS * 0.5, sH[x]); }
+    else if (open) { ctx.stroke(); ctx.beginPath(); open = false; }
+  }
+  if (open) ctx.stroke();
+}
+
+// ── pour interaction ──
+let pour = false, pourX = 0, pourY = 0;
+cv.addEventListener('mousedown', e => { pour = true; move(e); });
+window.addEventListener('mouseup', () => pour = false);
+cv.addEventListener('mousemove', move);
+function move(e) { const r = cv.getBoundingClientRect(); pourX = ((e.clientX - r.left) / CS) | 0; pourY = ((e.clientY - r.top) / CS) | 0; }
+function doPour() {
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+    const x = pourX + dx, y = pourY + dy;
+    if (x >= 0 && x < GW && y >= 0 && y < GH && !solid[idx(x, y)]) mass[idx(x, y)] += 0.55;
+  }
+  if (pourX >= 0 && pourX < GW) sV[pourX] += 6;       // a little splash velocity for slosh
+}
+
+document.getElementById('reset').onclick = reset;
+document.getElementById('drain').onclick = () => { mass.fill(0); sOn.fill(0); };
+const stat = document.getElementById('stat');
+
+function loop() {
+  if (pour) doPour();
+  caStep(); caStep();        // 2 CA substeps/frame → quicker fill + settle
+  surfaceStep();
+  draw();
+  let tot = 0; for (let i = 0; i < N; i++) tot += mass[i];
+  stat.textContent = 'water: ' + tot.toFixed(0);
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
