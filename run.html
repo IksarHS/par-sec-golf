@@ -136,5 +136,21 @@
 <script src="src/roguelike/atlas-objects.js"></script>
 <script src="src/roguelike/atlas-setpieces.js"></script>
 <script src="src/main.js"></script>
+<!-- Dev shortcut: jump straight to a BASE course (the Moon tiers) for testing. ?course= is otherwise
+     intercepted by the atlas selector (galaxy.js), so this overrides it once RG is ready. -->
+<script>
+(function () {
+  var m = /[?&](?:course|gomoon)=(moon3|moon2|moon|earth-course|1|2|3)\b/.exec(location.search);
+  if (!m) return;
+  var v = m[1];
+  var course = (v === '1') ? 'moon' : (v === '2') ? 'moon2' : (v === '3') ? 'moon3' : v;
+  var n = 0;
+  (function go() {
+    if (window.RG && RG.startRun && typeof holes !== 'undefined' && holes.length > 0) {
+      setTimeout(function () { try { RG.startRun({ course: course, seed: (RG.rollSeed ? RG.rollSeed() : 12345) }); } catch (e) {} }, 150);
+    } else if (n++ < 240) setTimeout(go, 50);
+  })();
+})();
+</script>
 </body>
 </html>
