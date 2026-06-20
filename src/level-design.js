@@ -269,20 +269,33 @@ const archetypes = {
   gom_islands(sx, sy, dist, cupY, diff) {
     const verts = [];
     const endX = sx + dist, base = sy;
-    const top = () => clampY(base + (random() - 0.5) * 22);      // island top, hovering at the baseline
+    const relief = 50 + diff * 110;                              // how tall islands rise above the waterline
+    const lowTop = () => clampY(base - random() * relief * 0.3); // a low shoulder (still dry, near the water)
     let x = sx;
-    verts.push({ x, y: clampY(base) });                          // tee island
-    x += randRange(60, 110); verts.push({ x, y: clampY(base) });
-    while (x < endX - 240) {
-      const depth = randRange(85, 145) + diff * 45;              // trough depth (floods)
-      x += 12; verts.push({ x, y: clampY(base + depth) });       // steep drop into the trough
-      x += randRange(46, 90); verts.push({ x, y: clampY(base + depth) });  // trough floor (flat water bed)
-      const ty = top();
-      x += 12; verts.push({ x, y: ty });                         // steep rise to the next island
-      x += randRange(78, 150); verts.push({ x, y: ty });         // flat island top
+    verts.push({ x, y: clampY(base) });                         // tee island (low, at the baseline)
+    x += randRange(55, 95); verts.push({ x, y: clampY(base) });
+    while (x < endX - 260) {
+      // TROUGH (floods) — varied width/depth
+      const depth = randRange(70, 130) + diff * 35;
+      x += randRange(8, 16); verts.push({ x, y: clampY(base + depth) });
+      x += randRange(40, 95); verts.push({ x, y: clampY(base + depth) });
+      x += randRange(8, 16);
+      // ISLAND — varied SHAPE + height (always at/above base → stays dry above the sea line)
+      const top = clampY(base - random() * relief);
+      const s = random();
+      if (s < 0.56) {                                            // flat shelf / plateau (most common → landable)
+        verts.push({ x, y: top }); x += randRange(80, 175); verts.push({ x, y: top });
+      } else if (s < 0.82) {                                     // peak island (up then down)
+        verts.push({ x, y: lowTop() });
+        x += randRange(38, 78); verts.push({ x, y: top });
+        x += randRange(38, 78); verts.push({ x, y: lowTop() });
+      } else {                                                   // tilted shelf
+        verts.push({ x, y: lowTop() });
+        x += randRange(85, 165); verts.push({ x, y: top });
+      }
     }
-    const ey = clampY(base);                                     // cup island (flat green)
-    verts.push({ x: Math.min(x + 50, endX - 60), y: ey });
+    const ey = clampY(base);                                    // cup island (low, flat green)
+    verts.push({ x: Math.min(x + randRange(40, 80), endX - 60), y: ey });
     verts.push({ x: endX, y: ey });
     return verts;
   },
