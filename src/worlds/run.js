@@ -77,21 +77,25 @@ WORLDS['run-world'].courses['earth-course'] = {
 if (typeof MATERIALS !== 'undefined' && MATERIALS.sand && !MATERIALS.regolith) {
   MATERIALS.regolith = Object.assign({}, MATERIALS.sand, { color: '#9a9aa2', colorLight: '#b4b4bc' });
 }
+// The Moon comes in three dramatic tiers (moonTier 1→3). The default 'moon' is tier 1; 'moon2'/'moon3'
+// are reachable via ?course= for testing the more dramatic generation. Gravity eased from 0.45 (too
+// floaty) toward Earth so shots feel controllable on the bigger terrain.
 WORLDS['run-world'].courses['moon'] = {
-  name: 'Mare Imbrium',
-  worldName: 'The Moon',
-  sky: '#07070d',
-  defaultMaterial: 'regolith',
-  materials: ['regolith'],
-  gen: 'field',                   // NEW: Moon uses polygon terrain — faceted-folds (overhangs) + carved caves
-  archetypes: ['faceted'],
-  difficultyRange: [0.1, 0.5],
-  holeDistMin: 460,
-  holeDistMax: 760,
-  cupElevation: gentleCupElevation,
-  holeCount: 9,
-  phys: { gravityScale: 0.45, windScale: 0 },    // floaty but controllable — feel over realism (real lunar 0.165 was too extreme; designer call). first-pass value. vacuum
+  name: 'Mare Imbrium', worldName: 'The Moon', sky: '#07070d',
+  defaultMaterial: 'regolith', materials: ['regolith'],
+  gen: 'field', moonTier: 1, archetypes: ['faceted'],
+  difficultyRange: [0.1, 0.5], holeDistMin: 460, holeDistMax: 760,
+  cupElevation: gentleCupElevation, holeCount: 9,
+  phys: { gravityScale: 0.72, windScale: 0 },     // eased antigrav (was 0.45) — controllable, less floaty
 };
+WORLDS['run-world'].courses['moon2'] = Object.assign({}, WORLDS['run-world'].courses['moon'], {
+  name: 'Vallis Schröteri', moonTier: 2, holeDistMin: 480, holeDistMax: 800,
+  phys: { gravityScale: 0.68, windScale: 0 },
+});
+WORLDS['run-world'].courses['moon3'] = Object.assign({}, WORLDS['run-world'].courses['moon'], {
+  name: 'The Far Side', moonTier: 3, holeDistMin: 500, holeDistMax: 820,
+  phys: { gravityScale: 0.64, windScale: 0 },
+});
 
 // ── The Vault (secret) ─────────────────────────────────────
 // A single brutal, guarded bonus hole — DISCOVERED by finishing a run at or under

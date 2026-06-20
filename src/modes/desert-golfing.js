@@ -651,16 +651,13 @@ MODE = {
   },
 
   collide() {
-    // Moon: collide against the polygon terrain (overhangs/caves); other courses use the heightfield.
-    if (currentCourse && currentCourse.gen === 'field' && typeof moonCollide === 'function') {
-      ball.onGround = false;
-      const hit = moonCollide();
-      return hit;
-    }
     const terrain = collideWithTerrain();
     const obj = collideWithObjects();
-    ball.onGround = terrain || obj;
-    return terrain || obj;
+    // Moon (gen:'field'): also collide the overhang LIPS on top of the heightfield base.
+    let lip = false;
+    if (currentCourse && currentCourse.gen === 'field' && typeof moonLipCollide === 'function') lip = moonLipCollide();
+    ball.onGround = terrain || obj || lip;
+    return terrain || obj || lip;
   },
 
   canRest(forceRest) {
@@ -783,9 +780,9 @@ MODE = {
   },
 
   drawWorld() {
-    // Moon: fill the polygon terrain (overhangs/caves); other courses fill the heightfield.
-    if (currentCourse && currentCourse.gen === 'field' && typeof moonDraw === 'function') moonDraw();
-    else drawTerrainDG();
+    drawTerrainDG();                                  // the heightfield base (always renders → no blank terrain)
+    // Moon (gen:'field'): draw the overhang LIPS on top.
+    if (currentCourse && currentCourse.gen === 'field' && typeof moonDrawLips === 'function') moonDrawLips();
 
     // Water layer — if current course uses water material, draw a flat blue band
     if (currentCourse?.materials?.includes('water')) {
