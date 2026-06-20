@@ -79,6 +79,16 @@
     COURSES['p' + (i + 1)] = buildConfig(c, MATS[i % MATS.length], SKIES[i % SKIES.length], NAMES[i % NAMES.length]);
   }
 
+  // The GoM generator as a real course (?course=gom): the engine drives physics, one-hole camera, fill+pan;
+  // the 'gom' archetype emits the terrain. difficultyRange ramps simple→complex across the 9 holes.
+  COURSES['gom'] = {
+    name: 'Mars', worldName: 'Mars', sky: '#9fb0a8',
+    defaultMaterial: 'crimson', materials: ['crimson'],
+    gen: 'faceted', archetypes: ['gom'],
+    difficultyRange: [0.15, 1.15], holeDistMin: 420, holeDistMax: 760, holeCount: 9,
+    phys: { gravityScale: 1, windScale: 1 },
+  };
+
   // expose the generator so lab.js + the harness build planets at any complexity from the SAME logic
   const API = { buildConfig: buildConfig, archetypesFor: archetypesFor, MATS: MATS, SKIES: SKIES, NAMES: NAMES, count: N };
   if (typeof window !== 'undefined') { window.PLANET_GEN = API; window.PLANET_COUNT = N; }

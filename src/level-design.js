@@ -207,6 +207,33 @@ const archetypes = {
     ];
   },
 
+  // ── GoM generator: ONE archetype that emits varied angular multi-level terrain (flats / slopes /
+  // cliffs / valleys) tee→cup, drama scaling with difficulty. The "new generator" — runs inside the real
+  // engine (real physics, one-hole camera, fill+pan), no archetype LIST needed. Last vert = the cup, on a
+  // short flat green so the ball settles + the cup fill reads. Matches the user's GoM targets (gom-targets/).
+  gom(sx, sy, dist, cupY, diff) {
+    const verts = [];
+    const drama = 45 + diff * 200;
+    const endX = sx + dist;
+    let x = sx, y = sy;
+    while (x < endX - 200) {
+      const step = randRange(75, 150), r = random();
+      if (r < 0.30) { x += step; verts.push({ x, y: clampY(y) }); }                                   // flat
+      else if (r < 0.58) { x += step; y = clampY(y + (random() - 0.5) * drama); verts.push({ x, y }); } // slope
+      else if (r < 0.80) {                                                                              // cliff (sharp step)
+        const ny = clampY(y + (random() < 0.5 ? -1 : 1) * randRange(drama * 0.5, drama));
+        x += randRange(8, 22); verts.push({ x, y: ny }); y = ny; x += step * 0.5; verts.push({ x, y });
+      } else {                                                                                          // valley (dip to cross)
+        const vy = clampY(y + randRange(drama * 0.7, drama * 1.3));
+        x += step * 0.4; verts.push({ x, y }); x += randRange(36, 80); verts.push({ x, y: vy });
+        x += randRange(36, 80); verts.push({ x, y: vy }); x += step * 0.4; verts.push({ x, y });
+      }
+    }
+    verts.push({ x: Math.min(x + 50, endX - 50), y: clampY(y) });   // flat green
+    verts.push({ x: endX, y: clampY(y) });                          // cup
+    return verts;
+  },
+
   gentle_slope(sx, sy, dist, cupY, diff) {
     // Simple slope with one break point — like early DG holes
     const breakX = sx + dist * randRange(0.3, 0.6);
@@ -805,6 +832,7 @@ archetypes.faceted = function (sx, sy, dist, cupY, diff) {
   return verts;
 };
 ARCHETYPE_TABLE.push(['faceted', 0.0, 1.0, 1]);       // so pickArchetype selects it for faceted courses
+ARCHETYPE_TABLE.push(['gom', 0.0, 5.0, 1]);           // the GoM generator, selectable at every difficulty (?course=gom)
 
 // ── Main Terrain Generation ──────────────────────────────
 function generateHoleTerrain(holeIndex) {
