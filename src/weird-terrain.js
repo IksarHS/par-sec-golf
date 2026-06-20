@@ -239,9 +239,11 @@ function _weirdBuildCache(h) {
   c2.fillStyle = mat.color; c2.beginPath();
   for (const lp of h._loops) { c2.moveTo(lp[0].x - x0, lp[0].y); for (let i = 1; i < lp.length; i++) c2.lineTo(lp[i].x - x0, lp[i].y); c2.closePath(); }
   c2.fill('evenodd');
-  // a lighter lip along up-facing facet edges (the DG top-edge look)
+  // a lighter lip along up-facing facet edges (the DG top-edge look) — but NOT across a cup/tee green,
+  // where the engine draws the dynamic cup notch on top (the lip would bleed a light line into the hole).
   c2.strokeStyle = mat.colorLight || _lighten(mat.color, 24); c2.lineWidth = 3;
-  for (const arr of (h._edges || [])) for (const e of arr) { if (e.ny < -0.45) { c2.beginPath(); c2.moveTo(e.ax - x0, e.ay + 1.5); c2.lineTo(e.bx - x0, e.by + 1.5); c2.stroke(); } }
+  const nearGreen = (mx) => { for (const c of WEIRD.cups) if (Math.abs(mx - c.x) < CUP_WIDTH) return true; return false; };
+  for (const arr of (h._edges || [])) for (const e of arr) { if (e.ny < -0.45 && !nearGreen((e.ax + e.bx) / 2)) { c2.beginPath(); c2.moveTo(e.ax - x0, e.ay + 1.5); c2.lineTo(e.bx - x0, e.by + 1.5); c2.stroke(); } }
   h._weirdCache = cv; h._weirdCacheX0 = x0; h._cacheReady = true;
 }
 function _lighten(hex, amt) { hex = hex.replace('#', ''); const r = Math.min(255, parseInt(hex.slice(0, 2), 16) + amt), g = Math.min(255, parseInt(hex.slice(2, 4), 16) + amt), b = Math.min(255, parseInt(hex.slice(4, 6), 16) + amt); return 'rgb(' + r + ',' + g + ',' + b + ')'; }
