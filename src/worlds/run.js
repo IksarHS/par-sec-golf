@@ -72,7 +72,7 @@ WORLDS['run-world'].courses['earth-course'] = {
 // WEIRD Earth test courses — true 2D field terrain (interlocking plates, overhangs, carved caves; the
 // Golf-on-Mars look). Earth gravity (no floatiness). weirdTier 1/2/3 = progressively wilder. ?course=earth2/3/4.
 WORLDS['run-world'].courses['earth2'] = {
-  name: 'The Badlands', worldName: 'Earth', sky: '#9fb0a8',
+  name: 'The Badlands', worldName: 'Earth', sky: '#232c40',   // original Earth navy → cups read as clean dark divots
   defaultMaterial: 'grass', materials: ['grass'], gen: 'weird', weirdTier: 1,
   difficultyRange: [0.1, 0.45], holeDistMin: 480, holeDistMax: 800, holeCount: 9,
   phys: { gravityScale: 1, windScale: 1 },

@@ -29,9 +29,21 @@ function _surfY(x) {
   return y;
 }
 function _F(x, y) {
-  let f = (y - _surfY(x)) / WEIRD.soft + WEIRD.warp * (_wfbm(x * WEIRD.wf, y * WEIRD.wf, WEIRD.seed + 777, 2) - 0.5) * 2 + WEIRD.bias;
+  // suppress the 2D warp near a cup so the green is a TRUE flat shelf (surface == surfY there), which
+  // makes the cup rim/notch sit cleanly in flat ground instead of floating where the warp moved it.
+  let ws = 1;
+  for (const c of WEIRD.cups) { const d = Math.abs(x - c.x); if (d < c.flat) { const t = d <= c.dead ? 0 : (d - c.dead) / (c.flat - c.dead); ws = Math.min(ws, _wsm(t)); } }
+  // near a cup ws→0: drop BOTH warp and bias so the surface sits exactly at surfY → a clean, thick,
+  // landable flat green (no thin lip, no warp/bias offset between the rim and the rendered ground).
+  let f = (y - _surfY(x)) / WEIRD.soft + ws * (WEIRD.warp * (_wfbm(x * WEIRD.wf, y * WEIRD.wf, WEIRD.seed + 777, 2) - 0.5) * 2 + WEIRD.bias);
   const floor = y - H * 0.85; if (floor > 0) f += floor * 1.8;     // seal the bottom → ball always lands on a floor (no OOB through chasms)
   return f;
+}
+// y of the topmost terrain surface at x from the actual loops (sky above, solid below) — the cup rim
+function _topEdgeY(loops, x) {
+  let best = 1e9;
+  for (const lp of loops) for (let k = 0; k < lp.length; k++) { const a = lp[k], b = lp[(k + 1) % lp.length]; if (Math.min(a.x, b.x) <= x && Math.max(a.x, b.x) >= x) { const ty = a.y + (b.y - a.y) * ((x - a.x) / ((b.x - a.x) || 1)); if (_F(x, ty + 6) > 0 && _F(x, ty - 6) <= 0 && ty < best) best = ty; } }
+  return best < 1e9 ? best : _topSolid(x);
 }
 // topmost LANDABLE ground at x — the first solid run ≥18px thick (skips thin overhang lips so the tee
 // and terrainYAt match where the ball actually rests).
@@ -99,8 +111,11 @@ function generateWeirdHole(holeIndex) {
   const effW = Math.max(960, W), maxDist = (typeof window !== 'undefined' && window.RG && window.RG._holeDistCap) ? window.RG._holeDistCap : (effW - 190);
   const dMin = currentCourse.holeDistMin != null ? currentCourse.holeDistMin : 480, dMax = currentCourse.holeDistMax != null ? currentCourse.holeDistMax : 800;
   const dist = Math.min(dMin + random() * (dMax - dMin) + difficulty * 60, maxDist);
-  const cupX = teeX + dist, greenY = _topSolid(cupX);                     // landable ground (not a thin lip)
-  WEIRD.cups.push({ x: cupX, greenY, flat: 115, dead: 52 });              // dead-flat green PAD around the cup
+  const cupX = teeX + dist;
+  // green level = surfY at the cup (warp + bias are suppressed there) → the surface sits exactly here,
+  // so the rim, the rendered ground, terrainYAt and the flag all agree, on a thick landable shelf.
+  const greenY = WEIRD.baseSurf(cupX);
+  WEIRD.cups.push({ x: cupX, greenY, flat: 115, dead: 52 });
 
   // build the hole's polygon terrain (window wider than a screen so closures are off-screen)
   const x0 = teeX - 200, x1 = cupX + 280, y0 = -70, y1 = H + 100;
