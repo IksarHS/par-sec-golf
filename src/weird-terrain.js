@@ -236,8 +236,9 @@ function _weirdBuildCache(h) {
   const x0 = Math.floor(h._x0), x1 = Math.ceil(h._x1), wpx = Math.max(1, x1 - x0);
   const cv = (typeof document !== 'undefined') ? document.createElement('canvas') : null; if (!cv) return;
   cv.width = wpx; cv.height = H; const c2 = cv.getContext('2d');
-  const sky = currentCourse.sky || '#9fb0a8', g = c2.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, _lighten(sky, 26)); g.addColorStop(1, sky); c2.fillStyle = g; c2.fillRect(0, 0, wpx, H);
+  // The cache is TERRAIN ONLY (transparent elsewhere). Exactly like the original: the flat sky is drawn
+  // full-screen behind the world by MODE.drawSky, caves/gaps and the cup notch are simply where there is
+  // NO terrain — so the hole is a true lack-of-terrain opening to the same flat sky, never a colour.
   const mat = MATERIALS.grass || MATERIALS[DEFAULT_MAT];
   // Even-odd fill (correct for a mass with nested caves). Lacerations are prevented at the SOURCE:
   // the loops are simplified self-intersection-safe (see _simplifySafe), so even-odd never sees an
@@ -245,6 +246,7 @@ function _weirdBuildCache(h) {
   c2.fillStyle = mat.color; c2.beginPath();
   for (const lp of h._loops) { c2.moveTo(lp[0].x - x0, lp[0].y); for (let i = 1; i < lp.length; i++) c2.lineTo(lp[i].x - x0, lp[i].y); c2.closePath(); }
   c2.fill('evenodd');                                // solid terrain only — no top-edge lip line
+  // (the cup notch is drawn by the engine's drawCupHoleDG over this, in the same flat sky colour)
   h._weirdCache = cv; h._weirdCacheX0 = x0; h._cacheReady = true;
 }
 function _lighten(hex, amt) { hex = hex.replace('#', ''); const r = Math.min(255, parseInt(hex.slice(0, 2), 16) + amt), g = Math.min(255, parseInt(hex.slice(2, 4), 16) + amt), b = Math.min(255, parseInt(hex.slice(4, 6), 16) + amt); return 'rgb(' + r + ',' + g + ',' + b + ')'; }
