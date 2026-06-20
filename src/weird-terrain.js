@@ -31,12 +31,15 @@ function _surfY(x) {
 function _F(x, y) {
   // suppress the 2D warp near a cup so the green is a TRUE flat shelf (surface == surfY there), which
   // makes the cup rim/notch sit cleanly in flat ground instead of floating where the warp moved it.
-  let ws = 1;
-  for (const c of WEIRD.cups) { const d = Math.abs(x - c.x); if (d < c.flat) { const t = d <= c.dead ? 0 : (d - c.dead) / (c.flat - c.dead); ws = Math.min(ws, _wsm(t)); } }
-  // near a cup ws→0: drop BOTH warp and bias so the surface sits exactly at surfY → a clean, thick,
-  // landable flat green (no thin lip, no warp/bias offset between the rim and the rendered ground).
-  let f = (y - _surfY(x)) / WEIRD.soft + ws * (WEIRD.warp * (_wfbm(x * WEIRD.wf, y * WEIRD.wf, WEIRD.seed + 777, 2) - 0.5) * 2 + WEIRD.bias);
-  const floor = y - H * 0.85; if (floor > 0) f += floor * 1.8;     // seal the bottom → ball always lands on a floor (no OOB through chasms)
+  let f = (y - WEIRD.baseSurf(x)) / WEIRD.soft + WEIRD.warp * (_wfbm(x * WEIRD.wf, y * WEIRD.wf, WEIRD.seed + 777, 2) - 0.5) * 2 + WEIRD.bias;
+  const floor = y - H * 0.85; if (floor > 0) f += floor * 1.8;     // seal the bottom (ball always lands; no OOB through chasms)
+  // Carve a DESIGNED green shelf at each cup/tee: blend toward a clean flat-topped field (solid below the
+  // rim, CLEAR SKY above it so nothing can clip over the hole), broad with smooth ramps to the wild
+  // terrain. greenDead = protected clear core radius; greenR = where it has blended back to the wild.
+  for (const c of WEIRD.cups) {
+    const d = Math.abs(x - c.x);
+    if (d < c.greenR) { const w = d <= c.greenDead ? 1 : _wsm(1 - (d - c.greenDead) / (c.greenR - c.greenDead)); f = _wL(f, (y - c.greenY) / WEIRD.soft, w); }
+  }
   return f;
 }
 // y of the topmost terrain surface at x from the actual loops (sky above, solid below) — the cup rim
@@ -87,6 +90,23 @@ function _simplify(pts, eps) {
   while (st.length) { const [s, e] = st.pop(); let dm = 0, idx = -1; for (let i = s + 1; i < e; i++) { const d = _perp(pts[i], pts[s], pts[e]); if (d > dm) { dm = d; idx = i; } } if (dm > eps && idx > 0) { keep[idx] = true; st.push([s, idx], [idx, e]); } }
   return pts.filter((_, i) => keep[i]);
 }
+// do two segments (a-b) and (c-d) properly cross?
+function _segCross(a, b, c, d) {
+  const o = (p, q, r) => Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
+  const o1 = o(a, b, c), o2 = o(a, b, d), o3 = o(c, d, a), o4 = o(c, d, b);
+  return o1 !== o2 && o3 !== o4 && o1 !== 0 && o2 !== 0;
+}
+function _selfIntersects(loop) {
+  const n = loop.length;
+  for (let i = 0; i < n; i++) { const a = loop[i], b = loop[(i + 1) % n]; for (let j = i + 2; j < n; j++) { if (i === 0 && j === n - 1) continue; if (_segCross(a, b, loop[j], loop[(j + 1) % n])) return true; } }
+  return false;
+}
+// Simplify, but if Douglas-Peucker introduced a SELF-INTERSECTION (which even-odd fill would render as a
+// sky-sliver "laceration"), back off the tolerance until the loop is clean. Guarantees no lacerations.
+function _simplifySafe(pts, eps) {
+  for (let e = eps; e >= 2; e *= 0.55) { const s = _simplify(pts, e); if (!_selfIntersects(s)) return s; }
+  return pts;
+}
 // edges with sky-facing normals (oriented via the field gradient — robust for both masses and caves)
 function _loopEdges(loop) {
   const edges = [];
@@ -108,11 +128,13 @@ function _pickCupX(lo, hi, teeY) {
   let bestX = (lo + hi) / 2, best = 1e9;
   for (let x = lo; x <= hi; x += 12) {
     let mn = 1e9, mx = -1e9, sum = 0, n = 0;
-    for (let dx = -65; dx <= 65; dx += 13) { const y = _topSolid(x + dx); if (y < mn) mn = y; if (y > mx) mx = y; sum += y; n++; }
-    const spread = mx - mn;                 // flatness (smaller = flatter)
-    const elev = sum / n - teeY;            // +down from the tee (easy), -up (hard uphill carry)
-    // flat AND reachable: punish UPHILL cups hard (unreachable), allow gentle downhill.
-    const score = spread + (elev < 0 ? -elev * 0.9 : elev * 0.15);
+    for (let dx = -75; dx <= 75; dx += 13) { const y = _topSolid(x + dx); if (y < mn) mn = y; if (y > mx) mx = y; sum += y; n++; }
+    const spread = mx - mn, center = sum / n;       // flatness (smaller = flatter)
+    const elev = center - teeY;                     // +down from the tee (easy), -up (hard uphill carry)
+    const sideL = _topSolid(x - 125), sideR = _topSolid(x + 125);
+    const dip = Math.max(0, center - sideL) + Math.max(0, center - sideR);   // center lower than its sides → a DIP (steep up-ramps / wedges, harder to reach)
+    // want: flat, reachable (level/downhill from tee), and OPEN (a plateau/flat, not a pit between rises).
+    const score = spread + (elev < 0 ? -elev * 0.9 : elev * 0.15) + dip * 0.5;
     if (score < best) { best = score; bestX = x; }
   }
   return bestX;
@@ -125,7 +147,7 @@ function generateWeirdHole(holeIndex) {
   else { teeX = holes[holeIndex - 1].cupX; teeY = holes[holeIndex - 1].cupY; }
   // A tee is just the previous cup, raised — so the tee is a FLAT plateau too. Flatten it (warp/bias
   // suppressed, like a cup) so the ball starts on flat ground and holes flow cleanly into each other.
-  WEIRD.cups.push({ x: teeX, greenY: teeY, flat: 140, dead: 66 });
+  WEIRD.cups.push({ x: teeX, greenY: teeY, greenDead: 64, greenR: 122 });
 
   const difficulty = getDifficulty(holeIndex);
   const effW = Math.max(960, W), maxDist = (typeof window !== 'undefined' && window.RG && window.RG._holeDistCap) ? window.RG._holeDistCap : (effW - 190);
@@ -134,11 +156,11 @@ function generateWeirdHole(holeIndex) {
   // green level = surfY at the cup (warp + bias are suppressed there) → the surface sits exactly here,
   // so the rim, the rendered ground, terrainYAt and the flag all agree, on a thick landable shelf.
   const greenY = WEIRD.baseSurf(cupX);
-  WEIRD.cups.push({ x: cupX, greenY, flat: 165, dead: 80 });             // a broad flat green plateau (like the GoM reference)
+  WEIRD.cups.push({ x: cupX, greenY, greenDead: 80, greenR: 152 });      // a broad, protected flat green (clear sky above)
 
   // build the hole's polygon terrain (window wider than a screen so closures are off-screen)
   const x0 = teeX - 200, x1 = cupX + 280, y0 = -70, y1 = H + 100;
-  const loops = _chain(_segments(x0, y0, x1, y1, WEIRD.cell)).map((l) => _simplify(l, WEIRD.eps)).filter((l) => l.length >= 3);
+  const loops = _chain(_segments(x0, y0, x1, y1, WEIRD.cell)).map((l) => _simplifySafe(l, WEIRD.eps)).filter((l) => l.length >= 3);
   // RENDER loops stay FLAT at the cup (clean green); the cup divot + fill + rise is drawn dynamically by
   // the engine (drawCupHoleDG/drawCupFill/drawFlag), exactly like the original. COLLISION uses a notched
   // copy so the ball physically drops into the hole.
@@ -211,14 +233,12 @@ function _weirdBuildCache(h) {
   const sky = currentCourse.sky || '#9fb0a8', g = c2.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, _lighten(sky, 26)); g.addColorStop(1, sky); c2.fillStyle = g; c2.fillRect(0, 0, wpx, H);
   const mat = MATERIALS.grass || MATERIALS[DEFAULT_MAT];
-  const path = (lp) => { c2.beginPath(); c2.moveTo(lp[0].x - x0, lp[0].y); for (let i = 1; i < lp.length; i++) c2.lineTo(lp[i].x - x0, lp[i].y); c2.closePath(); };
-  // Classify each loop as a MASS (solid inside) or CAVE (sky inside) by sampling the field at its centroid.
-  // Fill masses with NON-ZERO winding (a self-overlap from simplification fills SOLID — no sky-sliver
-  // "lacerations" the even-odd rule would leave), then carve caves back to sky on top.
-  for (const lp of h._loops) { let cx = 0, cy = 0; for (const p of lp) { cx += p.x; cy += p.y; } lp._mass = _F(cx / lp.length, cy / lp.length) > 0; }
-  c2.fillStyle = mat.color;
-  for (const lp of h._loops) if (lp._mass) { path(lp); c2.fill(); }                 // nonzero (default)
-  for (const lp of h._loops) if (!lp._mass) { c2.save(); path(lp); c2.clip(); c2.fillStyle = g; c2.fillRect(0, 0, wpx, H); c2.restore(); }  // caves → sky
+  // Even-odd fill (correct for a mass with nested caves). Lacerations are prevented at the SOURCE:
+  // the loops are simplified self-intersection-safe (see _simplifySafe), so even-odd never sees an
+  // overlap that would leave a sky sliver.
+  c2.fillStyle = mat.color; c2.beginPath();
+  for (const lp of h._loops) { c2.moveTo(lp[0].x - x0, lp[0].y); for (let i = 1; i < lp.length; i++) c2.lineTo(lp[i].x - x0, lp[i].y); c2.closePath(); }
+  c2.fill('evenodd');
   // a lighter lip along up-facing facet edges (the DG top-edge look)
   c2.strokeStyle = mat.colorLight || _lighten(mat.color, 24); c2.lineWidth = 3;
   for (const arr of (h._edges || [])) for (const e of arr) { if (e.ny < -0.45) { c2.beginPath(); c2.moveTo(e.ax - x0, e.ay + 1.5); c2.lineTo(e.bx - x0, e.by + 1.5); c2.stroke(); } }
