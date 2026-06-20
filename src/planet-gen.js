@@ -1,59 +1,70 @@
-// ── planet-gen.js — ONE tunable hole generator, 9 varied planets via different SETTINGS ──────────────
-// Goal: a single generator that goes simple → increasingly complex (Golf-on-Mars-style), driven only by
-// a per-planet settings object. Built on the engine's NATIVE faceted heightfield (clean cups/tees/fills/
-// collision, all free). The ONE knob is `complexity` (0..1): it selects which archetype tiers are in play
-// AND scales difficulty (drama). Other settings (material→colour+physics, sky, distance, gravity) give
-// each planet its identity. Phase 2 adds overhang/cave set-pieces on the higher-complexity planets.
-// Reachable by ?course=p1 .. p9 (and ?planets lists them). Registers into WORLDS['run-world'].courses.
+// ── planet-gen.js — ONE tunable hole generator, 24 varied planets via different SETTINGS ─────────────
+// A single generator that runs simple → increasingly complex (Golf-on-Mars-style), driven only by a
+// per-planet settings object. Built on the engine's NATIVE faceted heightfield (clean cups/tees/fills/
+// collision, all free + reliably completable) and, on the complex planets, explicit overhang set-pieces
+// (set-pieces.js). The ONE knob is `c` (complexity 0..1): it picks which archetype tiers are in play,
+// scales difficulty (drama), and gates overhang frequency. Material+sky give each planet its identity.
+// Reachable by ?course=p1 .. p24. Registers into WORLDS['run-world'].courses.
 
 (function () {
   if (typeof WORLDS === 'undefined' || !WORLDS['run-world'] || !WORLDS['run-world'].courses) return;
   const COURSES = WORLDS['run-world'].courses;
 
-  // Cumulative archetype tiers — higher complexity unlocks more dramatic native archetypes on top of the
-  // calmer ones (so simple planets stay simple, complex planets get the wild stuff too).
+  // Extra terrain colours (the roguelike fixes the 6 base hues; these are new keys it won't touch).
+  // Each clones a base material's physics and just recolours, so behaviour stays sane.
+  if (typeof MATERIALS !== 'undefined') {
+    const phys = (b) => ({ restitution: MATERIALS[b].restitution, rollingFriction: MATERIALS[b].rollingFriction, surfaceFriction: MATERIALS[b].surfaceFriction });
+    const CUSTOM = {
+      jade: ['grass', '#3fa688'], moss: ['grass', '#7a8f3c'], crimson: ['rock', '#b0463e'],
+      rust: ['rock', '#a85a36'], slate: ['rock', '#586878'], plum: ['rock', '#6e4a6e'],
+      amber: ['sand', '#d99a3c'], rose: ['sand', '#c77d8a'], gold: ['sand', '#c2a24a'],
+      bone: ['sand', '#cabfa0'], teal: ['ice', '#3f9aa6'], frost: ['ice', '#9fd8e8'],
+      ash: ['rock', '#46464f'], ember: ['rock', '#c2603a'],
+    };
+    for (const k in CUSTOM) if (!MATERIALS[k]) { const c = CUSTOM[k]; MATERIALS[k] = Object.assign(phys(c[0]), { color: c[1], colorLight: c[1] }); }
+  }
+
+  // Cumulative archetype tiers — higher complexity unlocks more dramatic native archetypes ON TOP of the
+  // calmer ones, so simple planets stay simple and complex ones get the wild stuff too.
   const TIERS = [
-    ['flat_run', 'faceted', 'gentle_slope', 'downhill', 'uphill'],                  // t0  always (gentle)
+    ['flat_run', 'faceted', 'gentle_slope', 'downhill', 'uphill'],                  // t0  (gentle)
     ['rolling_hills', 'valley', 'shelf', 'cliff_drop'],                              // t1  ~0.2  (angular)
     ['mesa', 'peak_obstacle', 'stepped_descent', 'dramatic_ridge'],                  // t2  ~0.4  (dramatic)
     ['canyon', 'twin_peaks', 'deep_plunge', 'shelf_drop_shelf', 'cliff_valley_climb'], // t3 ~0.6 (big)
-    ['deep_pocket', 'fortress', 'narrow_gap', 'compound_terrain', 'canyon_cup'],     // t4  ~0.8  (gnarly)
+    ['compound_terrain', 'dramatic_ridge', 'deep_plunge', 'twin_peaks', 'stepped_descent'], // t4 ~0.8 (dramatic but reachable — cup-trapping archetypes dropped for completability)
   ];
-  function archetypesFor(complexity) {
-    const upto = Math.min(TIERS.length, 1 + Math.floor(complexity / 0.2 + 0.001));
-    let a = [];
-    for (let i = 0; i < upto; i++) a = a.concat(TIERS[i]);
-    return a;
+  function archetypesFor(c) {
+    const upto = Math.min(TIERS.length, 1 + Math.floor(c / 0.2 + 0.001));
+    let a = []; for (let i = 0; i < upto; i++) a = a.concat(TIERS[i]); return a;
   }
 
-  // The 9 planets — same generator, different settings. complexity rises 0.06 → 0.94 (simple → complex);
-  // material/sky give identity; gravity stays Earth-ish (no floatiness) with a touch more carry on the
-  // wildest worlds so long holes stay reachable.
-  const PLANETS = [
-    { id: 'p1', name: 'Verdance',     world: 'Verdance',     c: 0.06, mat: 'grass', sky: '#232c40', grav: 1.00 },
-    { id: 'p2', name: 'The Flats',    world: 'Calderos',     c: 0.16, mat: 'sand',  sky: '#3a3450', grav: 1.00 },
-    { id: 'p3', name: 'Ochre Mesa',   world: 'Ochre',        c: 0.28, mat: 'rock',  sky: '#9fb0a8', grav: 1.00 },
-    { id: 'p4', name: 'Hoarfrost',    world: 'Hoarfrost',    c: 0.40, mat: 'ice',   sky: '#2a3a48', grav: 1.00 },
-    { id: 'p5', name: 'The Quagmire', world: 'Mire',         c: 0.52, mat: 'mud',   sky: '#2d3328', grav: 1.00 },
-    { id: 'p6', name: 'Redcliff',     world: 'Redcliff',     c: 0.64, mat: 'rock',  sky: '#1a2230', grav: 0.96 },
-    { id: 'p7', name: 'Glasswastes',  world: 'Glasswastes',  c: 0.74, mat: 'ice',   sky: '#18222e', grav: 0.94 },
-    { id: 'p8', name: 'The Shatter',  world: 'Shatter',      c: 0.84, mat: 'rock',  sky: '#12161f', grav: 0.92 },
-    { id: 'p9', name: 'The Maw',      world: 'The Maw',      c: 0.94, mat: 'sand',  sky: '#0c0e14', grav: 0.90 },
-  ];
+  // 24 planets. complexity rises smoothly 0.05 → 0.97 (simple → complex). material + sky cycle
+  // INDEPENDENTLY of complexity so neighbours look distinct (not "all simple planets are green").
+  const MATS = ['grass', 'amber', 'slate', 'frost', 'rust', 'jade', 'rose', 'rock', 'moss', 'gold', 'teal', 'crimson',
+                'bone', 'plum', 'sand', 'ash', 'ember', 'ice', 'grass', 'amber', 'slate', 'jade', 'rust', 'crimson'];
+  const SKIES = ['#232c40', '#3a3450', '#9fb0a8', '#2a3a48', '#2d3328', '#1c2733', '#3b2f3a', '#1a2230', '#1e2a22',
+                 '#2b2535', '#16222e', '#241a22', '#c0c8c2', '#12161f', '#34302a', '#0f1219', '#2a1d18', '#223040',
+                 '#1a1f2e', '#2e2a3a', '#11161c', '#1d2a24', '#26201a', '#0c0e14'];
+  const NAMES = ['Verdance', 'Calderos', 'Slategarde', 'Hoarfrost', 'Rustreach', 'Jadefall', 'Roselands', 'Basalt Flats',
+                 'Mosswood', 'Goldmere', 'Tealspire', 'Crimson Cut', 'Bonewastes', 'Plumdark', 'The Dunes', 'Ashen',
+                 'Emberfell', 'Glacium', 'Greenfield', 'Amberdeep', 'Slatebreak', 'Jadechasm', 'Rustmaw', 'The Maw'];
 
-  for (const p of PLANETS) {
-    const dMin = Math.round(360 + p.c * 120);          // simple planets shorter, complex ones longer
-    const dMax = Math.round(540 + p.c * 260);
-    COURSES[p.id] = {
-      name: p.name, worldName: p.world, sky: p.sky,
-      defaultMaterial: p.mat, materials: [p.mat],
-      gen: 'faceted',                                   // native heightfield, micro-noise off (crisp angular)
-      archetypes: archetypesFor(p.c),
-      difficultyRange: [Math.max(0.04, p.c * 0.7), Math.min(0.95, p.c + 0.22)],
+  const N = 24;
+  for (let i = 0; i < N; i++) {
+    const c = Math.min(0.97, 0.05 + i * (0.92 / (N - 1)));
+    const mat = MATS[i % MATS.length], sky = SKIES[i % SKIES.length];
+    const dMin = Math.round(360 + c * 110), dMax = Math.round(540 + c * 250);
+    const grav = c < 0.6 ? 1.0 : (1.0 - (c - 0.6) * 0.28);   // tiny extra carry on the wildest worlds
+    COURSES['p' + (i + 1)] = {
+      name: NAMES[i % NAMES.length], worldName: NAMES[i % NAMES.length], sky: sky,
+      defaultMaterial: mat, materials: [mat],
+      gen: 'faceted',                                          // native heightfield, micro-noise off
+      archetypes: archetypesFor(c),
+      difficultyRange: [Math.max(0.04, c * 0.7), Math.min(0.95, c + 0.2)],
       holeDistMin: dMin, holeDistMax: dMax, holeCount: 9,
-      phys: { gravityScale: p.grav, windScale: 1 },
-      planetComplexity: p.c,                            // Phase 2 uses this for set-piece frequency
+      phys: { gravityScale: grav, windScale: 1 },
+      planetComplexity: c,
     };
   }
-  if (typeof window !== 'undefined') window.PLANETS = PLANETS;
+  if (typeof window !== 'undefined') window.PLANET_COUNT = N;
 })();

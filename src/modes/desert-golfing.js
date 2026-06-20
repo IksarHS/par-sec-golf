@@ -660,8 +660,11 @@ MODE = {
     // Moon (gen:'field'): also collide the overhang LIPS on top of the heightfield base.
     let lip = false;
     if (currentCourse && currentCourse.gen === 'field' && typeof moonLipCollide === 'function') lip = moonLipCollide();
-    ball.onGround = terrain || obj || lip;
-    return terrain || obj || lip;
+    // Phase 2: overhang set-pieces (planets) — explicit slabs over the heightfield floor.
+    let sp = false;
+    if (typeof collideSetPieces === 'function') sp = collideSetPieces();
+    ball.onGround = terrain || obj || lip || sp;
+    return terrain || obj || lip || sp;
   },
 
   canRest(forceRest) {
@@ -789,6 +792,8 @@ MODE = {
     else drawTerrainDG();                             // the heightfield base (always renders → no blank terrain)
     // Moon (gen:'field'): draw the overhang LIPS on top.
     if (currentCourse && currentCourse.gen === 'field' && typeof moonDrawLips === 'function') moonDrawLips();
+    // Phase 2: overhang set-pieces (planets) — draw the slabs over the heightfield.
+    if (typeof drawSetPieces === 'function') drawSetPieces();
 
     // Water layer — if current course uses water material, draw a flat blue band
     if (currentCourse?.materials?.includes('water')) {

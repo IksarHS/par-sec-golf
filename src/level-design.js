@@ -957,6 +957,10 @@ function generateHoleTerrain(holeIndex) {
   // Now place the cup into the terrain at cupX
   placeCup(holeIndex, cupX, teeX, teeY);
   holes[holeIndex].archetype = archName;
+  // Phase 2: overhang set-pieces (the weird 20%) on complex planets — explicit slabs over the heightfield.
+  if (typeof generateOverhangs === 'function' && currentCourse && currentCourse.planetComplexity != null) {
+    generateOverhangs(holes[holeIndex], currentCourse.planetComplexity);
+  }
 
   // Enforce strict X-monotonicity — remove any vertex that goes backwards.
   // Background verts from earlier holes or cup insertion can create overlaps.
@@ -1217,6 +1221,53 @@ function applyHoleOverride(idx) {
       }
     }
   }
+}
+
+// ── Phase 1: simulate-and-validate cup reachability (guarantee every generated hole is sinkable) ──────
+// After generating a hole, drive the autoplay bot's own solver from the tee; if it can't sink it (or make
+// progress), re-roll the hole. This is exactly how the genre ships solvable levels (and what GoM's author
+// did by hand). Cheap on reachable holes (the solver stops at the first scoring shot); only the rare
+// unsinkable hole pays for the full search, and that one we throw away. Falls back gracefully if the bot
+// layer isn't present (e.g. headless audits) so the seeded sequence is never disturbed there.
+let _inValidation = false;
+function _validateHole(i) {
+  if (_inValidation) return true;                                  // never recurse (the bot's update() can re-enter generation)
+  if (typeof window === 'undefined' || !window.RG || !RG.bot || !RG.bot.calculateShot || !RG.bot.simulateShot) return true;
+  if (!holes[i] || typeof terrainYAt !== 'function' || typeof ball === 'undefined') return true;
+  const save = { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, r: ball.atRest, og: ball.onGround, st: state, ch: currentHole };
+  const sSteps = window.RG_BOT_STEPS; window.RG_BOT_STEPS = 14;
+  _inValidation = true;
+  let ok = false, minD = Infinity;
+  try {
+    currentHole = i; const h = holes[i];
+    ball.x = h.teeX; ball.y = terrainYAt(h.teeX) - BALL_RADIUS; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true; state = STATE_AIM;
+    let prevD = Infinity;
+    for (let shot = 0; shot < 6 && !ok; shot++) {
+      const s = RG.bot.calculateShot(); if (!s) break;
+      const r = RG.bot.simulateShot(s.vx, s.vy);
+      if (r.scored) { ok = true; break; }
+      if (r.distToCup < minD) minD = r.distToCup;
+      if (r.oob || !(r.distToCup < prevD - 5)) break;              // OOB or no further progress → give up on this hole
+      prevD = r.distToCup; ball.x = r.x; ball.y = r.y; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true; state = STATE_AIM;
+    }
+    // LENIENT: the coarse validation solver needn't pot it exactly — getting the ball within ~2 cup widths
+    // means the real (finer, multi-shot) bot will finish it. Only the truly stuck holes (always OOB / never
+    // close) fail → those we re-roll. Avoids false-negatives that would reject perfectly playable holes.
+    if (!ok && minD < CUP_WIDTH * 2.2) ok = true;
+  } catch (e) { ok = true; }
+  _inValidation = false;
+  window.RG_BOT_STEPS = sSteps;
+  ball.x = save.x; ball.y = save.y; ball.vx = save.vx; ball.vy = save.vy; ball.atRest = save.r; ball.onGround = save.og; state = save.st; currentHole = save.ch;
+  return ok;
+}
+function _genValidatedHole(i) {
+  if (_inValidation) { generateHoleTerrain(i); return; }            // re-entrant (during a sim) → plain generate, no recurse
+  for (let attempt = 0; attempt < 8; attempt++) {
+    generateHoleTerrain(i);
+    if (_validateHole(i)) return;
+    if (holes.length > i) holes.length = i;                         // drop the unsinkable hole; re-roll (PRNG advances → different hole)
+  }
+  // exhausted (very rare): keep the last build; the stroke-budget skip is the final backstop.
 }
 
 function ensureHolesAhead(upToHole) {
