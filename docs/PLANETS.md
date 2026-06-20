@@ -45,9 +45,16 @@ skies.
 1. **TRUE caves/overhangs (toward the 134/351 references)** via the research's **floor + folded-back
    ceiling polygon** representation — terrain that folds over itself with the cup *inside* a pocket. The
    floating masses approximate the "floating-mass" GoM holes; this would add the carved-cave ones.
-2. **A FAST reachability validator** (a lightweight ballistic sim, NOT the full game `update()` tick which
-   was too slow) → then we can re-enable simulate-and-validate + regenerate, GUARANTEE completability, and
-   safely put the cup-trapping archetypes back / crank complexity without hand-trimming.
+2. **A reachability validator — but DECOUPLED.** Attempted inline (run the autoplay bot's solver per hole,
+   re-roll failures). It proved too fragile to ship: the bot's sims are coupled to LIVE game state —
+   `isBallInCup`/`isBallOffScreen` are camera-relative (validating a hole the camera isn't on reads as
+   instant OOB), results are state-dependent (pass in one context, fail in another), the floaty low-gravity
+   makes the solver return near-zero-power shots that never sink long holes in the validation context, and
+   nested `update()` during live lazy-gen corrupts the holes array. It ended up a no-op (rejected ~all,
+   shipped random re-rolls; courses completed only because the base archetypes are solid). REVERTED. The
+   right design is a SELF-CONTAINED ballistic sim (its own ball/gravity/heightfield + set-piece collision,
+   no camera/`currentHole`/live-loop coupling) or a standalone headless harness — then re-enable
+   simulate-and-validate to put the cup-trapping archetypes back / crank complexity safely.
 3. **Richer set-pieces**: multiple interlocking masses, arches/bridges spanning a chasm, a cup placed
    inside a cave — to approach the layered 351 silhouette.
 4. **Discrete accent objects** (rock spikes, cacti, water) — GoM's real accents (terrain-colour bands read
