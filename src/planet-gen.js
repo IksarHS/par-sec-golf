@@ -49,15 +49,22 @@
                  'Mosswood', 'Goldmere', 'Tealspire', 'Crimson Cut', 'Bonewastes', 'Plumdark', 'The Dunes', 'Ashen',
                  'Emberfell', 'Glacium', 'Greenfield', 'Amberdeep', 'Slatebreak', 'Jadechasm', 'Rustmaw', 'The Maw'];
 
+  // a complementary ACCENT material per primary (subtle terrain variety — occasional bunker/outcrop bands)
+  const ACCENT = {
+    grass: 'sand', amber: 'rust', slate: 'ash', frost: 'teal', rust: 'ember', jade: 'moss', rose: 'plum',
+    rock: 'ash', moss: 'gold', gold: 'bone', teal: 'frost', crimson: 'rust', bone: 'sand', plum: 'slate',
+    sand: 'gold', ash: 'slate', ember: 'gold', ice: 'frost',
+  };
   const N = 24;
   for (let i = 0; i < N; i++) {
     const c = Math.min(0.97, 0.05 + i * (0.92 / (N - 1)));
     const mat = MATS[i % MATS.length], sky = SKIES[i % SKIES.length];
+    const acc = ACCENT[mat] || mat;
     const dMin = Math.round(360 + c * 110), dMax = Math.round(540 + c * 250);
     const grav = c < 0.6 ? 1.0 : (1.0 - (c - 0.6) * 0.28);   // tiny extra carry on the wildest worlds
     COURSES['p' + (i + 1)] = {
       name: NAMES[i % NAMES.length], worldName: NAMES[i % NAMES.length], sky: sky,
-      defaultMaterial: mat, materials: [mat],
+      defaultMaterial: mat, materials: [mat],                 // clean single-colour terrain (GoM-style)
       gen: 'faceted',                                          // native heightfield, micro-noise off
       archetypes: archetypesFor(c),
       difficultyRange: [Math.max(0.04, c * 0.7), Math.min(0.95, c + 0.2)],
