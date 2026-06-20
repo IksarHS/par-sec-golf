@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Par Sec</title>
+<!-- Start the web-font download immediately (before the @font-face rule is parsed) so the
+     loading splash can show its text already in Departure Mono — no fallback->web swap flash. -->
+<link rel="preload" href="assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<!-- Favicon = the in-game ball: white circle + 3 dimples at 0/120/240deg (echoes src/art.js drawBall). -->
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'&gt;&lt;circle cx='8' cy='8' r='6' fill='%23ffffff'/&gt;&lt;circle cx='11.3' cy='8' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='10.86' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='5.14' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;/svg&gt;">
+<style>
+  @font-face {
+    font-family: 'Departure Mono';
+    src: url('assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+         url('assets/fonts/DepartureMono-Regular.woff') format('woff');
+    font-weight: normal; font-style: normal; font-display: swap;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #0e0b12; }
+  body { display: flex; align-items: center; justify-content: center;
+    font-family: 'Departure Mono', monospace; color: #f2ecff; }
+  canvas { display: block; cursor: crosshair; position: relative; z-index: 1; max-width: 100vw; max-height: 100vh; }
+
+  /* ── In-run HUD (top-left; takes over the spot the course title vacates) ── */
+  #rg-hud { position: fixed; top: 16px; left: 22px; z-index: 50; display: none;
+    flex-direction: column; align-items: flex-start; gap: 2px; pointer-events: none; }
+  .rg-hud-hole { font-size: 19px; font-weight: normal; color: rgba(242,236,255,0.82); letter-spacing: 2px;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+  .rg-hud-shards { font-size: 13px; color: #b88cff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+</style>
+</head>
+<body>
+<!-- Loading splash. The dark background paints instantly (no white/blank flash), but the text
+     is held at opacity:0 until Departure Mono is loaded — so it is only ever drawn in the web
+     font, at its final position. No font-display:swap reflow, no font/position jump. -->
+<div id="loading" style="position:fixed;inset:0;background:#0e0b12;z-index:9999;display:flex;align-items:center;justify-content:center;">
+  <span id="loading-text" style="font:48px 'Departure Mono',monospace;color:rgba(242,236,255,0.45);opacity:0;transition:opacity .12s linear;">Loading…</span>
+</div>
+<script>
+  // Reveal the loading text only once the web font is ready (so it never paints in the system
+  // fallback first). A short fallback timer guarantees the text still shows if the font is slow
+  // or unavailable — boot is never blocked on this.
+  (function () {
+    var t = document.getElementById('loading-text');
+    if (!t) return;
+    var shown = false;
+    function show() { if (shown) return; shown = true; t.style.opacity = '1'; }
+    if (document.fonts && document.fonts.load) {
+      document.fonts.load("48px 'Departure Mono'").then(show, show);
+      // Belt-and-suspenders: if the font promise stalls, reveal anyway after 600ms.
+      setTimeout(show, 600);
+    } else {
+      show();
+    }
+  })();
+</script>
+<canvas id="c" style="visibility:hidden;"></canvas>
+
+<!-- In-run HUD (populated by the run controller) -->
+<div id="rg-hud"></div>
+
+<!-- Engine core (lean): no firebase / leaderboard / menu / autoplay / debug, no desert worlds, no generators. -->
+<script src="src/shared.js"></script>
+<script src="src/worlds/run.js"></script>
+<script src="src/level-design.js"></script>
+<script src="src/modes/desert-golfing.js"></script>
+<script src="src/art.js"></script>
+<script src="src/gameplay.js"></script>
+
+<!-- Roguelike layer (peel-off-able). run.js defines window.initFirebase, so main.js
+     init() defers boot to the run controller, which starts straight into a run. -->
+<!-- DEFAULT = the core loop: golf, money, ship, shop. ?full restores the secrets/Codex
+     build (the 4 secrets, the Fault/Vault, M + C pages). The secrets HOST (registry +
+     util in secrets.js) always loads — the ship rides its lifecycle — only the secret
+     CONTENT is gated, by window.RG_MINIMAL. -->
+<script>window.RG_MINIMAL = !/[?&](full|secrets)(=|&|$)/.test(location.search);</script>
+<script src="src/roguelike/save.js"></script>
+<script src="src/roguelike/modifiers.js"></script>
+<script src="src/roguelike/run.js"></script>
+<script src="src/roguelike/secrets.js"></script>
+<script src="src/roguelike/economy.js"></script>
+<script src="src/roguelike/ship.js"></script>
+<script src="src/roguelike/shop.js"></script>
+<script src="src/roguelike/wrap.js"></script>
+<script src="src/roguelike/audio.js"></script>
+<script src="src/roguelike/fx.js"></script>
+<script src="src/roguelike/juice.js"></script>
+<script src="src/roguelike/ambient.js"></script>
+<script src="src/roguelike/onboard.js"></script>
+<script src="src/roguelike/travel.js"></script>
+<script src="src/roguelike/event.js"></script>
+<script src="src/roguelike/terrain.js"></script>
+<script>
+  if (!window.RG_MINIMAL) {
+    document.write('<script src="src/roguelike/manual.js"><\/script>');
+    document.write('<script src="src/roguelike/progression.js"><\/script>');
+  }
+</script>
+
+<!-- Dev-only panels (dormant unless the URL has ?dev): Secrets Lab + Game-Feel sandbox + playtest bot. -->
+<script src="src/roguelike/lab.js"></script>
+<script src="src/roguelike/feel.js"></script>
+<script src="src/roguelike/playtest-bot.js"></script>
+<!-- Live frame-time debug overlay (Shift+D to toggle in any build, or ?perf to start shown). -->
+<script src="src/roguelike/perf-hud.js"></script>
+<!-- ?seq: A/B the scorecard+transition moment through play (sink a hole → sequence fires; 1/2/3 to switch). -->
+<script src="src/roguelike/seqtest.js"></script>
+
+<!-- ?goto= deep-links for fast testing (jump straight to a test point). Silent unless ?goto is
+     present, so the public build is unaffected. Loads after the bot (used by ?goto=recap). -->
+<script src="src/roguelike/testjump.js"></script>
+
+<!-- ?galaxy / ?atlas: THE ATLAS — a registry of experimental "planets" to feel the variance of the
+     galaxy. galaxy.js is the framework + data planets; the atlas-*.js files register system planets
+     (force fields, only-up, creatures, …). Registers courses/materials ONLY under ?galaxy/?atlas/
+     ?course=, so the default build is untouched. Peel a line off → that set of planets is gone. -->
+<script src="src/roguelike/galaxy.js"></script>
+<!-- Home-system roster (?course=mercury-1 … jupiter-3): real solar-system bodies, normal golf, 2–3
+     terrain VERSIONS each for review/curation (docs/home-system-roster.md). Cut to the chosen ones. -->
+<script src="src/roguelike/atlas-homesystem.js"></script>
+<script src="src/roguelike/atlas-fields.js"></script>
+<script src="src/roguelike/atlas-fields2.js"></script>
+<script src="src/roguelike/atlas-creatures.js"></script>
+<script src="src/roguelike/atlas-relics.js"></script>
+<script src="src/roguelike/atlas-portals.js"></script>
+<script src="src/roguelike/atlas-onlyup.js"></script>
+<!-- The Ascent (?course=climb) — a Kinda Hard Golf homage: same aim-and-power golf, but the hole climbs
+     UP and lands on a checkpoint flag SAVES you (fall → respawn at your last flag, not the bottom). Built
+     on the only-up clampY tech; the checkpoint save/respawn lives in onRest (live-only). Peel it off → gone. -->
+<script src="src/roguelike/atlas-climb.js"></script>
+<!-- The Stacks (?course=blocks) — NEW flexible-terrain tech: the ball collides with solid floating BLOCKS
+     (circle-vs-AABB) for overhangs / floating platforms / gaps a heightfield can't do. Adds one inert
+     hook (RG_ATLAS.collide, dispatched from wrap.js). Peel it off → the hook goes inert, base unchanged. -->
+<script src="src/roguelike/atlas-blocks.js"></script>
+<script src="src/roguelike/atlas-objects.js"></script>
+<script src="src/roguelike/atlas-setpieces.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>
