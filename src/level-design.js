@@ -213,23 +213,31 @@ const archetypes = {
   // short flat green so the ball settles + the cup fill reads. Matches the user's GoM targets (gom-targets/).
   gom(sx, sy, dist, cupY, diff) {
     const verts = [];
-    const drama = 45 + diff * 200;
+    const drama = 55 + diff * 215;                 // vertical scale grows with difficulty
     const endX = sx + dist;
-    let x = sx, y = sy;
-    while (x < endX - 200) {
-      const step = randRange(75, 150), r = random();
-      if (r < 0.30) { x += step; verts.push({ x, y: clampY(y) }); }                                   // flat
-      else if (r < 0.58) { x += step; y = clampY(y + (random() - 0.5) * drama); verts.push({ x, y }); } // slope
-      else if (r < 0.80) {                                                                              // cliff (sharp step)
-        const ny = clampY(y + (random() < 0.5 ? -1 : 1) * randRange(drama * 0.5, drama));
-        x += randRange(8, 22); verts.push({ x, y: ny }); y = ny; x += step * 0.5; verts.push({ x, y });
+    let x = sx, y = sy, features = 0;
+    // higher difficulty → fewer flats, more cliffs/valleys (punchier late holes)
+    const flatP = 0.34 - diff * 0.20, slopeP = flatP + 0.24, cliffP = slopeP + 0.18 + diff * 0.10;
+    while (x < endX - 190) {
+      const step = randRange(70, 140), r = random();
+      if (r < flatP) { x += step; verts.push({ x, y: clampY(y) }); }                                   // flat / plateau
+      else if (r < slopeP) { x += step; y = clampY(y + (random() - 0.5) * drama * 1.1); verts.push({ x, y }); features++; } // slope
+      else if (r < cliffP) {                                                                            // cliff (sharp step)
+        const ny = clampY(y + (random() < 0.5 ? -1 : 1) * randRange(drama * 0.6, drama * 1.2));
+        x += randRange(6, 18); verts.push({ x, y: ny }); y = ny; x += step * 0.45; verts.push({ x, y }); features++;
       } else {                                                                                          // valley (dip to cross)
-        const vy = clampY(y + randRange(drama * 0.7, drama * 1.3));
-        x += step * 0.4; verts.push({ x, y }); x += randRange(36, 80); verts.push({ x, y: vy });
-        x += randRange(36, 80); verts.push({ x, y: vy }); x += step * 0.4; verts.push({ x, y });
+        const vy = clampY(y + randRange(drama * 0.9, drama * 1.5));
+        x += step * 0.35; verts.push({ x, y }); x += randRange(30, 70); verts.push({ x, y: vy });
+        x += randRange(30, 70); verts.push({ x, y: vy }); x += step * 0.35; verts.push({ x, y }); features++;
       }
     }
-    verts.push({ x: Math.min(x + 50, endX - 50), y: clampY(y) });   // flat green
+    // guarantee drama on harder holes: if the random walk came out tame, carve one big feature
+    if (features < 1 + Math.round(diff * 3) && endX - sx > 360) {
+      const fx = sx + (endX - sx) * randRange(0.3, 0.6), big = drama * randRange(1.1, 1.6) * (random() < 0.5 ? -1 : 1);
+      verts.push({ x: fx - 30, y: clampY(y) }); verts.push({ x: fx, y: clampY(y + big) }); verts.push({ x: fx + randRange(40, 90), y: clampY(y + big) }); verts.push({ x: fx + randRange(110, 170), y: clampY(y) });
+      verts.sort((a, b) => a.x - b.x);
+    }
+    verts.push({ x: Math.min(x + 45, endX - 45), y: clampY(y) });   // flat green
     verts.push({ x: endX, y: clampY(y) });                          // cup
     return verts;
   },
