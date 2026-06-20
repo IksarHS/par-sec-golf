@@ -104,14 +104,15 @@ function _loopEdges(loop) {
 // Pick the cup x by scanning the valid distance range for the FLATTEST, BROADEST patch of ground —
 // the lesson from the original (archetypes end the hole on a flat spot / GoM cups sit on plateaus).
 // Avoids dropping the cup into a V-notch between peaks.
-function _pickCupX(lo, hi) {
+function _pickCupX(lo, hi, teeY) {
   let bestX = (lo + hi) / 2, best = 1e9;
   for (let x = lo; x <= hi; x += 12) {
     let mn = 1e9, mx = -1e9, sum = 0, n = 0;
     for (let dx = -65; dx <= 65; dx += 13) { const y = _topSolid(x + dx); if (y < mn) mn = y; if (y > mx) mx = y; sum += y; n++; }
     const spread = mx - mn;                 // flatness (smaller = flatter)
-    const height = sum / n;                 // slight preference for higher ground (plateaus, not pits)
-    const score = spread + height * 0.06;
+    const elev = sum / n - teeY;            // +down from the tee (easy), -up (hard uphill carry)
+    // flat AND reachable: punish UPHILL cups hard (unreachable), allow gentle downhill.
+    const score = spread + (elev < 0 ? -elev * 0.9 : elev * 0.15);
     if (score < best) { best = score; bestX = x; }
   }
   return bestX;
@@ -120,13 +121,16 @@ function _pickCupX(lo, hi) {
 function generateWeirdHole(holeIndex) {
   if (!WEIRD) _weirdInit();
   let teeX, teeY;
-  if (holeIndex === 0) { teeX = 130; teeY = _topSolid(teeX); if (vertices.length === 0) vertices.push({ x: -200, y: teeY, mat: 'grass' }); }
+  if (holeIndex === 0) { teeX = 130; teeY = WEIRD.baseSurf(teeX); if (vertices.length === 0) vertices.push({ x: -200, y: teeY, mat: 'grass' }); }
   else { teeX = holes[holeIndex - 1].cupX; teeY = holes[holeIndex - 1].cupY; }
+  // A tee is just the previous cup, raised — so the tee is a FLAT plateau too. Flatten it (warp/bias
+  // suppressed, like a cup) so the ball starts on flat ground and holes flow cleanly into each other.
+  WEIRD.cups.push({ x: teeX, greenY: teeY, flat: 140, dead: 66 });
 
   const difficulty = getDifficulty(holeIndex);
   const effW = Math.max(960, W), maxDist = (typeof window !== 'undefined' && window.RG && window.RG._holeDistCap) ? window.RG._holeDistCap : (effW - 190);
   const dMin = currentCourse.holeDistMin != null ? currentCourse.holeDistMin : 480, dMax = currentCourse.holeDistMax != null ? currentCourse.holeDistMax : 800;
-  const cupX = _pickCupX(teeX + dMin, teeX + Math.min(dMax, maxDist));   // flattest broad spot → a real green plateau
+  const cupX = _pickCupX(teeX + dMin, teeX + Math.min(dMax, maxDist), teeY);   // flat + reachable spot → a real green plateau
   // green level = surfY at the cup (warp + bias are suppressed there) → the surface sits exactly here,
   // so the rim, the rendered ground, terrainYAt and the flag all agree, on a thick landable shelf.
   const greenY = WEIRD.baseSurf(cupX);
@@ -207,9 +211,14 @@ function _weirdBuildCache(h) {
   const sky = currentCourse.sky || '#9fb0a8', g = c2.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, _lighten(sky, 26)); g.addColorStop(1, sky); c2.fillStyle = g; c2.fillRect(0, 0, wpx, H);
   const mat = MATERIALS.grass || MATERIALS[DEFAULT_MAT];
-  c2.fillStyle = mat.color; c2.beginPath();
-  for (const lp of h._loops) { c2.moveTo(lp[0].x - x0, lp[0].y); for (let i = 1; i < lp.length; i++) c2.lineTo(lp[i].x - x0, lp[i].y); c2.closePath(); }
-  c2.fill('evenodd');
+  const path = (lp) => { c2.beginPath(); c2.moveTo(lp[0].x - x0, lp[0].y); for (let i = 1; i < lp.length; i++) c2.lineTo(lp[i].x - x0, lp[i].y); c2.closePath(); };
+  // Classify each loop as a MASS (solid inside) or CAVE (sky inside) by sampling the field at its centroid.
+  // Fill masses with NON-ZERO winding (a self-overlap from simplification fills SOLID — no sky-sliver
+  // "lacerations" the even-odd rule would leave), then carve caves back to sky on top.
+  for (const lp of h._loops) { let cx = 0, cy = 0; for (const p of lp) { cx += p.x; cy += p.y; } lp._mass = _F(cx / lp.length, cy / lp.length) > 0; }
+  c2.fillStyle = mat.color;
+  for (const lp of h._loops) if (lp._mass) { path(lp); c2.fill(); }                 // nonzero (default)
+  for (const lp of h._loops) if (!lp._mass) { c2.save(); path(lp); c2.clip(); c2.fillStyle = g; c2.fillRect(0, 0, wpx, H); c2.restore(); }  // caves → sky
   // a lighter lip along up-facing facet edges (the DG top-edge look)
   c2.strokeStyle = mat.colorLight || _lighten(mat.color, 24); c2.lineWidth = 3;
   for (const arr of (h._edges || [])) for (const e of arr) { if (e.ny < -0.45) { c2.beginPath(); c2.moveTo(e.ax - x0, e.ay + 1.5); c2.lineTo(e.bx - x0, e.by + 1.5); c2.stroke(); } }

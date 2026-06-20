@@ -74,14 +74,14 @@ WORLDS['run-world'].courses['earth-course'] = {
 WORLDS['run-world'].courses['earth2'] = {
   name: 'The Badlands', worldName: 'Earth', sky: '#232c40',   // original Earth navy → cups read as clean dark divots
   defaultMaterial: 'grass', materials: ['grass'], gen: 'weird', weirdTier: 1,
-  difficultyRange: [0.1, 0.45], holeDistMin: 480, holeDistMax: 800, holeCount: 9,
+  difficultyRange: [0.1, 0.45], holeDistMin: 360, holeDistMax: 560, holeCount: 9,
   phys: { gravityScale: 1, windScale: 1 },
 };
 WORLDS['run-world'].courses['earth3'] = Object.assign({}, WORLDS['run-world'].courses['earth2'], {
-  name: 'The Shatterlands', weirdTier: 2, holeDistMin: 500, holeDistMax: 820,
+  name: 'The Shatterlands', weirdTier: 2, holeDistMin: 380, holeDistMax: 580,
 });
 WORLDS['run-world'].courses['earth4'] = Object.assign({}, WORLDS['run-world'].courses['earth2'], {
-  name: 'The Tumble', weirdTier: 3, holeDistMin: 520, holeDistMax: 840,
+  name: 'The Tumble', weirdTier: 3, holeDistMin: 400, holeDistMax: 600,
 });
 
 // ── The Moon (first stop off Earth) ────────────────────────
