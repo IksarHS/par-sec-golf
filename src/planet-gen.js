@@ -94,7 +94,7 @@
     COURSES[id] = {
       name: nm, worldName: nm, sky: sky,
       defaultMaterial: mat, materials: [mat],
-      gen: 'faceted', archetypes: ['gom'],
+      gen: 'faceted', archetypes: ['gom', 'gom_smooth'],   // mix angular + smooth holes (like real GoM)
       difficultyRange: [0.15, 1.15], holeDistMin: 420, holeDistMax: 760, holeCount: 9,
       phys: { gravityScale: 1, windScale: 1 },
     };

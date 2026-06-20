@@ -242,6 +242,27 @@ const archetypes = {
     return verts;
   },
 
+  // GoM SMOOTH style (refs: holes 148, 575, itch_01) — soft rounded rolling terrain, densely sampled so the
+  // engine's straight segments read as smooth curves. Amplitude grows with difficulty. Paired with 'gom'
+  // (angular) in the gom courses so holes alternate smooth/angular like real GoM.
+  gom_smooth(sx, sy, dist, cupY, diff) {
+    const verts = [];
+    const endX = sx + dist;
+    const amp = 28 + diff * 120;
+    const w1 = randRange(0.004, 0.008), p1 = random() * 6.283, a1 = amp * randRange(0.55, 1.0);
+    const w2 = randRange(0.011, 0.020), p2 = random() * 6.283, a2 = amp * randRange(0.18, 0.45);
+    const drift = randRange(-0.10, 0.10);
+    const off = a1 * Math.sin(p1) + a2 * Math.sin(p2);            // so the curve starts at ~sy (connects to tee)
+    for (let x = sx; x < endX - 70; x += 15) {
+      const t = x - sx;
+      verts.push({ x, y: clampY(sy + drift * t + a1 * Math.sin(t * w1 + p1) + a2 * Math.sin(t * w2 + p2) - off) });
+    }
+    const gy = verts.length ? verts[verts.length - 1].y : sy;     // flat green into the cup
+    verts.push({ x: endX - 60, y: clampY(gy) });
+    verts.push({ x: endX, y: clampY(gy) });
+    return verts;
+  },
+
   gentle_slope(sx, sy, dist, cupY, diff) {
     // Simple slope with one break point — like early DG holes
     const breakX = sx + dist * randRange(0.3, 0.6);
@@ -841,6 +862,7 @@ archetypes.faceted = function (sx, sy, dist, cupY, diff) {
 };
 ARCHETYPE_TABLE.push(['faceted', 0.0, 1.0, 1]);       // so pickArchetype selects it for faceted courses
 ARCHETYPE_TABLE.push(['gom', 0.0, 5.0, 1]);           // the GoM generator, selectable at every difficulty (?course=gom)
+ARCHETYPE_TABLE.push(['gom_smooth', 0.0, 5.0, 1]);    // GoM smooth-terrain style (mixes with 'gom' in the gom courses)
 
 // ── Main Terrain Generation ──────────────────────────────
 function generateHoleTerrain(holeIndex) {
