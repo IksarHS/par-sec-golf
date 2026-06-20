@@ -38,3 +38,28 @@ what already works.
 - Verify: screenshot an overhang/cave hole vs 134; bot completes; harness 25/25.
 
 ## Order (bang-for-buck): S → W → O → C. Commit + verify after each.
+
+---
+
+## STATUS (2026-06-20)
+- **Phase S (smooth)** ✅ — `gom_smooth` archetype; courses mix `gom` (angular) + `gom_smooth`. Verified.
+- **Phase W (water)** ✅ — REDESIGNED twice on feedback. Water is its own system (`water.js`), NOT terrain:
+  a flat pool baked per basin, rendered FLUSH to the actual terrain vertices (no stair-steps), with a
+  **settle-on-reveal ripple** (decaying standing wave → flat, visual-only). Hazard = touch → reshoot from
+  last safe; physics/harness use the flat baked level → deterministic. 25/25.
+- **Phase O (cacti)** ✅ — sparse green collidable obstacles (objects system). Grey-rock accent (RO2)
+  deferred (kept the clean single-colour GoM look). 25/25.
+- **Phase C (caves)** ⛔ NOT DONE — floating-mass overhangs were tried and PULLED (hurt completability +
+  weren't the cup-under-lip look). Needs the dedicated **polygon-slab** approach (see the plan file
+  `~/.claude/plans/so-none-of-these-recursive-lemur.md`): a separate `?course` test bed, reuse set-pieces
+  collision, simulate-validate, headless render. Do it as a focused build, NOT tacked onto other work.
+
+## Dynamic water sim (research + prototype, 2026-06-20)
+- `water-sim.html` (standalone) — compressible cellular-automata VOLUME (fills arbitrary crevices, settles
+  flat, handles overhangs, leak-free) + per-column SPRING surface (slosh). Hold left-mouse to pour →
+  fill → slosh → settle. This is the tool for water when terrain goes non-heightfield (carved caves).
+- Game integration chosen: **settle-then-bake** + **smooth water over real terrain** (both implemented for
+  the heightfield as the flush pool + reveal ripple; the full CA is reserved for non-heightfield terrain).
+
+## Verified in real-browser play (not just headless): no console errors, bot completes, terrain + water
+## render clean. Harness: `node tools/verify.cjs gom,gom-cobalt,gom-teal,gom-jade,gom-rose 5` = 25/25.
