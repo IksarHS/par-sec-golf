@@ -62,6 +62,7 @@
 <!-- Engine core (lean): no firebase / leaderboard / menu / autoplay / debug, no desert worlds, no generators. -->
 <script src="src/shared.js"></script>
 <script src="src/worlds/run.js"></script>
+<script src="src/planet-gen.js"></script>
 <script src="src/level-design.js"></script>
 <script src="src/moon-terrain.js"></script>
 <script src="src/weird-terrain.js"></script>
@@ -141,13 +142,15 @@
      intercepted by the atlas selector (galaxy.js), so this overrides it once RG is ready. -->
 <script>
 (function () {
-  var m = /[?&](?:course|gomoon)=(moon3|moon2|moon|earth4|earth3|earth2|earth-course|1|2|3)\b/.exec(location.search);
+  var m = /[?&](?:course|gomoon)=([a-z0-9-]+)/i.exec(location.search);
   if (!m) return;
-  var v = m[1];
-  var course = (v === '1') ? 'moon' : (v === '2') ? 'moon2' : (v === '3') ? 'moon3' : v;
+  var v = m[1].toLowerCase();
+  var alias = { '1': 'moon', '2': 'moon2', '3': 'moon3' };
+  var course = alias[v] || v;
   var n = 0;
   (function go() {
-    if (window.RG && RG.startRun && typeof holes !== 'undefined' && holes.length > 0) {
+    if (window.RG && RG.startRun && typeof holes !== 'undefined' && holes.length > 0
+        && WORLDS['run-world'] && WORLDS['run-world'].courses[course]) {   // only override for a REAL base course
       setTimeout(function () { try { RG.startRun({ course: course, seed: (RG.rollSeed ? RG.rollSeed() : 12345) }); } catch (e) {} }, 150);
     } else if (n++ < 240) setTimeout(go, 50);
   })();
