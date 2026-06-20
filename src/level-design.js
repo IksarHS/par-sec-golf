@@ -225,10 +225,11 @@ const archetypes = {
       else if (r < cliffP) {                                                                            // cliff (sharp step)
         const ny = clampY(y + (random() < 0.5 ? -1 : 1) * randRange(drama * 0.6, drama * 1.2));
         x += randRange(6, 18); verts.push({ x, y: ny }); y = ny; x += step * 0.45; verts.push({ x, y }); features++;
-      } else {                                                                                          // valley (dip to cross)
+      } else {                                                                                          // valley (dip to cross) — may hold WATER
         const vy = clampY(y + randRange(drama * 0.9, drama * 1.5));
-        x += step * 0.35; verts.push({ x, y }); x += randRange(30, 70); verts.push({ x, y: vy });
-        x += randRange(30, 70); verts.push({ x, y: vy }); x += step * 0.35; verts.push({ x, y }); features++;
+        const water = diff > 0.45 && random() < 0.4 ? 'water' : undefined;   // some deep valleys are lethal water (gated to harder holes)
+        x += step * 0.35; verts.push({ x, y }); x += randRange(30, 64); verts.push({ x, y: vy, mat: water });
+        x += randRange(30, 64); verts.push({ x, y: vy, mat: water }); x += step * 0.35; verts.push({ x, y }); features++;
       }
     }
     // guarantee drama on harder holes: if the random walk came out tame, carve one big feature
@@ -958,7 +959,7 @@ function generateHoleTerrain(holeIndex) {
   // Add micro-noise: subdivide long segments with subtle perturbations.
   // FACETED courses (Earth, in this port) skip micro-noise so the long straight facets stay clean.
   const holeVerts = (currentCourse && currentCourse.gen === 'faceted')
-    ? rawVerts.map(v => ({ x: v.x, y: clampY(v.y) }))
+    ? rawVerts.map(v => ({ x: v.x, y: clampY(v.y), mat: v.mat }))   // preserve archetype-set materials (e.g. gom water)
     : (currentCourse?.noiseFunction || addMicroNoise)(rawVerts, startX, teeY, difficulty);
 
   // The cup X is at the last feature vertex (end of hole)
