@@ -651,9 +651,14 @@ MODE = {
   },
 
   collide() {
+    // Moon: collide against the polygon terrain (overhangs/caves); other courses use the heightfield.
+    if (currentCourse && currentCourse.gen === 'field' && typeof moonCollide === 'function') {
+      ball.onGround = false;
+      const hit = moonCollide();
+      return hit;
+    }
     const terrain = collideWithTerrain();
     const obj = collideWithObjects();
-    // onGround if touching terrain OR an object surface
     ball.onGround = terrain || obj;
     return terrain || obj;
   },
@@ -778,7 +783,9 @@ MODE = {
   },
 
   drawWorld() {
-    drawTerrainDG();
+    // Moon: fill the polygon terrain (overhangs/caves); other courses fill the heightfield.
+    if (currentCourse && currentCourse.gen === 'field' && typeof moonDraw === 'function') moonDraw();
+    else drawTerrainDG();
 
     // Water layer — if current course uses water material, draw a flat blue band
     if (currentCourse?.materials?.includes('water')) {

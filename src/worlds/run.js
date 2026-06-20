@@ -83,12 +83,11 @@ WORLDS['run-world'].courses['moon'] = {
   sky: '#07070d',
   defaultMaterial: 'regolith',
   materials: ['regolith'],
-  archetypes: [
-    'gentle_slope', 'gentle_hill', 'downhill', 'uphill', 'rolling_hills', 'valley', 'shelf',
-  ],
+  gen: 'field',                   // NEW: Moon uses polygon terrain — faceted-folds (overhangs) + carved caves
+  archetypes: ['faceted'],
   difficultyRange: [0.1, 0.5],
-  holeDistMin: 420,
-  holeDistMax: 720,
+  holeDistMin: 460,
+  holeDistMax: 760,
   cupElevation: gentleCupElevation,
   holeCount: 9,
   phys: { gravityScale: 0.45, windScale: 0 },    // floaty but controllable — feel over realism (real lunar 0.165 was too extreme; designer call). first-pass value. vacuum

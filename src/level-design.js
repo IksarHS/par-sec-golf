@@ -808,6 +808,10 @@ ARCHETYPE_TABLE.push(['faceted', 0.0, 1.0, 1]);       // so pickArchetype select
 
 // ── Main Terrain Generation ──────────────────────────────
 function generateHoleTerrain(holeIndex) {
+  // Moon: polygon terrain with overhangs / carved caves (see moon-terrain.js)
+  if (currentCourse && currentCourse.gen === 'field' && typeof generateMoonHole === 'function') {
+    return generateMoonHole(holeIndex);
+  }
   // Use hand-defined hole if available
   const isDesertWorld = !currentWorld || currentWorld === WORLDS['desert-world-1'];
   if (isDesertWorld && HAND_DEFINED_HOLES[holeIndex]) {
