@@ -101,6 +101,22 @@ function _loopEdges(loop) {
   return edges;
 }
 
+// Pick the cup x by scanning the valid distance range for the FLATTEST, BROADEST patch of ground —
+// the lesson from the original (archetypes end the hole on a flat spot / GoM cups sit on plateaus).
+// Avoids dropping the cup into a V-notch between peaks.
+function _pickCupX(lo, hi) {
+  let bestX = (lo + hi) / 2, best = 1e9;
+  for (let x = lo; x <= hi; x += 12) {
+    let mn = 1e9, mx = -1e9, sum = 0, n = 0;
+    for (let dx = -65; dx <= 65; dx += 13) { const y = _topSolid(x + dx); if (y < mn) mn = y; if (y > mx) mx = y; sum += y; n++; }
+    const spread = mx - mn;                 // flatness (smaller = flatter)
+    const height = sum / n;                 // slight preference for higher ground (plateaus, not pits)
+    const score = spread + height * 0.06;
+    if (score < best) { best = score; bestX = x; }
+  }
+  return bestX;
+}
+
 function generateWeirdHole(holeIndex) {
   if (!WEIRD) _weirdInit();
   let teeX, teeY;
@@ -110,12 +126,11 @@ function generateWeirdHole(holeIndex) {
   const difficulty = getDifficulty(holeIndex);
   const effW = Math.max(960, W), maxDist = (typeof window !== 'undefined' && window.RG && window.RG._holeDistCap) ? window.RG._holeDistCap : (effW - 190);
   const dMin = currentCourse.holeDistMin != null ? currentCourse.holeDistMin : 480, dMax = currentCourse.holeDistMax != null ? currentCourse.holeDistMax : 800;
-  const dist = Math.min(dMin + random() * (dMax - dMin) + difficulty * 60, maxDist);
-  const cupX = teeX + dist;
+  const cupX = _pickCupX(teeX + dMin, teeX + Math.min(dMax, maxDist));   // flattest broad spot → a real green plateau
   // green level = surfY at the cup (warp + bias are suppressed there) → the surface sits exactly here,
   // so the rim, the rendered ground, terrainYAt and the flag all agree, on a thick landable shelf.
   const greenY = WEIRD.baseSurf(cupX);
-  WEIRD.cups.push({ x: cupX, greenY, flat: 115, dead: 52 });
+  WEIRD.cups.push({ x: cupX, greenY, flat: 165, dead: 80 });             // a broad flat green plateau (like the GoM reference)
 
   // build the hole's polygon terrain (window wider than a screen so closures are off-screen)
   const x0 = teeX - 200, x1 = cupX + 280, y0 = -70, y1 = H + 100;
