@@ -381,6 +381,108 @@ const archetypes = {
     return v;
   },
 
+  // ISLAND GREEN: the cup sits on a small island in the MIDDLE of open water — land it or splash. Water on
+  // BOTH sides of the pin (uses the cup-anywhere unlock). Tee shore → water → island (cup) → water → far shore.
+  island_green(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = sy;
+    const floorY = clampY(H * 0.9);
+    const isl = clampY(base);
+    const cx = sx + dist * randRange(0.46, 0.6), half = randRange(50, 72);   // island half-width (landable)
+    return [
+      { x: sx, y: clampY(base) },
+      { x: sx + dist * 0.2, y: clampY(base) },               // tee shore
+      { x: sx + dist * 0.2 + 18, y: floorY },                // drop to water
+      { x: cx - half - 14, y: floorY },
+      { x: cx - half, y: isl },                              // island rises
+      { x: cx, y: isl, cup: true },                          // CUP on the island
+      { x: cx + half, y: isl },
+      { x: cx + half + 14, y: floorY },                      // drop to water
+      { x: endX - dist * 0.18, y: floorY },
+      { x: endX - 60, y: clampY(base) },                     // far shore
+      { x: endX, y: clampY(base) },
+    ];
+  },
+
+  // SEA STACK: the cup CROWNS a freestanding monolith rising from deep water mid-hole (the true spire, now
+  // possible). Tee shore → deep water → tall narrow stack (cup on top) → deep water → far shore.
+  sea_stack(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = sy;
+    const floorY = clampY(H * 0.9);
+    const crown = clampY(Math.min(base, H * 0.34) - diff * 22);
+    const cx = sx + dist * randRange(0.46, 0.6), half = randRange(42, 58);   // narrow crown — precise landing
+    return [
+      { x: sx, y: clampY(base) },
+      { x: sx + dist * 0.2, y: clampY(base) },               // tee shore
+      { x: sx + dist * 0.2 + 18, y: floorY },                // deep water
+      { x: cx - half - 16, y: floorY },
+      { x: cx - half, y: crown },                            // stack rises near-vertical
+      { x: cx, y: crown, cup: true },                        // CUP crowns the monolith
+      { x: cx + half, y: crown },
+      { x: cx + half + 16, y: floorY },                      // deep water
+      { x: endX - dist * 0.18, y: floorY },
+      { x: endX - 60, y: clampY(base) },                     // far shore
+      { x: endX, y: clampY(base) },
+    ];
+  },
+
+  // ── new NON-water complex archetypes ────────────────────────────────────────────────────────────────
+  // CRATER: a raised rim with the cup sunk in a bowl on top — lob UP then drop INTO the crater (cup-anywhere).
+  crater(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const rimY = clampY(Math.min(sy, H * 0.42) - 24 - diff * 46);
+    const bowlY = clampY(rimY + randRange(52, 92));
+    const cx = sx + dist * randRange(0.5, 0.62), rimHalf = randRange(70, 105);
+    return [
+      { x: sx, y: base },
+      { x: cx - rimHalf - 46, y: clampY(lerp(base, rimY, 0.6)) },   // climb to the rim
+      { x: cx - rimHalf, y: rimY },                                 // near rim
+      { x: cx - rimHalf * 0.45, y: bowlY },                         // inner wall down
+      { x: cx, y: bowlY, cup: true },                              // CUP in the crater
+      { x: cx + rimHalf * 0.45, y: bowlY },
+      { x: cx + rimHalf, y: rimY },                                 // far rim
+      { x: endX - 60, y: clampY(lerp(rimY, base, 0.45)) },
+      { x: endX, y: base },
+    ];
+  },
+
+  // PUNCHBOWL: a big smooth funnel — anything landing in the bowl gathers to the cup at the bottom centre.
+  // A forgiving, satisfying "gather" hole (contrast to the brutal carries).
+  punchbowl(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const cx = sx + dist * randRange(0.52, 0.64), bowlW = randRange(170, 260);
+    const botY = clampY(Math.max(base, H * 0.62) + randRange(36, 80));
+    const rimY = clampY(botY - randRange(80, 140));
+    return [
+      { x: sx, y: base },
+      { x: cx - bowlW, y: rimY },                                   // left rim
+      { x: cx - bowlW * 0.55, y: clampY(lerp(rimY, botY, 0.55)) },  // funnel down
+      { x: cx - bowlW * 0.2, y: clampY(lerp(rimY, botY, 0.9)) },
+      { x: cx, y: botY, cup: true },                               // CUP at the bottom (gathers)
+      { x: cx + bowlW * 0.2, y: clampY(lerp(rimY, botY, 0.9)) },
+      { x: cx + bowlW * 0.55, y: clampY(lerp(rimY, botY, 0.55)) },  // funnel up
+      { x: cx + bowlW, y: rimY },                                   // right rim
+      { x: endX, y: base },
+    ];
+  },
+
+  // ZIGGURAT: a stepped pyramid climbing to a cup on the top terrace — a staircase of ledges to bank up.
+  ziggurat(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const steps = 3 + Math.floor(randRange(0, 2.4));             // 3–5 steps
+    const topY = clampY(Math.min(sy, H * 0.34) - diff * 30);
+    const dy = (base - topY) / steps, stepW = (dist * 0.72) / steps;
+    const v = [{ x: sx, y: base }];
+    let x = sx + dist * 0.14, y = base;
+    for (let i = 0; i < steps; i++) {
+      y = clampY(base - dy * (i + 1));
+      x += 14; v.push({ x, y });                                  // riser
+      x += stepW - 14; v.push({ x, y });                         // terrace
+    }
+    v.push({ x: Math.min(x + 12, endX - 50), y, cup: true });     // CUP on the top terrace
+    v.push({ x: endX, y });
+    return v;
+  },
+
   gentle_slope(sx, sy, dist, cupY, diff) {
     // Simple slope with one break point — like early DG holes
     const breakX = sx + dist * randRange(0.3, 0.6);
@@ -986,6 +1088,11 @@ ARCHETYPE_TABLE.push(['gom_lake', 0.0, 5.0, 1]);      // one big carry-the-lake 
 ARCHETYPE_TABLE.push(['spire_drown', 0.0, 5.0, 1]);   // cup on a monolith over a flooded abyss (deep-water worlds)
 ARCHETYPE_TABLE.push(['cenote', 0.0, 5.0, 1]);        // carry a flooded sinkhole to the far rim
 ARCHETYPE_TABLE.push(['gauntlet', 0.0, 5.0, 1]);      // stepping-stone spires across a drowned rift
+ARCHETYPE_TABLE.push(['island_green', 0.0, 5.0, 1]);  // cup on a mid-water island (cup-anywhere)
+ARCHETYPE_TABLE.push(['sea_stack', 0.0, 5.0, 1]);     // cup crowns a freestanding monolith in deep water
+ARCHETYPE_TABLE.push(['crater', 0.0, 5.0, 1]);        // cup in a bowl atop a raised rim
+ARCHETYPE_TABLE.push(['punchbowl', 0.0, 5.0, 1]);     // forgiving funnel that gathers to the cup
+ARCHETYPE_TABLE.push(['ziggurat', 0.0, 5.0, 1]);      // stepped climb to a cup on the top terrace
 
 // ── Main Terrain Generation ──────────────────────────────
 function generateHoleTerrain(holeIndex) {
@@ -1081,7 +1188,7 @@ function generateHoleTerrain(holeIndex) {
   // Add micro-noise: subdivide long segments with subtle perturbations.
   // FACETED courses (Earth, in this port) skip micro-noise so the long straight facets stay clean.
   const holeVerts = (currentCourse && currentCourse.gen === 'faceted')
-    ? rawVerts.map(v => ({ x: v.x, y: clampY(v.y), mat: v.mat }))   // preserve archetype-set materials (e.g. gom water)
+    ? rawVerts.map(v => ({ x: v.x, y: clampY(v.y), mat: v.mat, cup: v.cup }))   // preserve archetype-set materials (gom water) + cup-anywhere flag
     : (currentCourse?.noiseFunction || addMicroNoise)(rawVerts, startX, teeY, difficulty);
 
   // The cup X is at the last feature vertex (end of hole)
@@ -1111,19 +1218,24 @@ function generateHoleTerrain(holeIndex) {
   for (const v of holeVerts) {
     vertices.push(v);
   }
-  const cupX = lastVert.x;
-  const cupSurfaceY = lastVert.y;
+  // CUP can be placed anywhere: an archetype may mark a vertex `cup:true` (a mid-hole spire crown, an island,
+  // under an overhang…). Otherwise the cup is the last vertex (the classic end-of-hole green).
+  const cupVert = holeVerts.find(v => v.cup) || lastVert;
+  const cupX = cupVert.x;
+  const cupSurfaceY = cupVert.y;
+  const cupIsEnd = (cupVert === lastVert);
 
-  // Add background terrain past the cup
+  // Add background terrain past the cup — ONLY when the cup is the hole's end. A mid-hole cup already has
+  // terrain continuing past it (the archetype drew it), so adding background would corrupt it.
   const maxHoles = currentCourse?.holeCount ?? Infinity;
   const isLastHole = (holeIndex === maxHoles - 1);
 
-  if (isLastHole) {
+  if (cupIsEnd && isLastHole) {
     // Last hole: cliff edge — terrain drops off sharply
     const cliffX = cupX + 80;
     vertices.push({ x: cliffX, y: cupSurfaceY });
     vertices.push({ x: cliffX + 10, y: H + 200 }); // straight down
-  } else {
+  } else if (cupIsEnd) {
     // Normal: gentle background terrain extending right
     const bgY = cupSurfaceY;
     const backstop = currentCourse?.backstopBias || 0;

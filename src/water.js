@@ -9,10 +9,23 @@
 let _waters = [];          // [{x0, x1, surfaceY, hole}]
 let _waterFrame = 0;
 let _waterSafe = null;     // last ball rest OUTSIDE any water (reshoot target)
+let _splash = [];          // splash droplets {x,y,vx,vy,life,max}
+let _ripples = [];         // expanding surface rings {x,y,r,life,max}
+
+function _spawnSplash(x, y, power) {
+  const n = 9 + Math.round(power * 6);
+  for (let i = 0; i < n; i++) {
+    const t = (i / (n - 1) - 0.5);                       // -0.5..0.5 across the fan
+    const sp = (1.3 + Math.abs(t) * 2.4) * (0.8 + power * 0.5);
+    _splash.push({ x, y, vx: t * 3.2, vy: -sp - 1.0, life: 0, max: 20 + (i % 5) * 5 });
+  }
+  _ripples.push({ x, y, r: 4, life: 0, max: 26 });
+  _ripples.push({ x, y, r: 4, life: -7, max: 32 });     // a second ring, delayed
+}
 
 // scan a hole for the deepest basin; if deep enough + gated, register a flat pool that fills it ~to the rim
 function placeWater(holeIndex) {
-  if (holeIndex === 0) { _waters = []; _waterSafe = null; }      // fresh course
+  if (holeIndex === 0) { _waters = []; _waterSafe = null; _splash = []; _ripples = []; }   // fresh course
   if (typeof holes === 'undefined' || !holes[holeIndex] || typeof terrainYAt !== 'function') return;
   // SEA-LEVEL flood (water planets): one global water line → EVERYTHING below it floods into islands/
   // lagoons. The tee + cup greens sit above the line (dry); deep valleys become water the ball must carry.
@@ -108,24 +121,49 @@ function drawWater() {
     }
     ctx.stroke();
   }
+  // splash droplets + expanding ripples (water-entry juice)
+  for (let i = _ripples.length - 1; i >= 0; i--) {
+    const r = _ripples[i]; r.life++; if (r.life < 0) continue; r.r += 1.7;
+    if (r.life > r.max) { _ripples.splice(i, 1); continue; }
+    ctx.strokeStyle = 'rgba(200,232,248,' + (1 - r.life / r.max) * 0.5 + ')'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(r.x, r.y, r.r, r.r * 0.38, 0, 0, 6.283); ctx.stroke();
+  }
+  for (let i = _splash.length - 1; i >= 0; i--) {
+    const p = _splash[i]; p.life++; p.vy += 0.16; p.x += p.vx; p.y += p.vy;
+    if (p.life > p.max) { _splash.splice(i, 1); continue; }
+    ctx.fillStyle = 'rgba(155,212,242,' + (1 - p.life / p.max) * 0.9 + ')';
+    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+  }
 }
 
-// hazard: ball touching the pool surface = splash → reshoot from last safe. Also keeps _waterSafe fresh.
+// hazard: the ball PLOPS into the water (splash + a short sink with water drag), then goes out of bounds —
+// reshoot from the last safe rest. Keeps _waterSafe fresh on land rests.
 function collideWater() {
   if (typeof ball === 'undefined' || typeof currentHole === 'undefined') return false;
-  let inWater = false;
+  let wreg = null;
   for (const w of _waters) {
     if (w.hole !== currentHole) continue;
-    if (ball.x >= w.x0 && ball.x <= w.x1 && ball.y >= w.surfaceY - BALL_RADIUS && terrainYAt(ball.x) > w.surfaceY) { inWater = true; break; }
+    if (ball.x >= w.x0 && ball.x <= w.x1 && ball.y >= w.surfaceY - BALL_RADIUS && terrainYAt(ball.x) > w.surfaceY) { wreg = w; break; }
   }
-  if (inWater) {
-    const safe = _waterSafe || ((window.RG && RG._lastSafe) ? RG._lastSafe : { x: holes[currentHole].teeX });
-    const sx = safe.x, sy = terrainYAt(sx) - BALL_RADIUS;
-    ball.x = sx; ball.y = sy; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true;
-    if (typeof state !== 'undefined' && typeof STATE_AIM !== 'undefined') state = STATE_AIM;
+  if (wreg) {
+    if (ball._waterT == null) {                          // moment of entry → splash sized to impact speed
+      ball._waterT = 0;
+      const spd = Math.min(2, Math.hypot(ball.vx || 0, ball.vy || 0) / 7);
+      _spawnSplash(ball.x, wreg.surfaceY, spd);
+    }
+    ball._waterT++;
+    ball.vx *= 0.68; ball.vy = ball.vy * 0.5 + 0.55;     // water physics: heavy drag, slow sink
+    ball.atRest = false; ball.onGround = false;
+    if (ball._waterT >= 13) {                            // sunk → out of bounds, reshoot from last safe
+      const safe = _waterSafe || ((window.RG && RG._lastSafe) ? RG._lastSafe : { x: holes[currentHole].teeX });
+      const sx = safe.x, sy = terrainYAt(sx) - BALL_RADIUS;
+      ball.x = sx; ball.y = sy; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true;
+      if (typeof state !== 'undefined' && typeof STATE_AIM !== 'undefined') state = STATE_AIM;
+      ball._waterT = null;
+    }
     return true;
   }
-  // remember a safe spot whenever the ball rests on land
-  if (ball.atRest && !inWater) _waterSafe = { x: ball.x };
+  ball._waterT = null;
+  if (ball.atRest) _waterSafe = { x: ball.x };           // remember the last dry rest
   return false;
 }

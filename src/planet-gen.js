@@ -32,7 +32,7 @@
     ['rolling_hills', 'valley', 'shelf', 'cliff_drop'],                              // t1  ~0.2  (angular)
     ['mesa', 'peak_obstacle', 'stepped_descent', 'dramatic_ridge'],                  // t2  ~0.4  (dramatic)
     ['canyon', 'twin_peaks', 'deep_plunge', 'shelf_drop_shelf', 'cliff_valley_climb'], // t3 ~0.6 (big)
-    ['compound_terrain', 'dramatic_ridge', 'deep_plunge', 'twin_peaks', 'stepped_descent', 'fortress', 'narrow_gap', 'canyon_cup', 'deep_pocket'], // t4 ~0.8 (gnarly cup-trapping archetypes added back — measuring completability via tools/verify.cjs)
+    ['compound_terrain', 'dramatic_ridge', 'deep_plunge', 'twin_peaks', 'stepped_descent', 'fortress', 'narrow_gap', 'canyon_cup', 'deep_pocket', 'crater', 'punchbowl', 'ziggurat'], // t4 ~0.8 (gnarly + new crater/punchbowl/ziggurat)
   ];
   function archetypesFor(c) {
     const upto = Math.min(TIERS.length, 1 + Math.floor(c / 0.2 + 0.001));
@@ -119,8 +119,8 @@
   // holes with lots of water, complex holes with a little, complex holes with complex water, etc.
   const WATER_WORLDS = [
     // id,    name,             land,    sky,       waterBias, surface waterColor,      deep waterDeep,         archetypes,         difficulty
-    ['sea',   'Sunken Reach',   'amber', '#cdeef2', 0.6,  'rgba(40,165,190,0.90)', 'rgba(8,44,74,0.97)',  ['gom', 'gom_islands', 'gom_lake'], [0.25, 0.9]],
-    ['atoll', 'The Shoals',     'bone',  '#d6f0ec', 0.82, 'rgba(54,186,196,0.88)', 'rgba(10,58,80,0.97)', ['gom', 'gom_islands'],            [0.2, 0.82]],
+    ['sea',   'Sunken Reach',   'amber', '#cdeef2', 0.6,  'rgba(40,165,190,0.90)', 'rgba(8,44,74,0.97)',  ['gom', 'gom_islands', 'gom_lake', 'island_green', 'sea_stack'], [0.25, 0.9]],
+    ['atoll', 'The Shoals',     'bone',  '#d6f0ec', 0.82, 'rgba(54,186,196,0.88)', 'rgba(10,58,80,0.97)', ['gom', 'gom_islands', 'island_green', 'sea_stack'],            [0.2, 0.82]],
     ['lakes', 'Drowned Canyons','jade',  '#bcd6e0', 0.45, 'rgba(64,135,205,0.90)', 'rgba(8,28,66,0.97)',  ['gom', 'gom', 'gom_lake'],        [0.45, 0.97]],
   ];
   for (const [id, nm, mat, sky, wbias, wcol, wdeep, arch, diff] of WATER_WORLDS) {
@@ -140,7 +140,7 @@
     name: 'The Abyss', worldName: 'The Abyss', sky: '#0c1622',
     defaultMaterial: 'slate', materials: ['slate'],
     gen: 'faceted',
-    archetypes: ['spire_drown', 'cenote', 'gauntlet', 'canyon_cup', 'deep_pocket'],
+    archetypes: ['spire_drown', 'cenote', 'gauntlet', 'canyon_cup', 'deep_pocket', 'island_green', 'sea_stack'],
     difficultyRange: [0.6, 0.95], holeDistMin: 500, holeDistMax: 820, holeCount: 9,
     planetComplexity: 0.9,                                  // → overhang set-pieces over the chasms
     floodWater: true, waterBias: 0.72,
