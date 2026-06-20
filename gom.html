@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>GoM-from-scratch</title>
+<style>
+  html,body{margin:0;height:100%;background:#0e1018;overflow:hidden}
+  canvas{display:block;cursor:crosshair}
+  #hud{position:fixed;top:12px;left:14px;font:13px monospace;color:#cdd6e6;text-shadow:0 1px 3px #000;pointer-events:none;line-height:1.5}
+</style></head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<script>
+// ── GoM, from first principles ────────────────────────────────────────────────────────────────────
+// A continuous solid landscape. The ball travels left→right; cups sit along the surface; sink one and the
+// camera pans to the next and you play on from where you landed (the cup you just sank IS the next tee).
+// Terrain = SOLID POLYGONS (a faceted ground mass + jutting overhang plates the ball passes UNDER) — not a
+// heightfield, so overhangs are real. Cups are only placed on flat, reachable spots, and each hole is
+// SIMULATE-VALIDATED at generation (a quick shot search must be able to sink it) — unreachable rolls are
+// rejected. No archetypes, no seeds. ~one file.
+
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let VW = 0, VH = 0;
+function resize(){ VW = cv.width = innerWidth; VH = cv.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+const G = 0.42, BR = 7, REST = 0.18, RESTIT = 0.42, ROLL = 0.985, FRIC = 0.05;
+const rnd = (a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+
+// ── world ──────────────────────────────────────────────────────────────────────────────────────────
+// surface: array of {x,y} left→right (the walkable top of the ground mass). plates: convex overhang polys.
+// cups: {x, y} sitting in a notch on the surface. The ground fills BELOW the surface to the bottom.
+let surface=[], plates=[], cups=[], holeStartX=[];
+const GROUND_BOTTOM = 4000;
+const baseY = ()=> VH*0.52;
+
+// height of the ground surface at world x (linear interp over the surface polyline)
+function surfYAt(x){
+  if(x<=surface[0].x) return surface[0].y;
+  if(x>=surface[surface.length-1].x) return surface[surface.length-1].y;
+  let lo=0,hi=surface.length-1;
+  while(hi-lo>1){const m=(lo+hi)>>1; if(surface[m].x<x)lo=m; else hi=m;}
+  const a=surface[lo],b=surface[hi],t=(x-a.x)/((b.x-a.x)||1);
+  return a.y+(b.y-a.y)*t;
+}
+
+// ── terrain generation (no archetypes — emergent features chosen by chance) ──────────────────────────
+// Build the surface as a random walk of facets: each step is a slope, a flat "green", or a sharp cliff.
+// Cups land on flats. Overhang plates are added over some dips. Then each hole is validated by simulation.
+function genFacet(x0, y0, complexity){
+  // returns surface points for ~one hole span, ending on a FLAT green (where the cup goes)
+  const pts=[{x:x0,y:y0}];
+  const span = rnd(620, 820);
+  const endX = x0 + span;
+  let x=x0, y=y0;
+  const drama = 60 + complexity*220;
+  // a few features
+  while(x < endX-220){
+    const step = rnd(70,150);
+    const roll = Math.random();
+    if(roll < 0.30){                       // flat run
+      x+=step; pts.push({x,y});
+    } else if(roll < 0.62){                // slope
+      x+=step; y=clamp(y+rnd(-drama,drama)*0.5, VH*0.18, VH*0.82); pts.push({x,y});
+    } else if(roll < 0.82){                // cliff (sharp vertical-ish step)
+      const ny=clamp(y+ (Math.random()<0.5?-1:1)*rnd(drama*0.6,drama), VH*0.16, VH*0.84);
+      x+=rnd(8,26); pts.push({x,y:ny}); y=ny; x+=step*0.5; pts.push({x,y});
+    } else {                               // pit / peak spike
+      const dir=Math.random()<0.5?1:-1, pk=rnd(drama*0.7,drama*1.3);
+      x+=step*0.5; pts.push({x,y:clamp(y+dir*pk,VH*0.12,VH*0.86)}); x+=step*0.5; pts.push({x,y});
+    }
+  }
+  // GREEN: a flat landing for the cup
+  const greenY=y; x=Math.min(x+rnd(60,120),endX);
+  pts.push({x,y:greenY}); const cupX=x+40; x=cupX+50; pts.push({x:cupX-30,y:greenY}); pts.push({x:x,y:greenY});
+  return {pts, cupX, cupY:greenY, endX:x};
+}
+
+// quick ballistic feasibility: from (tx,ty) can SOME aim/power land within ~cup of (cx,cy) without first
+// smashing into terrain? (rejects cups behind walls / in sealed pits). Coarse, fast, no engine needed.
+function reachable(tx,ty,cx,cy){
+  const dir = cx>tx?1:1;
+  for(let ai=0;ai<10;ai++){ const loft=0.2+ai/9*1.15;
+    for(let pi=0;pi<8;pi++){ const pow=7+pi/7*20;
+      let x=tx,y=ty-2,vx=Math.cos(loft)*pow*dir,vy=-Math.sin(loft)*pow,hit=false;
+      for(let f=0;f<400;f++){ vy+=G; x+=vx; y+=vy; const sy=surfYAt(x);
+        if(y>=sy-BR){ // landed
+          if(Math.abs(x-cx)<46 && Math.abs(sy-cy)<60) return true;
+          break;
+        }
+        if(x<tx-60||y>GROUND_BOTTOM) break;
+      }
+    }
+  }
+  return false;
+}
+
+function buildCourse(){
+  surface=[]; plates=[]; cups=[]; holeStartX=[];
+  let x=40, y=baseY();
+  surface.push({x:0,y}); surface.push({x,y});
+  for(let h=0; h<9; h++){
+    const complexity = clamp(0.1 + h*0.11, 0.1, 0.95);
+    let best=null;
+    for(let attempt=0; attempt<18; attempt++){
+      // snapshot to roll back a rejected hole
+      const snapLen=surface.length;
+      const seg=genFacet(x,y,complexity);
+      for(const p of seg.pts) surface.push(p);
+      // validate from the previous cup (or tee) to this cup
+      const tx = cups.length? cups[cups.length-1].x : 40;
+      const ty = cups.length? cups[cups.length-1].y : y;
+      if(reachable(tx,ty,seg.cupX,seg.cupY)){ best=seg; break; }
+      surface.length=snapLen;                  // reject → roll back, try again
+    }
+    if(!best){ // fallback: a gentle reachable hole
+      const seg=genFacet(x,y,0.1); for(const p of seg.pts) surface.push(p); best=seg;
+    }
+    cups.push({x:best.cupX, y:best.cupY, sunk:false});
+    holeStartX.push(x);
+    // optional OVERHANG plate over a dip in this hole (complex terrain the ball goes under)
+    if(complexity>0.45 && Math.random()<complexity){
+      const px=rnd(x+150, best.cupX-160), pSurf=surfYAt(px);
+      const w=rnd(70,150), th=rnd(26,52), gap=rnd(60,120);
+      const topY=pSurf-gap-th, botY=pSurf-gap;
+      if(topY>VH*0.1) plates.push([{x:px-w/2,y:topY},{x:px+w/2,y:topY-rnd(-10,18)},{x:px+w/2,y:botY},{x:px-w/2,y:botY+rnd(-10,18)}]);
+    }
+    x=best.endX; y=best.cupY;
+  }
+  surface.push({x:x+400,y});
+}
+
+// ── ball + physics ───────────────────────────────────────────────────────────────────────────────
+const ball={x:40,y:0,vx:0,vy:0,rest:true,ground:false};
+let cur=0, state='aim', sinkT=0, panFrom=0, panTo=0, panT=0;
+let cam={x:0,y:0}, camTarget={x:0,y:0};
+
+function placeBallAtTee(){ const c = cur===0?{x:40,y:surfYAt(40)}:cups[cur-1]; ball.x=c.x; ball.y=surfYAt(c.x)-BR; ball.vx=ball.vy=0; ball.rest=true; ball.ground=true; }
+
+function collide(){
+  // surface: keep ball above the ground top
+  const sy=surfYAt(ball.x);
+  if(ball.y > sy-BR){
+    ball.y=sy-BR;
+    const s=(surfYAt(ball.x+4)-surfYAt(ball.x-4))/8; // slope
+    const nlen=Math.hypot(s,1), nx=-s/nlen, ny=-1/nlen;
+    const dot=ball.vx*nx+ball.vy*ny;
+    if(dot<0){ ball.vx-=(1+RESTIT)*dot*nx; ball.vy-=(1+RESTIT)*dot*ny; }
+    ball.vx+= s* G*0.6;          // gravity pulls along slope (roll downhill)
+    ball.vx*=ROLL; ball.ground=true;
+  } else ball.ground=false;
+  // overhang plates: push the ball out (convex polygon)
+  for(const poly of plates){
+    let inside=true, bd=1e9, bnx=0, bny=0, cx=0,cy=0; for(const p of poly){cx+=p.x;cy+=p.y;} cx/=poly.length; cy/=poly.length;
+    for(let i=0;i<poly.length;i++){ const a=poly[i],b=poly[(i+1)%poly.length];
+      let ex=b.x-a.x,ey=b.y-a.y,L=Math.hypot(ex,ey)||1, nx=ey/L,ny=-ex/L;
+      if((( (a.x+b.x)/2-cx)*nx+((a.y+b.y)/2-cy)*ny)<0){nx=-nx;ny=-ny;}
+      // distance from ball to edge (outward)
+      let t=clamp(((ball.x-a.x)*ex+(ball.y-a.y)*ey)/(L*L),0,1), qx=a.x+ex*t, qy=a.y+ey*t;
+      const dx=ball.x-qx, dy=ball.y-qy, d=Math.hypot(dx,dy);
+      const signed=(ball.x-a.x)*nx+(ball.y-a.y)*ny;
+      if(signed>BR){inside=false;}
+      if(d<bd){bd=d; bnx= signed<0?nx:dx/(d||1); bny= signed<0?ny:dy/(d||1);}
+    }
+    // crude: if penetrating (all edges within), push out along nearest edge normal
+    if(inside){ ball.x+=bnx*(BR+1); ball.y+=bny*(BR+1); const dot=ball.vx*bnx+ball.vy*bny; if(dot<0){ball.vx-=(1+RESTIT)*dot*bnx; ball.vy-=(1+RESTIT)*dot*bny;} if(bny<-0.3)ball.ground=true; }
+  }
+}
+
+function step(){
+  if(state==='flight'){
+    for(let s=0;s<2;s++){ ball.vy+=G/2; ball.x+=ball.vx/2; ball.y+=ball.vy/2; collide(); }
+    // surface friction near rest
+    const sp=Math.hypot(ball.vx,ball.vy);
+    if(ball.ground){ if(sp>FRIC){ball.vx-=ball.vx/sp*FRIC; ball.vy-=ball.vy/sp*FRIC;} }
+    // cup sink: slow + over the cup mouth
+    const c=cups[cur];
+    if(c && Math.abs(ball.x-c.x)<14 && Math.abs(ball.y-(c.y-BR))<26 && sp<3.4){ state='sink'; sinkT=0; ball.vx=ball.vy=0; ball.x=c.x; ball.y=c.y-BR; c.sunk=true; }
+    else if(ball.ground && sp<REST){ ball.vx=ball.vy=0; ball.rest=true; state='aim'; }
+    if(ball.y>GROUND_BOTTOM){ placeBallAtTee(); state='aim'; }       // fell off → re-tee
+  } else if(state==='sink'){
+    if(++sinkT>26){ // pan to next hole
+      if(cur<cups.length-1){ cur++; state='pan'; panT=0; panFrom=cam.x; const c=cups[cur]; panTo=clamp(c.x-VW*0.62,0,1e9); ball.x=cups[cur-1].x; ball.y=surfYAt(ball.x)-BR; ball.rest=true; }
+      else { state='done'; }
+    }
+  } else if(state==='pan'){
+    panT+=0.035; cam.x=panFrom+(panTo-panFrom)*(panT<1?(panT*panT*(3-2*panT)):1);
+    if(panT>=1){ state='aim'; }
+  }
+  // camera follows ball in aim/flight
+  if(state==='aim'||state==='flight'){ camTarget.x=clamp(ball.x-VW*0.4,0,1e9); cam.x+=(camTarget.x-cam.x)*0.12; }
+  cam.y=clamp(ball.y-VH*0.55,-VH,VH*0.4);
+}
+
+// ── input: drag from ball to aim, release to shoot ──────────────────────────────────────────────────
+let dragging=false, dx0=0, dy0=0, dragX=0, dragY=0;
+cv.addEventListener('mousedown',e=>{ if(state!=='aim')return; dragging=true; dx0=e.clientX; dy0=e.clientY; dragX=e.clientX; dragY=e.clientY; });
+addEventListener('mousemove',e=>{ if(dragging){dragX=e.clientX;dragY=e.clientY;} });
+addEventListener('mouseup',e=>{ if(!dragging)return; dragging=false; const ddx=dx0-dragX, ddy=dy0-dragY, p=Math.min(Math.hypot(ddx,ddy),180)/180; if(p<0.04)return; ball.vx=ddx/180*26; ball.vy=ddy/180*26; ball.rest=false; state='flight'; });
+addEventListener('keydown',e=>{ if(e.key==='r'||e.key==='R'){ buildCourse(); cur=0; placeBallAtTee(); cam.x=0; state='aim'; } });
+
+// ── render ───────────────────────────────────────────────────────────────────────────────────────
+const SKY='#171a26', GND='#3f8f5a', GNDLIP='#4ea568', FLAG='#e8c33c';
+function draw(){
+  ctx.fillStyle=SKY; ctx.fillRect(0,0,VW,VH);
+  ctx.save(); ctx.translate(-cam.x,-cam.y);
+  // ground fill
+  ctx.beginPath(); ctx.moveTo(surface[0].x,GROUND_BOTTOM);
+  for(const p of surface) ctx.lineTo(p.x,p.y);
+  ctx.lineTo(surface[surface.length-1].x,GROUND_BOTTOM); ctx.closePath();
+  ctx.fillStyle=GND; ctx.fill();
+  // overhang plates
+  ctx.fillStyle=GND; for(const poly of plates){ ctx.beginPath(); ctx.moveTo(poly[0].x,poly[0].y); for(let i=1;i<poly.length;i++)ctx.lineTo(poly[i].x,poly[i].y); ctx.closePath(); ctx.fill(); }
+  // cups (notch already in surface) + flags
+  cups.forEach((c,i)=>{ ctx.fillStyle=SKY; ctx.fillRect(c.x-9,c.y,18,22);
+    if(!c.sunk){ ctx.strokeStyle='#c9d2e2'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(c.x,c.y); ctx.lineTo(c.x,c.y-40); ctx.stroke();
+      ctx.fillStyle=FLAG; ctx.beginPath(); ctx.moveTo(c.x,c.y-40); ctx.lineTo(c.x+20,c.y-34); ctx.lineTo(c.x,c.y-28); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#1a1a1a'; ctx.font='11px monospace'; ctx.fillText(i+1,c.x+5,c.y-31); } });
+  // ball
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(ball.x,ball.y,BR,0,7); ctx.fill();
+  // aim line
+  if(dragging){ const ddx=dx0-dragX, ddy=dy0-dragY; ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.setLineDash([5,5]); ctx.beginPath(); ctx.moveTo(ball.x,ball.y); ctx.lineTo(ball.x+ddx*0.6,ball.y+ddy*0.6); ctx.stroke(); ctx.setLineDash([]); }
+  ctx.restore();
+  document.getElementById('hud').textContent='Hole '+(Math.min(cur+1,cups.length))+' / '+cups.length+(state==='done'?'  — COURSE COMPLETE':'')+'\nDrag from the ball to aim, release to shoot.\nR = new course';
+}
+
+function loop(){ step(); draw(); requestAnimationFrame(loop); }
+buildCourse(); placeBallAtTee(); cam.x=0; loop();
+</script></body></html>

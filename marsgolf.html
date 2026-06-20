@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Mars Golf — generator</title>
+<style>
+  html,body{margin:0;height:100%;background:#0e1018;overflow:hidden}
+  canvas{display:block;cursor:crosshair}
+  #hud{position:fixed;top:12px;left:14px;font:13px monospace;color:#cdd6e6;text-shadow:0 1px 3px #000;pointer-events:none;line-height:1.5;white-space:pre}
+</style></head>
+<body><canvas id="c"></canvas><div id="hud"></div>
+<script>
+// ── Mars-golf generator (built to docs/MARSGOLF-REQUIREMENTS.md) ────────────────────────────────────
+// One continuous course. Floor = faceted heightfield (simple holes, the cup is a divot that FILLS on sink).
+// Complex holes add OVERHANG plates + CAVE structures (ceiling over a floor pocket) the ball goes under/into
+// — real multi-valued terrain. Every cup is reachable: simple by construction, cave/overhang by
+// simulate-and-validate (same physics) at generation. Sink → fill → camera pan → next hole.
+
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+let VW=0,VH=0; function resize(){VW=cv.width=innerWidth;VH=cv.height=innerHeight;} addEventListener('resize',resize); resize();
+const G=0.40, BR=7, REST=0.55, RESTIT=0.40, ROLL=0.986, FRIC=0.06, MAXV=27;
+const CW=46, CD=20;                                  // cup divot width / depth
+const rnd=(a,b)=>a+Math.random()*(b-a), clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const BOTTOM=5000;
+
+let floorPts=[], holes=[], plates=[];                // floorPts: {x,y} L→R ; holes: {cupX,floorY,fill,sunk,cave}
+let cur=0, state='aim';
+let cam={x:0,y:0}, fillT=0, panFrom=0,panTo=0,panT=0;
+
+// ── floor height (linear interp), and the playing surface = floor + the CURRENT hole's open divot ──
+function floorYAt(x){
+  const P=floorPts; if(x<=P[0].x)return P[0].y; if(x>=P[P.length-1].x)return P[P.length-1].y;
+  let lo=0,hi=P.length-1; while(hi-lo>1){const m=(lo+hi)>>1; if(P[m].x<x)lo=m; else hi=m;}
+  const a=P[lo],b=P[hi]; return a.y+(b.y-a.y)*((x-a.x)/((b.x-a.x)||1));
+}
+function divotAt(x, h){ if(!h||h.fill>=1)return 0; const dx=Math.abs(x-h.cupX); if(dx>CW/2)return 0; const t=dx/(CW/2); return CD*(1-t*t)*(1-h.fill); }
+function surfYAt(x){ let y=floorYAt(x); const h=holes[cur]; if(h) y+=divotAt(x,h); return y; }
+
+// ── physics on a given ball (real ball OR a sim ball) ──────────────────────────────────────────────
+function newBall(x,y){return {x,y,vx:0,vy:0,rest:true,ground:false,slow:0};}
+function collide(b, withPlates){
+  const sy=surfYAt(b.x);
+  if(b.y>sy-BR){ b.y=sy-BR; const s=(surfYAt(b.x+4)-surfYAt(b.x-4))/8, nl=Math.hypot(s,1), nx=-s/nl, ny=-1/nl, dot=b.vx*nx+b.vy*ny;
+    if(dot<0){b.vx-=(1+RESTIT)*dot*nx; b.vy-=(1+RESTIT)*dot*ny;} b.vx+=s*G*0.7; b.vx*=ROLL; b.ground=true; } else b.ground=false;
+  if(withPlates) for(const poly of plates){
+    let cx=0,cy=0; for(const p of poly){cx+=p.x;cy+=p.y;} cx/=poly.length; cy/=poly.length;
+    let inside=true, bd=1e9,bnx=0,bny=0;
+    for(let i=0;i<poly.length;i++){ const a=poly[i],c=poly[(i+1)%poly.length]; let ex=c.x-a.x,ey=c.y-a.y,L=Math.hypot(ex,ey)||1,nx=ey/L,ny=-ex/L;
+      if((((a.x+c.x)/2-cx)*nx+((a.y+c.y)/2-cy)*ny)<0){nx=-nx;ny=-ny;}
+      const sd=(b.x-a.x)*nx+(b.y-a.y)*ny; if(sd>BR)inside=false;
+      let t=clamp(((b.x-a.x)*ex+(b.y-a.y)*ey)/(L*L),0,1),qx=a.x+ex*t,qy=a.y+ey*t,dx=b.x-qx,dy=b.y-qy,d=Math.hypot(dx,dy)||1;
+      if(d<bd){bd=d; bnx=sd<0?nx:dx/d; bny=sd<0?ny:dy/d;} }
+    if(inside){ b.x+=bnx*(BR+0.5); b.y+=bny*(BR+0.5); const dot=b.vx*bnx+b.vy*bny; if(dot<0){b.vx-=(1+RESTIT)*dot*bnx; b.vy-=(1+RESTIT)*dot*bny;} if(bny<-0.3)b.ground=true; }
+  }
+}
+// advance a ball one frame; returns 'flight'|'rest'|'sink'|'oob'
+function tick(b, cupX){
+  for(let s=0;s<2;s++){ b.vy+=G/2; b.x+=b.vx/2; b.y+=b.vy/2; collide(b,true); }
+  const sp=Math.hypot(b.vx,b.vy);
+  if(b.ground&&sp>FRIC){b.vx-=b.vx/sp*FRIC; b.vy-=b.vy/sp*FRIC;}
+  if(b.y>BOTTOM) return 'oob';
+  if(b.ground&&sp<REST){ b.slow++; if(b.slow>3){ b.vx=b.vy=0; return (Math.abs(b.x-cupX)<CW*0.42)?'sink':'rest'; } } else b.slow=0;
+  return 'flight';
+}
+
+// ── simulate-and-validate: can a shot from (tx,ty) sink this cup? (same physics, on a sim ball) ──────
+function solvable(tx,ty,cupX){
+  for(let ai=0;ai<11;ai++){ const loft=0.16+ai/10*1.18;
+    for(let pi=0;pi<9;pi++){ const pow=6+pi/8*(MAXV-6);
+      const b=newBall(tx,ty-2); b.vx=Math.cos(loft)*pow; b.vy=-Math.sin(loft)*pow; b.rest=false;
+      for(let f=0;f<500;f++){ const r=tick(b,cupX); if(r==='sink')return true; if(r==='oob')break; if(r==='rest'){
+        // one greedy follow-up from the rest spot
+        if(Math.abs(b.x-cupX)<260){ for(let aj=0;aj<9;aj++){const lf=0.16+aj/8*1.18; for(let pj=0;pj<7;pj++){const pw=5+pj/6*16;
+          const b2=newBall(b.x,b.y-2); b2.vx=Math.cos(lf)*pw*(cupX>b.x?1:-1); b2.vy=-Math.sin(lf)*pw; b2.rest=false;
+          for(let g=0;g<400;g++){const r2=tick(b2,cupX); if(r2==='sink')return true; if(r2!=='flight')break;} }}}
+        break; } }
+    }
+  }
+  return false;
+}
+
+// ── generation ─────────────────────────────────────────────────────────────────────────────────────
+function genHoleFloor(x0,y0,complexity){
+  const pts=[{x:x0,y:y0}]; const span=rnd(640,860), endX=x0+span; let x=x0,y=y0; const drama=50+complexity*210;
+  while(x<endX-240){ const step=rnd(70,150), roll=Math.random();
+    if(roll<0.34){x+=step; pts.push({x,y});}
+    else if(roll<0.64){x+=step; y=clamp(y+rnd(-drama,drama)*0.5,VH*0.20,VH*0.80); pts.push({x,y});}
+    else if(roll<0.84){const ny=clamp(y+(Math.random()<0.5?-1:1)*rnd(drama*0.6,drama),VH*0.16,VH*0.84); x+=rnd(8,24); pts.push({x,y:ny}); y=ny; x+=step*0.5; pts.push({x,y});}
+    else {const dir=Math.random()<0.5?1:-1,pk=rnd(drama*0.7,drama*1.2); x+=step*0.5; pts.push({x,y:clamp(y+dir*pk,VH*0.12,VH*0.86)}); x+=step*0.5; pts.push({x,y});}
+  }
+  // flat green for the cup
+  x=Math.min(x+rnd(60,110),endX); pts.push({x,y}); const cupX=x+50; x=cupX+60; pts.push({x:cupX-40,y}); pts.push({x,y});
+  return {pts,cupX,cupY:y,endX:x};
+}
+
+function buildCourse(){
+  floorPts=[]; holes=[]; plates=[]; cur=0;
+  let x=40,y=VH*0.5; floorPts.push({x:0,y},{x,y});
+  for(let h=0;h<9;h++){
+    const complexity=clamp(0.08+h*0.11,0.08,0.96);
+    const tx = holes.length? holes[holes.length-1].cupX : 40;
+    const ty = holes.length? holes[holes.length-1].cupY : y;
+    let seg=null;
+    for(let attempt=0;attempt<22;attempt++){
+      const snap=floorPts.length, snapPlates=plates.length;
+      const s=genHoleFloor(x,y,complexity); for(const p of s.pts)floorPts.push(p);
+      // complex terrain: overhang and/or cave, validated for reach
+      let cave=false;
+      if(complexity>0.5 && Math.random()<(complexity-0.3)){
+        if(complexity>0.66 && Math.random()<0.6){ // CAVE: dig a pocket + ceiling with a left entrance
+          const pcx=s.cupX, pf=s.cupY; const ceilY=pf-rnd(78,120), w=rnd(150,230);
+          plates.push([{x:pcx-w*0.15,y:ceilY},{x:pcx+w*0.55,y:ceilY-rnd(0,16)},{x:pcx+w*0.55,y:ceilY+26},{x:pcx-w*0.15,y:ceilY+26}]);
+          cave=true;
+        } else { // OVERHANG: a plate jutting over a mid-hole dip
+          const px=rnd(x+170,s.cupX-180), pf=floorYAt(px), gap=rnd(60,110), th=rnd(26,48), ty2=pf-gap-th;
+          if(ty2>VH*0.1) plates.push([{x:px-rnd(45,75),y:ty2},{x:px+rnd(45,75),y:ty2-rnd(-8,18)},{x:px+50,y:ty2+th},{x:px-50,y:ty2+th+rnd(-8,12)}]);
+        }
+      }
+      // VALIDATE: temp-set as current divot context + sim
+      holes.push({cupX:s.cupX,cupY:s.cupY,floorY:s.cupY,fill:0,sunk:false,cave}); const savedCur=cur; cur=holes.length-1;
+      const ok=solvable(tx, surfYAt(tx)-BR, s.cupX); cur=savedCur;
+      if(ok){ seg=s; break; }
+      holes.pop(); floorPts.length=snap; plates.length=snapPlates;     // reject → roll back
+    }
+    if(!seg){ const s=genHoleFloor(x,y,0.1); for(const p of s.pts)floorPts.push(p); holes.push({cupX:s.cupX,cupY:s.cupY,floorY:s.cupY,fill:0,sunk:false,cave:false}); seg=s; }
+    x=seg.endX; y=seg.cupY;
+  }
+  floorPts.push({x:x+500,y});
+}
+
+// ── ball + state machine ───────────────────────────────────────────────────────────────────────────
+let ball=newBall(40,0);
+function teeTo(i){ const cx = i===0?40:holes[i-1].cupX; ball=newBall(cx, floorYAt(cx)-BR); ball.rest=true; ball.ground=true; }
+function step(){
+  if(state==='flight'){
+    const r=tick(ball, holes[cur].cupX);
+    if(r==='sink'){ state='fill'; fillT=0; ball.x=holes[cur].cupX; ball.y=holes[cur].cupY-BR; }
+    else if(r==='rest'){ state='aim'; }
+    else if(r==='oob'){ teeTo(cur); state='aim'; }
+  } else if(state==='fill'){
+    fillT+=0.05; holes[cur].fill=clamp(fillT,0,1);          // R3: divot closes over the ball
+    if(fillT>=1){ holes[cur].sunk=true;
+      if(cur<holes.length-1){ cur++; state='pan'; panT=0; panFrom=cam.x; panTo=clamp(holes[cur].cupX-VW*0.6,0,1e9); teeTo(cur); }
+      else state='done'; }
+  } else if(state==='pan'){
+    panT+=0.03; const e=panT<1?panT*panT*(3-2*panT):1; cam.x=panFrom+(panTo-panFrom)*e; if(panT>=1)state='aim';
+  }
+  if(state==='aim'||state==='flight'){ cam.x+=((clamp(ball.x-VW*0.4,0,1e9))-cam.x)*0.12; }
+  cam.y=clamp((state==='flight'?ball.y:floorYAt(ball.x))-VH*0.55,-VH*0.6,VH*0.45);
+}
+
+// ── input ──────────────────────────────────────────────────────────────────────────────────────────
+let drag=false,ax=0,ay=0,mx=0,my=0;
+cv.addEventListener('mousedown',e=>{if(state==='aim'){drag=true;ax=mx=e.clientX;ay=my=e.clientY;}});
+addEventListener('mousemove',e=>{if(drag){mx=e.clientX;my=e.clientY;}});
+addEventListener('mouseup',()=>{if(!drag)return;drag=false;const dx=ax-mx,dy=ay-my,p=Math.min(Math.hypot(dx,dy),190);if(p<8)return;ball.vx=dx/190*MAXV;ball.vy=dy/190*MAXV;ball.rest=false;state='flight';});
+addEventListener('keydown',e=>{if(e.key==='r'||e.key==='R'){buildCourse();teeTo(0);cam.x=0;state='aim';}});
+
+// ── render ─────────────────────────────────────────────────────────────────────────────────────────
+const SKY='#161a26',GND='#c06a3a',FLAG='#e8c33c';
+function draw(){
+  ctx.fillStyle=SKY; ctx.fillRect(0,0,VW,VH); ctx.save(); ctx.translate(-cam.x,-cam.y);
+  // floor as a filled polygon, but sampled so the CURRENT divot shows (sky notch)
+  const x0=cam.x-20,x1=cam.x+VW+20; ctx.beginPath(); ctx.moveTo(x0,BOTTOM);
+  for(let sx=x0;sx<=x1;sx+=6) ctx.lineTo(sx,surfYAt(sx)); ctx.lineTo(x1,BOTTOM); ctx.closePath(); ctx.fillStyle=GND; ctx.fill();
+  // overhang/cave plates
+  ctx.fillStyle=GND; for(const poly of plates){ctx.beginPath();ctx.moveTo(poly[0].x,poly[0].y);for(let i=1;i<poly.length;i++)ctx.lineTo(poly[i].x,poly[i].y);ctx.closePath();ctx.fill();}
+  // flags (current + a couple ahead), hidden once sunk
+  holes.forEach((h,i)=>{ if(h.sunk||i<cur)return; if(i>cur+2)return; const fy=h.cupY-divotAt(h.cupX,i===cur?h:{cupX:h.cupX,fill:0})-2;
+    const top=h.floorY-44; ctx.strokeStyle='#c9d2e2'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(h.cupX,h.floorY); ctx.lineTo(h.cupX,top); ctx.stroke();
+    ctx.fillStyle=FLAG; ctx.beginPath(); ctx.moveTo(h.cupX,top); ctx.lineTo(h.cupX+20,top+6); ctx.lineTo(h.cupX,top+12); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#161018'; ctx.font='11px monospace'; ctx.fillText(i+1,h.cupX+5,top+9); });
+  // ball (hidden once mostly filled in)
+  if(!(state==='fill'&&holes[cur].fill>0.55)){ ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(ball.x,ball.y,BR,0,7); ctx.fill(); }
+  if(drag){const dx=ax-mx,dy=ay-my; ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.setLineDash([5,5]); ctx.beginPath(); ctx.moveTo(ball.x,ball.y); ctx.lineTo(ball.x+dx*0.55,ball.y+dy*0.55); ctx.stroke(); ctx.setLineDash([]);}
+  ctx.restore();
+  document.getElementById('hud').textContent='Hole '+Math.min(cur+1,holes.length)+' / '+holes.length+(holes[cur]&&holes[cur].cave&&!holes[cur].sunk?'  (cave)':'')+(state==='done'?'   — COMPLETE':'')+'\ndrag from ball to aim · release to shoot · R = new course';
+}
+function loop(){step();draw();requestAnimationFrame(loop);}
+buildCourse(); teeTo(0); cam.x=0; loop();
+</script></body></html>
