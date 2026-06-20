@@ -712,6 +712,9 @@
 
     _buildCourse(courseId) {
       const live = WORLDS['run-world'].courses[courseId];
+      // Dynamic (live-tunable) courses — the lab planet — opt out of the template cache so each startRun
+      // re-reads the latest config (changing complexity/material live actually takes effect).
+      if (live && live._dynamic) return JSON.parse(JSON.stringify(live));
       if (!_courseTemplates[courseId]) {
         _courseTemplates[courseId] = JSON.parse(JSON.stringify(live));
         _courseFnsById[courseId] = { cupElevation: live.cupElevation }; // JSON drops functions; keep them

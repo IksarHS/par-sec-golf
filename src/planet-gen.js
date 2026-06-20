@@ -55,23 +55,31 @@
     rock: 'ash', moss: 'gold', gold: 'bone', teal: 'frost', crimson: 'rust', bone: 'sand', plum: 'slate',
     sand: 'gold', ash: 'slate', ember: 'gold', ice: 'frost',
   };
-  const N = 24;
-  for (let i = 0; i < N; i++) {
-    const c = Math.min(0.97, 0.05 + i * (0.92 / (N - 1)));
-    const mat = MATS[i % MATS.length], sky = SKIES[i % SKIES.length];
-    const acc = ACCENT[mat] || mat;
+  // THE generator-from-settings: one complexity knob `c` (0..1) → a full course config. Used both for the
+  // 24 fixed planets and the live LAB planet (lab.js) + the headless harness, so there's one source of truth.
+  function buildConfig(c, mat, sky, name, holeCount) {
+    c = Math.max(0, Math.min(1, c));
     const dMin = Math.round(360 + c * 110), dMax = Math.round(540 + c * 250);
     const grav = c < 0.6 ? 1.0 : (1.0 - (c - 0.6) * 0.28);   // tiny extra carry on the wildest worlds
-    COURSES['p' + (i + 1)] = {
-      name: NAMES[i % NAMES.length], worldName: NAMES[i % NAMES.length], sky: sky,
+    return {
+      name: name, worldName: name, sky: sky,
       defaultMaterial: mat, materials: [mat],                 // clean single-colour terrain (GoM-style)
       gen: 'faceted',                                          // native heightfield, micro-noise off
       archetypes: archetypesFor(c),
       difficultyRange: [Math.max(0.04, c * 0.7), Math.min(0.95, c + 0.2)],
-      holeDistMin: dMin, holeDistMax: dMax, holeCount: 9,
+      holeDistMin: dMin, holeDistMax: dMax, holeCount: holeCount || 9,
       phys: { gravityScale: grav, windScale: 1 },
       planetComplexity: c,
     };
   }
-  if (typeof window !== 'undefined') window.PLANET_COUNT = N;
+
+  const N = 24;
+  for (let i = 0; i < N; i++) {
+    const c = Math.min(0.97, 0.05 + i * (0.92 / (N - 1)));
+    COURSES['p' + (i + 1)] = buildConfig(c, MATS[i % MATS.length], SKIES[i % SKIES.length], NAMES[i % NAMES.length]);
+  }
+
+  // expose the generator so lab.js + the harness build planets at any complexity from the SAME logic
+  const API = { buildConfig: buildConfig, archetypesFor: archetypesFor, MATS: MATS, SKIES: SKIES, NAMES: NAMES, count: N };
+  if (typeof window !== 'undefined') { window.PLANET_GEN = API; window.PLANET_COUNT = N; }
 })();

@@ -52,9 +52,20 @@ try {
 // ── the driver runs INSIDE the context (so it can see the engine's let/const globals) ──
 const driver = `
 RESULT = (function () {
+  // start a planet by id, or build one at an arbitrary complexity via "c:0.6" (same generator as the lab)
+  function startPlanet(courseId) {
+    if (courseId.indexOf('c:') === 0 && window.PLANET_GEN) {
+      const c = parseFloat(courseId.slice(2));
+      WORLDS['run-world'].courses['_lab'] = window.PLANET_GEN.buildConfig(c, 'rock', '#1a2230', 'lab c=' + c);
+      startCourse('run-world', '_lab');
+    } else {
+      startCourse('run-world', courseId);
+    }
+  }
+
   function playPlanet(courseId, seed) {
     localStorage.setItem('dg-seed', String(seed));
-    startCourse('run-world', courseId);
+    startPlanet(courseId);
     // Match the browser: the roguelike sets GRAVITY = baseGravity * course.phys.gravityScale (run.js:871).
     GRAVITY = 0.04 * ((currentCourse.phys && currentCourse.phys.gravityScale != null) ? currentCourse.phys.gravityScale : 1);
     ensureHolesAhead(8);
@@ -79,7 +90,7 @@ RESULT = (function () {
     const out = [];
     for (const courseId of PLANETS_TO_RUN) {
       localStorage.setItem('dg-seed', String(GEOM_SEED));
-      startCourse('run-world', courseId);
+      startPlanet(courseId);
       ensureHolesAhead(8);
       const g = [];
       for (let i = 0; i < (currentCourse.holeCount || 9); i++) { const h = holes[i]; g.push([Math.round(h.teeX), Math.round(h.cupX), Math.round(h.cupY), h.archetype || '?']); }
