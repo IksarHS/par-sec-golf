@@ -12,11 +12,17 @@ each. (`marsgolf.html`)
   from where it sank (the sunk cup becomes the next tee). One continuous course, hole→pan→hole.
 - **R5 Course complete:** sinking the last hole ends the course cleanly.
 
-## Terrain (simple → complex, GoM-like)
-- **R6 Complexity range:** a single knob drives gentle holes → dramatic holes across the course.
-- **R7 Real complex terrain:** the complex end has genuine **overhangs and cave-like structures** — terrain
-  the ball passes UNDER / INTO, i.e. multi-valued (a heightfield alone fails this). Not every hole — a mix.
-- **R8 GoM aesthetic:** faceted/angular solid earth, clean sky-colored cup divot, minimal.
+## Terrain (simple → complex, GoM-like) — TARGETS LOCKED to docs/gom-targets/ (user-chosen + mine)
+The user's 5 chosen targets (hq720*, images.*, 1515449524691*) are ALL: angular/faceted, multi-level
+(peaks/plateaus/valleys/steps), one monochrome biome colour each (blue/green/teal/pink), with GAPS and
+WATER hazards in valleys — and NO fold-over overhangs. So:
+- **R6 Complexity range:** one knob, gentle → dramatic across the course (match steam_01 → images.jpg/webp).
+- **R7 Complex terrain = ANGULAR MULTI-LEVEL + GAPS + WATER HAZARDS** (single-valued heightfield — this is
+  what the targets show; DG is heightmaps and GoM's added complexity here is still single-valued). True
+  fold-over overhangs/caves are NOT in the targets → out of scope for v1.
+- **R8 Aesthetic:** angular faceted solid terrain, ONE biome colour per hole/stretch (cycle blue/green/
+  teal/pink), lighter matching sky, small sky-coloured cup notch, tiny flag with the hole number, water as
+  a flat coloured strip in valleys. Minimal.
 
 ## Fairness / robustness
 - **R9 Every cup reachable:** each hole is solvable — simple holes by construction (cup on a flat floor),
