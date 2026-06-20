@@ -69,19 +69,26 @@ WORLDS['run-world'].courses['earth-course'] = {
   phys: { gravityScale: 1, windScale: 1 },   // baseline — Earth defines "ordinary"
   shipApron: true,                           // flat ground past the 9th cup for the wreck
 };
-// WEIRD Earth test courses — true 2D field terrain (interlocking plates, overhangs, carved caves; the
-// Golf-on-Mars look). Earth gravity (no floatiness). weirdTier 1/2/3 = progressively wilder. ?course=earth2/3/4.
+// PHASE 0 REBUILD — clean FACETED HEIGHTFIELD base (the GoM ~80% staple: flats, angular ramps, V-notch
+// funnels, plateaus, carries). Uses the engine's NATIVE archetypes + cup/tee/fill/collision (all free and
+// clean — no field pipeline, no lacerations). gen:'faceted' skips micro-noise for the crisp angular look.
+// Progressive drama via the archetype set + difficultyRange. Overhang/cave set-pieces come in Phase 2.
 WORLDS['run-world'].courses['earth2'] = {
-  name: 'The Badlands', worldName: 'Earth', sky: '#232c40',   // original Earth navy → cups read as clean dark divots
-  defaultMaterial: 'grass', materials: ['grass'], gen: 'weird', weirdTier: 1,
-  difficultyRange: [0.1, 0.45], holeDistMin: 360, holeDistMax: 560, holeCount: 9,
+  name: 'The Badlands', worldName: 'Earth', sky: '#232c40',
+  defaultMaterial: 'grass', materials: ['grass'], gen: 'faceted',
+  archetypes: ['flat_run', 'faceted', 'downhill', 'uphill', 'shelf', 'valley', 'cliff_drop'],
+  difficultyRange: [0.08, 0.42], holeDistMin: 380, holeDistMax: 620, holeCount: 9,
   phys: { gravityScale: 1, windScale: 1 },
 };
 WORLDS['run-world'].courses['earth3'] = Object.assign({}, WORLDS['run-world'].courses['earth2'], {
-  name: 'The Shatterlands', weirdTier: 2, holeDistMin: 380, holeDistMax: 580,
+  name: 'The Shatterlands',
+  archetypes: ['faceted', 'valley', 'shelf', 'mesa', 'cliff_drop', 'peak_obstacle', 'stepped_descent', 'dramatic_ridge'],
+  difficultyRange: [0.25, 0.6],
 });
 WORLDS['run-world'].courses['earth4'] = Object.assign({}, WORLDS['run-world'].courses['earth2'], {
-  name: 'The Tumble', weirdTier: 3, holeDistMin: 400, holeDistMax: 600,
+  name: 'The Tumble',
+  archetypes: ['mesa', 'canyon', 'peak_obstacle', 'twin_peaks', 'deep_plunge', 'shelf_drop_shelf', 'cliff_valley_climb', 'dramatic_ridge'],
+  difficultyRange: [0.45, 0.85],
 });
 
 // ── The Moon (first stop off Earth) ────────────────────────
