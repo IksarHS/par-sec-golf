@@ -22,11 +22,17 @@
   let labC = Math.max(0, Math.min(1, qNum('c', 0.45)));
   let labMatIdx = MATS.indexOf((qStr('mat', 'rock') || '').toLowerCase()); if (labMatIdx < 0) labMatIdx = 2;
   const urlSeed = qNum('seed', null);
+  let labWater = qNum('water', 1) > 0;                 // water modifier ON by default (?water=0 to disable)
+  let labWBias = Math.max(0, Math.min(1, qNum('wbias', 0.6)));   // water amount (0 little … 1 lots)
 
   function build() {
     const mat = MATS[labMatIdx];
     const cfg = GEN.buildConfig(labC, mat, SKY_FOR[mat] || '#1a2230', 'LAB c=' + labC.toFixed(2));
     cfg._dynamic = true;   // opt out of the roguelike's course-template cache (run.js) so live edits apply
+    if (labWater) {        // layer the water modifier on top of whatever the generator produced
+      cfg.floodWater = true; cfg.waterBias = labWBias;
+      cfg.waterColor = 'rgba(46,160,196,0.90)'; cfg.waterDeep = 'rgba(8,40,72,0.97)';
+    }
     COURSES['lab'] = cfg;
   }
   build();   // register BEFORE the run.html dev shortcut starts ?course=lab
@@ -44,6 +50,7 @@
       'complexity  ' + labC.toFixed(2) + '   [ ]\n' +
       'material    ' + mat + "   ; '\n" +
       'seed        ' + curSeed() + '   \\\n' +
+      'water       ' + (labWater ? ('on  bias ' + labWBias.toFixed(1)) : 'off') + '   o  k l\n' +
       'hole ' + (currentHole + 1) + '/' + hc + '  ' + a + mass + '   , .\n' +
       '            A = bot autoplay';
   }
@@ -85,6 +92,9 @@
       case '\\': restart((window.RG && RG.rollSeed) ? RG.rollSeed() : null); break;
       case '.': gotoHole(1); break;
       case ',': gotoHole(-1); break;
+      case 'o': case 'O': labWater = !labWater; restart(); break;                          // toggle water
+      case 'l': case 'L': labWBias = Math.min(1, +(labWBias + 0.1).toFixed(2)); restart(); break;   // more water
+      case 'k': case 'K': labWBias = Math.max(0, +(labWBias - 0.1).toFixed(2)); restart(); break;   // less water
       default: handled = false;
     }
     if (handled) { e.preventDefault(); e.stopPropagation(); }

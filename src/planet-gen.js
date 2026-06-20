@@ -133,6 +133,22 @@
     };
   }
 
+  // THE ABYSS — a high-complexity showcase: the new deep archetypes (drowned spires, cenotes, gauntlets) +
+  // canyon_cup/deep_pocket, with OVERHANGS floating over the chasms (planetComplexity) and DEEP water
+  // flooded in. The marriage of complex terrain + overhang + water the way canyon_cup+overhang felt cool.
+  COURSES['abyss'] = {
+    name: 'The Abyss', worldName: 'The Abyss', sky: '#0c1622',
+    defaultMaterial: 'slate', materials: ['slate'],
+    gen: 'faceted',
+    archetypes: ['spire_drown', 'cenote', 'gauntlet', 'canyon_cup', 'deep_pocket'],
+    difficultyRange: [0.6, 0.95], holeDistMin: 500, holeDistMax: 820, holeCount: 9,
+    planetComplexity: 0.9,                                  // → overhang set-pieces over the chasms
+    floodWater: true, waterBias: 0.72,
+    waterColor: 'rgba(40,150,185,0.90)', waterDeep: 'rgba(6,28,58,0.98)',
+    validate: true,
+    phys: { gravityScale: 1, windScale: 1 },
+  };
+
   // expose the generator so lab.js + the harness build planets at any complexity from the SAME logic
   const API = { buildConfig: buildConfig, archetypesFor: archetypesFor, MATS: MATS, SKIES: SKIES, NAMES: NAMES, count: N };
   if (typeof window !== 'undefined') { window.PLANET_GEN = API; window.PLANET_COUNT = N; }

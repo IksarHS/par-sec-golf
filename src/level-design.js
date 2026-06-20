@@ -318,6 +318,69 @@ const archetypes = {
     return verts;
   },
 
+  // ── COMPLEX archetypes for the deep-water / overhang worlds ──────────────────────────────────────────
+  // DROWNED SPIRE: a lone monolith rises from a flooded abyss; the cup crowns it. Tee headland → plunge to a
+  // deep abyss floor (floods deep) → a near-vertical spire at the end with a small flat crown (the cup).
+  // Carry the abyss, land the crown, or splash. Pairs with deep water + an overhang floating over the void.
+  spire_drown(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist;
+    const floorY = clampY(H * 0.9);                          // abyss floor (deep → big water column)
+    const topY = clampY(Math.min(sy, H * 0.30) - diff * 30); // crown (cup), high
+    return [
+      { x: sx, y: clampY(sy) },
+      { x: sx + dist * 0.17, y: clampY(sy) },                // tee headland
+      { x: sx + dist * 0.17 + 24, y: floorY },               // plunge into the abyss
+      { x: endX - 92, y: floorY },                           // abyss floor (long span → lots of water)
+      { x: endX - 70, y: topY },                             // spire rises near-vertical
+      { x: endX - 6, y: topY },                              // crown (cup green ~64px)
+      { x: endX, y: topY },
+    ];
+  },
+
+  // THE CENOTE: a flooded sinkhole punched into a high plateau — carry the deep pit to the far rim. Steep
+  // wide walls, deep water in the shaft; the cup waits on the far plateau. An overhang over the shaft = the
+  // canyon_cup-with-overhang feel, but the carry (not a chip-in) is the test.
+  cenote(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist;
+    const plY = clampY(Math.min(sy, H * 0.4));
+    const pitY = clampY(H * 0.92);                           // deep shaft floor (floods)
+    const pitL = sx + dist * randRange(0.34, 0.44);
+    const pitR = sx + dist * randRange(0.6, 0.72);
+    return [
+      { x: sx, y: clampY(sy) },
+      { x: pitL - 34, y: plY },                              // approach plateau
+      { x: pitL, y: plY },                                   // near rim
+      { x: pitL + 22, y: pitY },                             // steep drop into the shaft
+      { x: pitR - 22, y: pitY },                             // shaft floor (deep water)
+      { x: pitR, y: plY },                                   // steep rise to the far rim
+      { x: endX - 55, y: plY },                              // far plateau
+      { x: endX, y: clampY(cupY != null ? Math.min(cupY, plY) : plY) },
+    ];
+  },
+
+  // THE GAUNTLET: shattered stepping-stones across a drowned rift — hop the spires or sink. Deep rift floor
+  // (floods) with 2–3 narrow spire-tops the ball must land; the cup on the far headland.
+  gauntlet(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist;
+    const floorY = clampY(H * 0.9);                          // rift floor (deep water)
+    const topY = clampY(Math.min(sy, H * 0.44));            // spire-top play level
+    const v = [{ x: sx, y: clampY(sy) }];
+    v.push({ x: sx + dist * 0.12, y: clampY(sy) });          // tee headland
+    let x = sx + dist * 0.12 + 18; v.push({ x, y: floorY }); // drop into the rift
+    const n = 2 + Math.floor(randRange(0, 2.2));             // 2–3 spires
+    for (let i = 0; i < n; i++) {
+      x += randRange(44, 72); v.push({ x, y: floorY });      // water gap
+      x += 16; v.push({ x, y: topY });                       // spire up
+      x += randRange(50, 78); v.push({ x, y: topY });        // spire top (landable)
+      x += 16; v.push({ x, y: floorY });                     // spire down
+      if (x > endX - 200) break;
+    }
+    x += randRange(44, 66); v.push({ x, y: floorY });        // final gap
+    v.push({ x: Math.min(x + 22, endX - 70), y: topY });     // cup headland
+    v.push({ x: endX, y: topY });
+    return v;
+  },
+
   gentle_slope(sx, sy, dist, cupY, diff) {
     // Simple slope with one break point — like early DG holes
     const breakX = sx + dist * randRange(0.3, 0.6);
@@ -920,6 +983,9 @@ ARCHETYPE_TABLE.push(['gom', 0.0, 5.0, 1]);           // the GoM generator, sele
 ARCHETYPE_TABLE.push(['gom_smooth', 0.0, 5.0, 1]);    // GoM smooth-terrain style (mixes with 'gom' in the gom courses)
 ARCHETYPE_TABLE.push(['gom_islands', 0.0, 5.0, 1]);   // archipelago islands+troughs (water planets, ?course=sea/atoll)
 ARCHETYPE_TABLE.push(['gom_lake', 0.0, 5.0, 1]);      // one big carry-the-lake basin (water planet, ?course=lakes)
+ARCHETYPE_TABLE.push(['spire_drown', 0.0, 5.0, 1]);   // cup on a monolith over a flooded abyss (deep-water worlds)
+ARCHETYPE_TABLE.push(['cenote', 0.0, 5.0, 1]);        // carry a flooded sinkhole to the far rim
+ARCHETYPE_TABLE.push(['gauntlet', 0.0, 5.0, 1]);      // stepping-stone spires across a drowned rift
 
 // ── Main Terrain Generation ──────────────────────────────
 function generateHoleTerrain(holeIndex) {
