@@ -20,7 +20,14 @@ function _weirdInit() {
   const eps = [0, 20, 18, 16][tier], cell = 30, midY = H * 0.42;
   WEIRD = { tier, seed, warp, amp, soft, wf, hf, bias, eps, cell, midY, cups: [], baseSurf: (x) => midY + amp * (_wfbm(x * hf, 0.137, seed, 4) - 0.5) * 2 };
 }
-function _surfY(x) { let y = WEIRD.baseSurf(x); for (const c of WEIRD.cups) { const d = Math.abs(x - c.x); if (d < c.flat) { const t = 1 - d / c.flat; y = _wL(y, c.greenY, _wsm(t)); } } return y; }
+function _surfY(x) {
+  let y = WEIRD.baseSurf(x);
+  for (const c of WEIRD.cups) {
+    const d = Math.abs(x - c.x);
+    if (d < c.flat) { const t = d <= c.dead ? 1 : 1 - (d - c.dead) / (c.flat - c.dead); y = _wL(y, c.greenY, _wsm(Math.max(0, Math.min(1, t)))); }   // dead-flat green pad, then ease out
+  }
+  return y;
+}
 function _F(x, y) {
   let f = (y - _surfY(x)) / WEIRD.soft + WEIRD.warp * (_wfbm(x * WEIRD.wf, y * WEIRD.wf, WEIRD.seed + 777, 2) - 0.5) * 2 + WEIRD.bias;
   const floor = y - H * 0.85; if (floor > 0) f += floor * 1.8;     // seal the bottom → ball always lands on a floor (no OOB through chasms)
@@ -93,12 +100,16 @@ function generateWeirdHole(holeIndex) {
   const dMin = currentCourse.holeDistMin != null ? currentCourse.holeDistMin : 480, dMax = currentCourse.holeDistMax != null ? currentCourse.holeDistMax : 800;
   const dist = Math.min(dMin + random() * (dMax - dMin) + difficulty * 60, maxDist);
   const cupX = teeX + dist, greenY = _topSolid(cupX);                     // landable ground (not a thin lip)
-  WEIRD.cups.push({ x: cupX, greenY, flat: 90 });                         // flatten a green around the cup
+  WEIRD.cups.push({ x: cupX, greenY, flat: 115, dead: 52 });              // dead-flat green PAD around the cup
 
   // build the hole's polygon terrain (window wider than a screen so closures are off-screen)
   const x0 = teeX - 200, x1 = cupX + 280, y0 = -70, y1 = H + 100;
   const loops = _chain(_segments(x0, y0, x1, y1, WEIRD.cell)).map((l) => _simplify(l, WEIRD.eps)).filter((l) => l.length >= 3);
-  _spliceCup(loops, cupX, greenY);                                        // carve the cup notch into the top facet
+  // RENDER loops stay FLAT at the cup (clean green); the cup divot + fill + rise is drawn dynamically by
+  // the engine (drawCupHoleDG/drawCupFill/drawFlag), exactly like the original. COLLISION uses a notched
+  // copy so the ball physically drops into the hole.
+  const colLoops = loops.map((l) => l.map((p) => ({ x: p.x, y: p.y })));
+  _spliceCup(colLoops, cupX, greenY);
 
   // top-surface vertices[] (for terrainYAt / tee / OOB)
   vertices = vertices.filter(v => v.x <= teeX + 6);
@@ -110,7 +121,7 @@ function generateWeirdHole(holeIndex) {
     cupX, cupY: greenY, cupLeftX: cupX - hw, cupLeftY: greenY, cupRightX: cupX + hw, cupRightY: greenY,
     cupBottomY: greenY + CUP_DEPTH, cupFilled: false, cupFillProgress: 0, flagHole: holeIndex + 1,
     flagVisible: true, flagOpacity: 1, teeX, teeY, archetype: 'weird-t' + WEIRD.tier, par: 3,
-    _weird: true, _loops: loops, _edges: loops.map(_loopEdges), _x0: x0, _x1: x1, _cacheReady: false,
+    _weird: true, _loops: loops, _edges: colLoops.map(_loopEdges), _x0: x0, _x1: x1, _cacheReady: false,
   };
 }
 
