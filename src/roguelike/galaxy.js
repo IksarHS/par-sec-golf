@@ -169,18 +169,25 @@
   window.RG_GALAXY = { list: RG_ATLAS.list, go: RG_ATLAS.go, step: RG_ATLAS.step, courses: byId };
 
   // ?galaxy=N (1-based) or ?course=<id> pick the start planet (resolved at boot, after system files register).
+  var aborted = false;
   function resolveStart() {
     var qN = /[?&]galaxy=(\d+)/i.exec(location.search);
     if (qN) idx = Math.max(0, Math.min(PLANETS.length - 1, (parseInt(qN[1], 10) || 1) - 1));
     var qC = /[?&]course=([a-z0-9-]+)/i.exec(location.search);
-    if (qC) for (var i = 0; i < PLANETS.length; i++) if (PLANETS[i].id === qC[1].toLowerCase()) idx = i;
+    if (qC) {
+      var found = false;
+      for (var i = 0; i < PLANETS.length; i++) if (PLANETS[i].id === qC[1].toLowerCase()) { idx = i; found = true; }
+      // ?course=<id> that is NOT a galaxy planet (e.g. a base course like earth2/moon) → don't hijack:
+      // abort so the base game + the run.html dev shortcut start that course, with no Ferro fallback.
+      if (!found && !qN && !/[?&](galaxy|atlas)\b/i.test(location.search)) aborted = true;
+    }
   }
 
   // Boot once the game is ready. setTimeout (not rAF — rAF throttles in a backgrounded tab). A short
   // defer also lets the atlas-*.js system files finish registering before we resolve the start planet.
   (function wait() {
     if (started) return;
-    if (ready()) { started = true; setTimeout(function () { resolveStart(); go(); }, 60); return; }
+    if (ready()) { started = true; setTimeout(function () { resolveStart(); if (!aborted) go(); }, 60); return; }
     setTimeout(wait, 50);
   })();
 })();

@@ -133,6 +133,7 @@ function updatePhysics() {
   for (let s = 0; s < substeps; s++) {
     ball.vy += GRAVITY / substeps;
     ball.vx += ((window.RG && window.RG.wind) || 0) / substeps; // roguelike wind (inert: 0 when no run)
+    ball._px = ball.x; ball._py = ball.y;              // pre-move position (for swept field collision)
     ball.x += ball.vx / substeps;
     ball.y += ball.vy / substeps;
     if (s === 0) _logBall('physics');

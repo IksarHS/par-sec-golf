@@ -651,6 +651,10 @@ MODE = {
   },
 
   collide() {
+    // Weird (gen:'weird'): true 2D field collision (overhangs/caves) — replaces the heightfield.
+    if (currentCourse && currentCourse.gen === 'weird' && typeof weirdCollide === 'function') {
+      ball.onGround = false; const h = weirdCollide(); return h;
+    }
     const terrain = collideWithTerrain();
     const obj = collideWithObjects();
     // Moon (gen:'field'): also collide the overhang LIPS on top of the heightfield base.
@@ -780,7 +784,9 @@ MODE = {
   },
 
   drawWorld() {
-    drawTerrainDG();                                  // the heightfield base (always renders → no blank terrain)
+    // Weird (gen:'weird'): true 2D field terrain — its own cached polygon render (caves/overhangs).
+    if (currentCourse && currentCourse.gen === 'weird' && typeof weirdDraw === 'function') { weirdDraw(); }
+    else drawTerrainDG();                             // the heightfield base (always renders → no blank terrain)
     // Moon (gen:'field'): draw the overhang LIPS on top.
     if (currentCourse && currentCourse.gen === 'field' && typeof moonDrawLips === 'function') moonDrawLips();
 

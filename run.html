@@ -64,6 +64,7 @@
 <script src="src/worlds/run.js"></script>
 <script src="src/level-design.js"></script>
 <script src="src/moon-terrain.js"></script>
+<script src="src/weird-terrain.js"></script>
 <script src="src/modes/desert-golfing.js"></script>
 <script src="src/art.js"></script>
 <script src="src/gameplay.js"></script>
@@ -140,7 +141,7 @@
      intercepted by the atlas selector (galaxy.js), so this overrides it once RG is ready. -->
 <script>
 (function () {
-  var m = /[?&](?:course|gomoon)=(moon3|moon2|moon|earth-course|1|2|3)\b/.exec(location.search);
+  var m = /[?&](?:course|gomoon)=(moon3|moon2|moon|earth4|earth3|earth2|earth-course|1|2|3)\b/.exec(location.search);
   if (!m) return;
   var v = m[1];
   var course = (v === '1') ? 'moon' : (v === '2') ? 'moon2' : (v === '3') ? 'moon3' : v;

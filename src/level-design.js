@@ -812,6 +812,10 @@ function generateHoleTerrain(holeIndex) {
   if (currentCourse && currentCourse.gen === 'field' && typeof generateMoonHole === 'function') {
     return generateMoonHole(holeIndex);
   }
+  // Weird: true 2D field terrain — interlocking plates, overhangs, caves (see weird-terrain.js)
+  if (currentCourse && currentCourse.gen === 'weird' && typeof generateWeirdHole === 'function') {
+    return generateWeirdHole(holeIndex);
+  }
   // Use hand-defined hole if available
   const isDesertWorld = !currentWorld || currentWorld === WORLDS['desert-world-1'];
   if (isDesertWorld && HAND_DEFINED_HOLES[holeIndex]) {
