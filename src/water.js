@@ -31,7 +31,8 @@ function placeWater(holeIndex) {
   while (x0 > teeX + 20 && terrainYAt(x0) > surfaceY) x0 -= 6;
   while (x1 < cupX - 20 && terrainYAt(x1) > surfaceY) x1 += 6;
   if (x1 - x0 < 26 || Math.abs((x0 + x1) / 2 - cupX) < 90) return;   // too small or under the cup
-  _waters.push({ x0: x0, x1: x1, surfaceY: surfaceY, hole: holeIndex });
+  // _ph = a per-pool phase so the settle ripple differs pool-to-pool; _t0 set on first reveal (see drawWater)
+  _waters.push({ x0: x0, x1: x1, surfaceY: surfaceY, hole: holeIndex, _ph: (x0 * 0.013) % 6.283, _t0: null });
 }
 
 function isInWater(x) { for (const w of _waters) if (x >= w.x0 && x <= w.x1 && terrainYAt(x) > w.surfaceY) return true; return false; }
@@ -42,14 +43,28 @@ function drawWater() {
   ctx.fillStyle = 'rgba(74,150,210,0.88)';
   for (const w of _waters) {
     const sY = w.surfaceY;
-    // FLUSH fill: walk the ACTUAL terrain vertices across the region; wherever the terrain dips below the
-    // waterline, fill a polygon whose top is flat (sY) and whose bottom is the exact terrain edge (clipped
-    // at the waterline crossings). Uses the real vertices → flush with every angular edge, no stair-steps.
+    // settle-on-reveal: when the pool first comes on-screen, kick off a ripple that DECAYS to flat — the
+    // "slosh a little before settling" from the sim, as a cheap decaying standing wave. VISUAL ONLY; the
+    // hazard/physics use the flat sY (collideWater), so the harness stays deterministic.
+    const vis = (typeof camera === 'undefined') || (w.x1 > camera.x && w.x0 < camera.x + W);
+    if (w._t0 == null && vis) w._t0 = _waterFrame;
+    const amp = w._t0 == null ? 0 : 6.5 * Math.exp(-(_waterFrame - w._t0) / 30);   // ~1.5s to settle flat
+    const topY = (x) => (amp < 0.05) ? sY
+      : sY + amp * (Math.sin(x * 0.06 + w._ph) + 0.55 * Math.sin(x * 0.028 - _waterFrame * 0.13 + w._ph));
+    // FLUSH fill: bottom = exact terrain vertices (no stair-steps); top = the (rippling→flat) surface curve.
     const tv = [{ x: w.x0, y: terrainYAt(w.x0) }];
     for (let k = 0; k < vertices.length; k++) { const v = vertices[k]; if (v.x > w.x0 && v.x < w.x1) tv.push({ x: v.x, y: v.y }); }
     tv.push({ x: w.x1, y: terrainYAt(w.x1) });
     let poly = [];
-    const fill = () => { if (poly.length > 1) { ctx.beginPath(); ctx.moveTo(poly[0].x, sY); for (const p of poly) ctx.lineTo(p.x, p.y); ctx.lineTo(poly[poly.length - 1].x, sY); ctx.closePath(); ctx.fill(); } poly = []; };
+    const fill = () => {
+      if (poly.length < 2) { poly = []; return; }
+      const xa = poly[0].x, xb = poly[poly.length - 1].x;
+      ctx.beginPath(); ctx.moveTo(xa, topY(xa));
+      if (amp >= 0.05) for (let x = xa + 4; x < xb; x += 4) ctx.lineTo(x, topY(x));   // wavy top while settling
+      ctx.lineTo(xb, topY(xb));
+      for (let j = poly.length - 1; j >= 0; j--) ctx.lineTo(poly[j].x, poly[j].y);     // exact terrain bottom
+      ctx.closePath(); ctx.fill(); poly = [];
+    };
     for (let i = 0; i < tv.length - 1; i++) {
       const a = tv[i], b = tv[i + 1], aB = a.y > sY, bB = b.y > sY;
       if (aB && bB) { if (!poly.length) poly.push(a); poly.push(b); }
@@ -57,16 +72,12 @@ function drawWater() {
       else if (!aB && bB) { const t = (sY - a.y) / (b.y - a.y); poly = [{ x: a.x + (b.x - a.x) * t, y: sY }, b]; }
     }
     fill();
-  }
-  // subtle animated surface shimmer along stretches that hold water
-  ctx.strokeStyle = 'rgba(185,222,246,0.6)'; ctx.lineWidth = 2;
-  for (const w of _waters) {
-    ctx.beginPath(); let pen = false;
+    // surface highlight line (follows the rippling→flat top)
+    ctx.strokeStyle = 'rgba(185,222,246,0.6)'; ctx.lineWidth = 2; ctx.beginPath();
+    let pen = false;
     for (let x = w.x0; x <= w.x1; x += 4) {
-      if (terrainYAt(x) > w.surfaceY + 0.5) {
-        const yy = w.surfaceY + Math.sin(x * 0.05 + _waterFrame * 0.06) * 1.4 + Math.sin(x * 0.013 - _waterFrame * 0.03) * 1.0;
-        if (!pen) { ctx.moveTo(x, yy); pen = true; } else ctx.lineTo(x, yy);
-      } else pen = false;
+      if (terrainYAt(x) > sY + 0.5) { const yy = topY(x) + Math.sin(x * 0.05 + _waterFrame * 0.05) * 0.8; if (!pen) { ctx.moveTo(x, yy); pen = true; } else ctx.lineTo(x, yy); }
+      else pen = false;
     }
     ctx.stroke();
   }
