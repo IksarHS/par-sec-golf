@@ -110,18 +110,25 @@
   // Warm/green LAND contrasts the blue/turquoise WATER; gentler difficulty so carries over water are fair.
   // ?course=sea / atoll / lakes. seaLevel = px the waterline sits below the tee/cup greens (smaller = more
   // flooding / smaller islands). The validator guarantees a playable island-to-island path to the cup.
+  // CRANKED-complexity gom terrain with water flooded into the deep spots + rendered as DEEP sea (down to
+  // the screen bottom). Each world: different water amount (seaLevel) + colours. Mostly complex gom for
+  // varied silhouettes, with the occasional island/lake hole for change of pace.
+  // Water is a MODIFIER on top of normal level gen. Terrain = ordinary gom/gom_smooth archetypes across the
+  // FULL difficulty span (simple early holes → complex late holes); the water modifier floods each hole by a
+  // per-hole varied amount (waterBias sets the per-world tendency). So every world has the matrix: simple
+  // holes with lots of water, complex holes with a little, complex holes with complex water, etc.
   const WATER_WORLDS = [
-    // id,     name,           land,    sky,       seaLevel, waterColor,              archetypes (complex gom + a water archetype for variety), difficulty
-    ['sea',   'Archipelago',  'amber', '#cdeef2', 16, 'rgba(40,165,190,0.86)', ['gom_islands'],               [0.14, 0.8]],
-    ['atoll', 'The Atolls',   'bone',  '#d6f0ec',  9, 'rgba(54,186,196,0.84)', ['gom_islands'],               [0.18, 0.84]],
-    ['lakes', 'Lake Country', 'jade',  '#bcd6e0', 18, 'rgba(64,135,205,0.86)', ['gom_lake', 'gom_islands'],   [0.16, 0.78]],
+    // id,    name,             land,    sky,       waterBias, surface waterColor,      deep waterDeep,         archetypes,         difficulty
+    ['sea',   'Sunken Reach',   'amber', '#cdeef2', 0.6,  'rgba(40,165,190,0.90)', 'rgba(8,44,74,0.97)',  ['gom', 'gom_islands', 'gom_lake'], [0.25, 0.9]],
+    ['atoll', 'The Shoals',     'bone',  '#d6f0ec', 0.82, 'rgba(54,186,196,0.88)', 'rgba(10,58,80,0.97)', ['gom', 'gom_islands'],            [0.2, 0.82]],
+    ['lakes', 'Drowned Canyons','jade',  '#bcd6e0', 0.45, 'rgba(64,135,205,0.90)', 'rgba(8,28,66,0.97)',  ['gom', 'gom', 'gom_lake'],        [0.45, 0.97]],
   ];
-  for (const [id, nm, mat, sky, sea, wcol, arch, diff] of WATER_WORLDS) {
+  for (const [id, nm, mat, sky, wbias, wcol, wdeep, arch, diff] of WATER_WORLDS) {
     COURSES[id] = {
       name: nm, worldName: nm, sky: sky, defaultMaterial: mat, materials: [mat],
-      gen: 'faceted', archetypes: arch,                 // mostly COMPLEX gom terrain with water flooded in, + island/lake holes for variety
-      difficultyRange: diff, holeDistMin: 440, holeDistMax: 760, holeCount: 9,
-      seaLevel: sea, waterColor: wcol, validate: true,
+      gen: 'faceted', archetypes: arch,
+      difficultyRange: diff, holeDistMin: 460, holeDistMax: 780, holeCount: 9,
+      floodWater: true, waterBias: wbias, waterColor: wcol, waterDeep: wdeep, validate: true,
       phys: { gravityScale: 1, windScale: 1 },
     };
   }

@@ -17,10 +17,24 @@ function placeWater(holeIndex) {
   // SEA-LEVEL flood (water planets): one global water line → EVERYTHING below it floods into islands/
   // lagoons. The tee + cup greens sit above the line (dry); deep valleys become water the ball must carry.
   // `seaLevel` = px below the greens. drawWater/collideWater fill only columns where terrain dips below it.
-  if (typeof currentCourse !== 'undefined' && currentCourse && currentCourse.seaLevel != null) {
-    const hh = holes[holeIndex], tY = terrainYAt(hh.teeX + 5);
-    const seaY = Math.max(tY, hh.cupY) + currentCourse.seaLevel;
-    _waters.push({ x0: hh.teeX, x1: hh.cupX, surfaceY: seaY, hole: holeIndex, _ph: (hh.teeX * 0.013) % 6.283, _t0: null });
+  // WATER AS A MODIFIER on top of the generated terrain. The terrain is whatever the archetypes produced
+  // (simple..complex, independent of water). Here we just pick a per-hole WATER LEVEL: how high the sea sits
+  // below the tee/cup greens. Small margin → lots of water (everything below the greens floods); large
+  // margin → a little (only the deepest pockets). Varied per hole → simple-hole-lots-of-water,
+  // complex-hole-a-little, etc. Water complexity then emerges from terrain × level for free.
+  if (typeof currentCourse !== 'undefined' && currentCourse && (currentCourse.floodWater || currentCourse.seaLevel != null)) {
+    const hh = holes[holeIndex], teeX = hh.teeX, cupX = hh.cupX;
+    const greensY = Math.max(terrainYAt(teeX + 5), hh.cupY);          // the higher of tee/cup → the waterline stays below it (greens dry)
+    let deepest = greensY;
+    for (let x = teeX; x <= cupX; x += 10) { const y = terrainYAt(x); if (y > deepest) deepest = y; }
+    if (deepest - greensY < 32) return;                              // no basin below the greens → nothing to flood (dry hole)
+    // per-hole WATER AMOUNT (the modifier): fraction of the basin depth that fills, varied around the
+    // course bias. ~1 → floods up to the greens (lots of water); ~0 → only the deepest pocket (a little).
+    const bias = currentCourse.waterBias != null ? currentCourse.waterBias : 0.55;
+    let amt = Math.max(0.16, Math.min(0.92, bias + (random() - 0.5) * 0.5));
+    const seaY = (currentCourse.seaLevel != null) ? Math.max(greensY + 8, greensY + currentCourse.seaLevel)
+      : greensY + (deepest - greensY) * (1 - amt);
+    _waters.push({ x0: teeX, x1: cupX, surfaceY: seaY, hole: holeIndex, _ph: (teeX * 0.013) % 6.283, _t0: null });
     return;
   }
   if (!(typeof currentCourse !== 'undefined' && currentCourse && currentCourse.gomWater)) return;
@@ -49,43 +63,47 @@ function isInWater(x) { for (const w of _waters) if (x >= w.x0 && x <= w.x1 && t
 function drawWater() {
   if (typeof ctx === 'undefined' || !_waters.length || typeof vertices === 'undefined') return;
   _waterFrame++;
-  ctx.fillStyle = (typeof currentCourse !== 'undefined' && currentCourse && currentCourse.waterColor) || 'rgba(74,150,210,0.88)';
+  const camY = (typeof camera !== 'undefined') ? camera.y : 0;
+  const botY = camY + H + 80;                 // fill PAST the screen bottom → no visible floor (deep sea / cavern)
+  const surfCol = (typeof currentCourse !== 'undefined' && currentCourse && currentCourse.waterColor) || 'rgba(74,150,210,0.92)';
+  const deepCol = (typeof currentCourse !== 'undefined' && currentCourse && currentCourse.waterDeep) || 'rgba(12,40,78,0.97)';
   for (const w of _waters) {
     const sY = w.surfaceY;
-    // settle-on-reveal: when the pool first comes on-screen, kick off a ripple that DECAYS to flat — the
-    // "slosh a little before settling" from the sim, as a cheap decaying standing wave. VISUAL ONLY; the
-    // hazard/physics use the flat sY (collideWater), so the harness stays deterministic.
+    // settle-on-reveal ripple (VISUAL ONLY; the hazard uses the flat sY → harness stays deterministic)
     const vis = (typeof camera === 'undefined') || (w.x1 > camera.x && w.x0 < camera.x + W);
     if (w._t0 == null && vis) w._t0 = _waterFrame;
-    const amp = w._t0 == null ? 0 : 6.5 * Math.exp(-(_waterFrame - w._t0) / 30);   // ~1.5s to settle flat
+    const amp = w._t0 == null ? 0 : 6.5 * Math.exp(-(_waterFrame - w._t0) / 30);
     const topY = (x) => (amp < 0.05) ? sY
       : sY + amp * (Math.sin(x * 0.06 + w._ph) + 0.55 * Math.sin(x * 0.028 - _waterFrame * 0.13 + w._ph));
-    // FLUSH fill: bottom = exact terrain vertices (no stair-steps); top = the (rippling→flat) surface curve.
+    // DEEP fill: each wet span (terrain below the waterline) fills from the surface STRAIGHT DOWN to past the
+    // screen bottom — a vertical gradient (surface tint → near-black deep) sells depth instead of a floor.
+    const grad = ctx.createLinearGradient(0, sY, 0, camY + H);
+    grad.addColorStop(0, surfCol); grad.addColorStop(1, deepCol);
+    ctx.fillStyle = grad;
     const tv = [{ x: w.x0, y: terrainYAt(w.x0) }];
     for (let k = 0; k < vertices.length; k++) { const v = vertices[k]; if (v.x > w.x0 && v.x < w.x1) tv.push({ x: v.x, y: v.y }); }
     tv.push({ x: w.x1, y: terrainYAt(w.x1) });
-    let poly = [];
+    let a0 = null, b0 = null;
     const fill = () => {
-      if (poly.length < 2) { poly = []; return; }
-      const xa = poly[0].x, xb = poly[poly.length - 1].x;
-      ctx.beginPath(); ctx.moveTo(xa, topY(xa));
-      if (amp >= 0.05) for (let x = xa + 4; x < xb; x += 4) ctx.lineTo(x, topY(x));   // wavy top while settling
-      ctx.lineTo(xb, topY(xb));
-      for (let j = poly.length - 1; j >= 0; j--) ctx.lineTo(poly[j].x, poly[j].y);     // exact terrain bottom
-      ctx.closePath(); ctx.fill(); poly = [];
+      if (a0 == null) return;
+      ctx.beginPath(); ctx.moveTo(a0, topY(a0));
+      if (amp >= 0.05) for (let x = a0 + 4; x < b0; x += 4) ctx.lineTo(x, topY(x));   // rippling surface
+      ctx.lineTo(b0, topY(b0));
+      ctx.lineTo(b0, botY); ctx.lineTo(a0, botY);                                     // straight down → deep
+      ctx.closePath(); ctx.fill(); a0 = null;
     };
     for (let i = 0; i < tv.length - 1; i++) {
       const a = tv[i], b = tv[i + 1], aB = a.y > sY, bB = b.y > sY;
-      if (aB && bB) { if (!poly.length) poly.push(a); poly.push(b); }
-      else if (aB && !bB) { if (!poly.length) poly.push(a); const t = (sY - a.y) / (b.y - a.y); poly.push({ x: a.x + (b.x - a.x) * t, y: sY }); fill(); }
-      else if (!aB && bB) { const t = (sY - a.y) / (b.y - a.y); poly = [{ x: a.x + (b.x - a.x) * t, y: sY }, b]; }
+      if (aB && bB) { if (a0 == null) a0 = a.x; b0 = b.x; }
+      else if (aB && !bB) { if (a0 == null) a0 = a.x; b0 = a.x + (b.x - a.x) * ((sY - a.y) / (b.y - a.y)); fill(); }
+      else if (!aB && bB) { a0 = a.x + (b.x - a.x) * ((sY - a.y) / (b.y - a.y)); b0 = b.x; }
     }
     fill();
-    // surface highlight line (follows the rippling→flat top)
-    ctx.strokeStyle = 'rgba(185,222,246,0.6)'; ctx.lineWidth = 2; ctx.beginPath();
+    // surface highlight line
+    ctx.strokeStyle = 'rgba(205,238,252,0.5)'; ctx.lineWidth = 2; ctx.beginPath();
     let pen = false;
     for (let x = w.x0; x <= w.x1; x += 4) {
-      if (terrainYAt(x) > sY + 0.5) { const yy = topY(x) + Math.sin(x * 0.05 + _waterFrame * 0.05) * 0.8; if (!pen) { ctx.moveTo(x, yy); pen = true; } else ctx.lineTo(x, yy); }
+      if (terrainYAt(x) > sY + 0.5) { const yy = topY(x); if (!pen) { ctx.moveTo(x, yy); pen = true; } else ctx.lineTo(x, yy); }
       else pen = false;
     }
     ctx.stroke();
