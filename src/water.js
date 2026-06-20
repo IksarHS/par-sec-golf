@@ -37,25 +37,34 @@ function placeWater(holeIndex) {
 function isInWater(x) { for (const w of _waters) if (x >= w.x0 && x <= w.x1 && terrainYAt(x) > w.surfaceY) return true; return false; }
 
 function drawWater() {
-  if (typeof ctx === 'undefined' || !_waters.length) return;
+  if (typeof ctx === 'undefined' || !_waters.length || typeof vertices === 'undefined') return;
   _waterFrame++;
-  // PER-COLUMN fill: water settles onto the terrain — each column fills from the flat surface DOWN to the
-  // terrain, ONLY where terrain is below the waterline. Conforms to the basin exactly; never overlaps
-  // terrain or covers bumps that poke above the surface. (Steady state of "water colliding with terrain".)
   ctx.fillStyle = 'rgba(74,150,210,0.88)';
   for (const w of _waters) {
-    for (let x = w.x0; x <= w.x1; x += 2) {
-      const ty = terrainYAt(x);
-      if (ty > w.surfaceY + 0.5) ctx.fillRect(x, w.surfaceY, 2.4, ty - w.surfaceY);
+    const sY = w.surfaceY;
+    // FLUSH fill: walk the ACTUAL terrain vertices across the region; wherever the terrain dips below the
+    // waterline, fill a polygon whose top is flat (sY) and whose bottom is the exact terrain edge (clipped
+    // at the waterline crossings). Uses the real vertices → flush with every angular edge, no stair-steps.
+    const tv = [{ x: w.x0, y: terrainYAt(w.x0) }];
+    for (let k = 0; k < vertices.length; k++) { const v = vertices[k]; if (v.x > w.x0 && v.x < w.x1) tv.push({ x: v.x, y: v.y }); }
+    tv.push({ x: w.x1, y: terrainYAt(w.x1) });
+    let poly = [];
+    const fill = () => { if (poly.length > 1) { ctx.beginPath(); ctx.moveTo(poly[0].x, sY); for (const p of poly) ctx.lineTo(p.x, p.y); ctx.lineTo(poly[poly.length - 1].x, sY); ctx.closePath(); ctx.fill(); } poly = []; };
+    for (let i = 0; i < tv.length - 1; i++) {
+      const a = tv[i], b = tv[i + 1], aB = a.y > sY, bB = b.y > sY;
+      if (aB && bB) { if (!poly.length) poly.push(a); poly.push(b); }
+      else if (aB && !bB) { if (!poly.length) poly.push(a); const t = (sY - a.y) / (b.y - a.y); poly.push({ x: a.x + (b.x - a.x) * t, y: sY }); fill(); }
+      else if (!aB && bB) { const t = (sY - a.y) / (b.y - a.y); poly = [{ x: a.x + (b.x - a.x) * t, y: sY }, b]; }
     }
+    fill();
   }
-  // animated surface shimmer — only along stretches that actually hold water
+  // subtle animated surface shimmer along stretches that hold water
   ctx.strokeStyle = 'rgba(185,222,246,0.6)'; ctx.lineWidth = 2;
   for (const w of _waters) {
     ctx.beginPath(); let pen = false;
     for (let x = w.x0; x <= w.x1; x += 4) {
       if (terrainYAt(x) > w.surfaceY + 0.5) {
-        const yy = w.surfaceY + Math.sin(x * 0.05 + _waterFrame * 0.06) * 1.5 + Math.sin(x * 0.013 - _waterFrame * 0.03) * 1.1;
+        const yy = w.surfaceY + Math.sin(x * 0.05 + _waterFrame * 0.06) * 1.4 + Math.sin(x * 0.013 - _waterFrame * 0.03) * 1.0;
         if (!pen) { ctx.moveTo(x, yy); pen = true; } else ctx.lineTo(x, yy);
       } else pen = false;
     }

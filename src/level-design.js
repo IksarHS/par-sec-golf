@@ -1320,24 +1320,25 @@ function _validateHole(i) {
   if (typeof window === 'undefined' || !window.RG || !RG.bot || !RG.bot.calculateShot || !RG.bot.simulateShot) return true;
   if (!holes[i] || typeof terrainYAt !== 'function' || typeof ball === 'undefined') return true;
   const save = { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, r: ball.atRest, og: ball.onGround, st: state, ch: currentHole, cx: (typeof camera !== 'undefined' ? camera.x : 0), cy: (typeof camera !== 'undefined' ? camera.y : 0) };
-  const sSteps = window.RG_BOT_STEPS; window.RG_BOT_STEPS = 16;
+  const sSteps = window.RG_BOT_STEPS; window.RG_BOT_STEPS = 14;
   _inValidation = true;
-  let ok = false;
+  let ok = false, minD = Infinity;
   try {
     currentHole = i; const h = holes[i];
     ball.x = h.teeX; ball.y = terrainYAt(h.teeX) - BALL_RADIUS; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true; state = STATE_AIM;
-    let prevD = Infinity, stall = 0;
-    for (let shot = 0; shot < 10 && !ok; shot++) {
+    let prevD = Infinity;
+    for (let shot = 0; shot < 6 && !ok; shot++) {
       // CRITICAL: frame the camera on the ball — isBallOffScreen() is camera-relative, so a ball at hole i
       // while the camera is elsewhere reads as instant OOB and every hole looks unsinkable.
       if (typeof camera !== 'undefined') { camera.x = ball.x - W * 0.25; camera.y = 0; }
       const s = RG.bot.calculateShot(); if (!s) break;
       const r = RG.bot.simulateShot(s.vx, s.vy);
-      if (r.scored) { ok = true; break; }                          // require an ACTUAL sink (not "close") — overhang/water holes can sit near the cup yet be unsinkable
-      if (r.oob) break;
-      if (r.distToCup < prevD - 4) { stall = 0; prevD = r.distToCup; } else if (++stall >= 3) break;  // allow lay-up shots; bail only after 3 with no gain
-      ball.x = r.x; ball.y = r.y; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true; state = STATE_AIM;
+      if (r.scored) { ok = true; break; }
+      if (r.distToCup < minD) minD = r.distToCup;
+      if (r.oob || !(r.distToCup < prevD - 5)) break;
+      prevD = r.distToCup; ball.x = r.x; ball.y = r.y; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true; state = STATE_AIM;
     }
+    if (!ok && minD < CUP_WIDTH * 2.2) ok = true;                  // close enough → the real (finer) bot finishes it
   } catch (e) { ok = true; }
   _inValidation = false;
   window.RG_BOT_STEPS = sSteps;

@@ -100,7 +100,8 @@
       gomObstacles: true,                                  // cacti (Phase O)
       gomWater: true,                                       // flat water pools (Phase W)
       validate: true,                                       // simulate-and-validate: re-roll any unsinkable hole
-      gomCaves: true,                                       // overhangs the ball passes under (Phase C)
+      // gomCaves (floating-mass overhangs) pulled — they hurt completability + aren't the cup-under-lip
+      // cave look; proper carved caves are a dedicated future build.
       phys: { gravityScale: 1, windScale: 1 },
     };
   }
