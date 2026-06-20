@@ -106,6 +106,26 @@
     };
   }
 
+  // ── WATER PLANETS ── a global SEA LEVEL floods the terrain into islands/lagoons (showcases water.js).
+  // Warm/green LAND contrasts the blue/turquoise WATER; gentler difficulty so carries over water are fair.
+  // ?course=sea / atoll / lakes. seaLevel = px the waterline sits below the tee/cup greens (smaller = more
+  // flooding / smaller islands). The validator guarantees a playable island-to-island path to the cup.
+  const WATER_WORLDS = [
+    // id,     name,           land,    sky,       seaLevel, waterColor,                archetypes
+    ['sea',   'Archipelago',  'amber', '#cdeef2', 15, 'rgba(40,165,190,0.86)', ['gom_islands']],
+    ['atoll', 'The Atolls',   'bone',  '#d6f0ec',  8, 'rgba(54,186,196,0.84)', ['gom_islands']],
+    ['lakes', 'Lake Country', 'jade',  '#bcd6e0', 18, 'rgba(64,135,205,0.86)', ['gom_lake']],
+  ];
+  for (const [id, nm, mat, sky, sea, wcol, arch] of WATER_WORLDS) {
+    COURSES[id] = {
+      name: nm, worldName: nm, sky: sky, defaultMaterial: mat, materials: [mat],
+      gen: 'faceted', archetypes: arch,
+      difficultyRange: [0.2, 0.72], holeDistMin: 420, holeDistMax: 720, holeCount: 9,
+      seaLevel: sea, waterColor: wcol, validate: true,
+      phys: { gravityScale: 1, windScale: 1 },
+    };
+  }
+
   // expose the generator so lab.js + the harness build planets at any complexity from the SAME logic
   const API = { buildConfig: buildConfig, archetypesFor: archetypesFor, MATS: MATS, SKIES: SKIES, NAMES: NAMES, count: N };
   if (typeof window !== 'undefined') { window.PLANET_GEN = API; window.PLANET_COUNT = N; }

@@ -263,6 +263,48 @@ const archetypes = {
     return verts;
   },
 
+  // ARCHIPELAGO: flat island-tops near the baseline (stay above the sea line → dry) separated by deep,
+  // steep-walled troughs (sink below the sea line → flood). Carries are short (≤~110px) so island-hopping
+  // is fair. Pairs with a course `seaLevel` (water planets). Tee + cup are islands at the baseline.
+  gom_islands(sx, sy, dist, cupY, diff) {
+    const verts = [];
+    const endX = sx + dist, base = sy;
+    const top = () => clampY(base + (random() - 0.5) * 22);      // island top, hovering at the baseline
+    let x = sx;
+    verts.push({ x, y: clampY(base) });                          // tee island
+    x += randRange(60, 110); verts.push({ x, y: clampY(base) });
+    while (x < endX - 240) {
+      const depth = randRange(85, 145) + diff * 45;              // trough depth (floods)
+      x += 12; verts.push({ x, y: clampY(base + depth) });       // steep drop into the trough
+      x += randRange(46, 90); verts.push({ x, y: clampY(base + depth) });  // trough floor (flat water bed)
+      const ty = top();
+      x += 12; verts.push({ x, y: ty });                         // steep rise to the next island
+      x += randRange(78, 150); verts.push({ x, y: ty });         // flat island top
+    }
+    const ey = clampY(base);                                     // cup island (flat green)
+    verts.push({ x: Math.min(x + 50, endX - 60), y: ey });
+    verts.push({ x: endX, y: ey });
+    return verts;
+  },
+
+  // ONE big lake to carry: a land run-up, a wide basin that floods, a far shore, then the cup green. Pairs
+  // with a course `seaLevel` so the basin holds a broad lake the ball must clear in a shot or two.
+  gom_lake(sx, sy, dist, cupY, diff) {
+    const verts = [];
+    const endX = sx + dist, base = sy;
+    let x = sx;
+    verts.push({ x, y: clampY(base) });
+    x += randRange(120, 180); verts.push({ x, y: clampY(base) });          // tee shore run-up
+    const depth = randRange(70, 115);
+    x += 16; verts.push({ x, y: clampY(base + depth) });                   // drop to the lake bed
+    x += randRange(120, 175); verts.push({ x, y: clampY(base + depth) });  // wide lake bed (floods)
+    const fy = clampY(base + (random() - 0.5) * 24);
+    x += 16; verts.push({ x, y: fy });                                     // far shore
+    verts.push({ x: Math.min(x + randRange(90, 150), endX - 60), y: fy }); // far land
+    verts.push({ x: endX, y: clampY(fy) });
+    return verts;
+  },
+
   gentle_slope(sx, sy, dist, cupY, diff) {
     // Simple slope with one break point — like early DG holes
     const breakX = sx + dist * randRange(0.3, 0.6);
@@ -863,6 +905,8 @@ archetypes.faceted = function (sx, sy, dist, cupY, diff) {
 ARCHETYPE_TABLE.push(['faceted', 0.0, 1.0, 1]);       // so pickArchetype selects it for faceted courses
 ARCHETYPE_TABLE.push(['gom', 0.0, 5.0, 1]);           // the GoM generator, selectable at every difficulty (?course=gom)
 ARCHETYPE_TABLE.push(['gom_smooth', 0.0, 5.0, 1]);    // GoM smooth-terrain style (mixes with 'gom' in the gom courses)
+ARCHETYPE_TABLE.push(['gom_islands', 0.0, 5.0, 1]);   // archipelago islands+troughs (water planets, ?course=sea/atoll)
+ARCHETYPE_TABLE.push(['gom_lake', 0.0, 5.0, 1]);      // one big carry-the-lake basin (water planet, ?course=lakes)
 
 // ── Main Terrain Generation ──────────────────────────────
 function generateHoleTerrain(holeIndex) {

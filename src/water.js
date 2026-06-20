@@ -14,6 +14,15 @@ let _waterSafe = null;     // last ball rest OUTSIDE any water (reshoot target)
 function placeWater(holeIndex) {
   if (holeIndex === 0) { _waters = []; _waterSafe = null; }      // fresh course
   if (typeof holes === 'undefined' || !holes[holeIndex] || typeof terrainYAt !== 'function') return;
+  // SEA-LEVEL flood (water planets): one global water line → EVERYTHING below it floods into islands/
+  // lagoons. The tee + cup greens sit above the line (dry); deep valleys become water the ball must carry.
+  // `seaLevel` = px below the greens. drawWater/collideWater fill only columns where terrain dips below it.
+  if (typeof currentCourse !== 'undefined' && currentCourse && currentCourse.seaLevel != null) {
+    const hh = holes[holeIndex], tY = terrainYAt(hh.teeX + 5);
+    const seaY = Math.max(tY, hh.cupY) + currentCourse.seaLevel;
+    _waters.push({ x0: hh.teeX, x1: hh.cupX, surfaceY: seaY, hole: holeIndex, _ph: (hh.teeX * 0.013) % 6.283, _t0: null });
+    return;
+  }
   if (!(typeof currentCourse !== 'undefined' && currentCourse && currentCourse.gomWater)) return;
   const h = holes[holeIndex], teeX = h.teeX, cupX = h.cupX, span = cupX - teeX;
   if (span < 340) return;
@@ -40,7 +49,7 @@ function isInWater(x) { for (const w of _waters) if (x >= w.x0 && x <= w.x1 && t
 function drawWater() {
   if (typeof ctx === 'undefined' || !_waters.length || typeof vertices === 'undefined') return;
   _waterFrame++;
-  ctx.fillStyle = 'rgba(74,150,210,0.88)';
+  ctx.fillStyle = (typeof currentCourse !== 'undefined' && currentCourse && currentCourse.waterColor) || 'rgba(74,150,210,0.88)';
   for (const w of _waters) {
     const sY = w.surfaceY;
     // settle-on-reveal: when the pool first comes on-screen, kick off a ripple that DECAYS to flat — the
