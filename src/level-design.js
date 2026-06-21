@@ -326,16 +326,19 @@ const archetypes = {
     const endX = sx + dist;
     const floorY = clampY(H * 0.9);                          // abyss floor (deep → big water column)
     const topY = clampY(Math.min(sy, H * 0.30) - diff * 30); // crown (cup), high
-    const cx = endX - 92, crownHalf = 62;                    // WIDE flat crown (~124px), cup centred = landable even in low gravity
+    const cx = endX - 96, crownHalf = 72;                    // WIDE crown (~144px) shaped as a shallow BOWL so a
+    const lipY = topY, cupYY = clampY(topY + 22);            // landed ball GATHERS to the cup instead of rolling off (works even at 0.42 gravity)
     return [
       { x: sx, y: clampY(sy) },
       { x: sx + dist * 0.17, y: clampY(sy) },                // tee headland
       { x: sx + dist * 0.17 + 24, y: floorY },               // plunge into the abyss
       { x: cx - crownHalf - 24, y: floorY },                 // abyss floor (long span → lots of water)
-      { x: cx - crownHalf, y: topY },                        // spire rises near-vertical
-      { x: cx, y: topY, cup: true },                         // CUP centred on the wide flat crown
-      { x: cx + crownHalf, y: topY },                        // crown far edge
-      { x: endX, y: clampY(topY + 26) },                     // small step down off the crown
+      { x: cx - crownHalf, y: lipY },                        // spire rises to the raised crown lip
+      { x: cx - crownHalf * 0.42, y: cupYY },                // inner wall down into the dished crown
+      { x: cx, y: cupYY, cup: true },                        // CUP in the dished centre — the bowl gathers the ball
+      { x: cx + crownHalf * 0.42, y: cupYY },
+      { x: cx + crownHalf, y: lipY },                        // far crown lip (raised back-stop)
+      { x: endX, y: clampY(lipY + 30) },                     // step down off the crown
     ];
   },
 
@@ -998,27 +1001,24 @@ const archetypes = {
   },
 
   shelf_drop_shelf(sx, sy, dist, cupY, diff) {
-    // High shelf → sloped drop → low shelf → another drop or rise
-    const step1X = sx + dist * randRange(0.2, 0.35);
-    const highY = H * randRange(0.18, 0.32);         // less extreme (was 0.10-0.30)
-    const midY = H * randRange(0.45, 0.58);
-    const lowY = H * randRange(0.72, 0.85);           // less extreme (was 0.75-0.92)
-    // Proportional wall width — never steeper than ~55° so ball can escape
-    const drop1 = Math.abs(midY - highY);
-    const drop2 = Math.abs(lowY - midY);
-    const wallW1 = Math.max(65, drop1 * 0.7);         // reduced from 0.8
-    const wallW2 = Math.max(65, drop2 * 0.7);
-    // Ensure step2 starts after step1's wall ends
-    const step2X = Math.max(sx + dist * randRange(0.55, 0.7), step1X + wallW1 + 40);
-    return [
-      { x: sx + 20, y: sy },                          // match tee
-      { x: sx + dist * 0.08, y: highY },              // transition to high shelf
-      { x: step1X, y: highY },
-      { x: step1X + wallW1, y: midY },
-      { x: step2X, y: midY },
-      { x: step2X + wallW2, y: lowY },
-      { x: sx + dist, y: lowY }
-    ];
+    // FLAT tee runway → rise to a high shelf (capped so it's reachable from the tee, never a trapped pit) →
+    // drop → mid shelf → drop → low shelf with the cup. Walls ≤ ~55° so the ball can always escape.
+    const endX = sx + dist;
+    const highY = clampY(Math.min(H * randRange(0.20, 0.34), sy - 110));   // high shelf, but a reachable rise above the tee
+    const midY = clampY(H * randRange(0.46, 0.58));
+    const lowY = clampY(H * randRange(0.66, 0.80));
+    const riseW = Math.max(90, Math.abs(sy - highY) * 0.8);
+    const wallW1 = Math.max(70, Math.abs(midY - highY) * 0.7);
+    const wallW2 = Math.max(70, Math.abs(lowY - midY) * 0.7);
+    const v = [{ x: sx + 20, y: sy }];
+    let x = sx + dist * 0.14; v.push({ x, y: sy });                 // FLAT runway off the tee (ball builds up; never trapped)
+    x += riseW; v.push({ x, y: highY });                            // rise to the high shelf
+    x += Math.max(60, dist * 0.12); v.push({ x, y: highY });        // high shelf top
+    x += wallW1; v.push({ x, y: midY });                           // drop to the mid shelf
+    x += Math.max(60, dist * 0.10); v.push({ x, y: midY });         // mid shelf
+    x += wallW2; x = Math.min(x, endX - 130); v.push({ x, y: lowY });  // drop to the low shelf (keep ≥130px of green)
+    v.push({ x: endX, y: lowY });                                   // low shelf — cup lands here on the flat
+    return v;
   },
 
   water_valley(sx, sy, dist, cupY, diff) {
@@ -2511,7 +2511,7 @@ function _validateHole(i) {
     // make a hole unsinkable in play. The prior ball-following camera hid every OOB → slip-through stuck holes.
     if (typeof setHoleCamera === 'function') setHoleCamera(h);
     let prevD = Infinity, noProg = 0;
-    for (let shot = 0; shot < 16 && !ok; shot++) {
+    for (let shot = 0; shot < 20 && !ok; shot++) {
       const s = RG.bot.calculateShot(); if (!s) break;
       const r = RG.bot.simulateShot(s.vx, s.vy);
       if (r.scored) { ok = true; break; }
@@ -2520,10 +2520,12 @@ function _validateHole(i) {
       if (!(r.distToCup < prevD - 5)) { if (++noProg >= 3) break; } else noProg = 0;   // persist through a couple stalls (like the real bot) before giving up
       prevD = r.distToCup; ball.x = r.x; ball.y = r.y; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true; state = STATE_AIM;
     }
-    // r.scored above is the true sink. The lenient is now ONLY a tap-in safety: the ball must have RESTED
-    // essentially in the cup footprint (<0.5 cup-widths). distToCup is a REST distance, so a slope/fly-by
-    // near-miss no longer counts (that was the 0.9/1.3/2.2 bug — it passed balls that rest near but roll off).
-    if (!ok && minD < CUP_WIDTH * 0.5) ok = true;
+    // REQUIRE AN ACTUAL SINK (r.scored). The old rest-near lenient kept passing balls that come to rest NEAR
+    // the cup on a slope/shelf but roll off and never drop in (the recurring low-gravity stuck-hole class:
+    // rolling_hills/spire_drown/shelf_drop_shelf...). A genuinely sinkable hole still scores within 20 shots;
+    // anything that can't is re-rolled. Tiny 0.28 safety only for a ball literally resting in the cup footprint
+    // (sim didn't latch STATE_PAUSE within the frame budget).
+    if (!ok && minD < CUP_WIDTH * 0.28) ok = true;
   } catch (e) { ok = true; }
   _inValidation = false;
   window.RG_BOT_STEPS = sSteps;
@@ -2533,7 +2535,7 @@ function _validateHole(i) {
 }
 function _genValidatedHole(i) {
   if (_inValidation) { generateHoleTerrain(i); return; }            // re-entrant (during a sim) → plain generate, no recurse
-  const LAST = 13;
+  const LAST = 24;   // more re-roll attempts → rare bad seeds (e.g. a trapped-tee shelf hole) reliably find a sinkable variant
   for (let attempt = 0; attempt <= LAST; attempt++) {
     generateHoleTerrain(i);
     if (_validateHole(i)) return;
