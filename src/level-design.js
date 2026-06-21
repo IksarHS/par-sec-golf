@@ -2031,6 +2031,33 @@ ARCHETYPE_TABLE.push(['cloud_deck_ascension', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['cloud_break_landing', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['veil_plume_field', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['ice_crust_rift', 0.0, 5.0, 1]);
+
+// TEST FIXTURE (NOT in any course pool — force via the lab's "⛰ Terrain-pop test hole" button or
+// setArchetypeOverride('strata_test')). A deliberate WORST CASE for the terrain-strata colour pop: a tall peak
+// + deep pit + greens of several depths packed into one screen, so EVERY rock-strata band shows at once and any
+// per-view recolour on a camera move / hole transition is glaring. (Terrain colour in the default textured
+// mode is the depth strata, not per-vertex materials — so a depth-varied hole like this is the right probe.)
+// Rule of thumb: for any visual bug, build a hole that exaggerates it and test against THAT, not the wild.
+archetypes.strata_test = function (sx, sy, dist, cupY, diff) {
+  const d = Math.min(dist, 760);
+  const green = clampY(H * 0.62), peak = clampY(H * 0.12), deep = clampY(H * 0.93), mid = clampY(H * 0.40);
+  return [
+    { x: sx,            y: green },               // tee on a flat green
+    { x: sx + d * 0.08, y: green },
+    { x: sx + d * 0.14, y: peak },                // tall peak — lightest strata
+    { x: sx + d * 0.22, y: peak },
+    { x: sx + d * 0.26, y: deep },                // deep pit — darkest strata
+    { x: sx + d * 0.38, y: deep },
+    { x: sx + d * 0.42, y: mid },
+    { x: sx + d * 0.50, y: green },
+    { x: sx + d * 0.58, y: peak },                // second peak
+    { x: sx + d * 0.66, y: deep },                // second pit
+    { x: sx + d * 0.74, y: green },
+    { x: sx + d * 0.88, y: green, cup: true },    // cup on a flat green near the END, so the dramatic
+    { x: sx + d,        y: green }                //   terrain sits BETWEEN tee and cup → rendered + framed
+  ];
+};
+
 // LAB TOUR: expose every hole-type name + an override setter so the lab can step through them one by one.
 if (typeof window !== 'undefined') {
   window.ARCHETYPE_NAMES = Object.keys(archetypes);                 // all polygon hole-types (incl. the new ones)

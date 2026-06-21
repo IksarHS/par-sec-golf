@@ -138,6 +138,7 @@
     { label: 'Next hole-type ▶', cls: 'hole', run: function () { return tourArch(1); } },
     { label: '◀ Prev hole-type', cls: 'hole', run: function () { return tourArch(-1); } },
     { label: '✕ Clear hole-type lock', cls: 'hole', run: function () { tourIdx = -1; if (window.setArchetypeOverride) window.setArchetypeOverride(null); RG.startRun({ course: (RG.course || 'earth-course'), seed: RG.rollSeed() }); return 'hole-type lock OFF — back to the normal pool.'; } },
+    { label: '⛰ Terrain-pop test hole', cls: 'hole', run: function () { if (!window.setArchetypeOverride) return 'hard-refresh to load it'; window.setArchetypeOverride('strata_test'); tourIdx = -1; RG.startRun({ course: (RG.course || 'earth-course'), seed: RG.rollSeed() }); return 'WORST-CASE strata hole on all 9. Sink + advance (or ⏭ Skip) → terrain must hold its colours, no recolour.'; } },
     { label: '$ Give $50', cls: 'econ', run: function () {
       if (!window.RG_ECON) return 'no economy';
       RG_ECON.add(50);
