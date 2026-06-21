@@ -154,30 +154,31 @@
   // optional liquid (water/lava/methane with its own colour), an archetype mix for its vibe, and a signature
   // SPECIAL hole (ruins / launchpad / obelisk — "something was here") at one index.
   const SOLAR = [
-    // id, name, land, sky, grav, archetypes, [dMin,dMax], waterBias|null, surfCol, deepCol, special, atIdx
-    ['earth', 'Earth', 'earthgreen', '#3a6a8a', 1.0, ['gom', 'gom_smooth', 'gom_lake', 'punchbowl', 'island_green'], [0.15, 0.7], 0.4, 'rgba(50,120,180,0.9)', 'rgba(10,40,90,0.97)', 'ruins', 4],
-    ['luna', 'Luna', 'stone', '#05050a', 0.55, ['crater', 'gom', 'deep_pocket', 'fortress', 'gom_smooth'], [0.2, 0.85], null, null, null, 'launchpad', 5],
-    ['mars', 'Mars', 'crimson', '#c08868', 0.6, ['gom', 'canyon_cup', 'cenote', 'deep_plunge', 'crater'], [0.3, 0.9], 0.25, 'rgba(80,135,150,0.85)', 'rgba(20,45,60,0.96)', 'obelisk', 6],
-    ['phobos', 'Phobos', 'ash', '#08080e', 0.5, ['gauntlet', 'gom', 'narrow_gap', 'twin_peaks', 'spire_drown'], [0.4, 0.95], null, null, null, null, 0],
-    ['jupiter', 'Jupiter', 'ember', '#3a2818', 1.2, ['gom_islands', 'gauntlet', 'gom', 'fortress'], [0.4, 0.9], null, null, null, null, 0],
-    ['europa', 'Europa', 'frost', '#1a2838', 0.55, ['gom', 'island_green', 'sea_stack', 'gom_islands', 'gom_lake'], [0.25, 0.8], 0.66, 'rgba(95,175,205,0.9)', 'rgba(10,40,72,0.97)', 'sea_stack', 7],
-    ['io', 'Io', 'sulfur', '#241208', 0.55, ['gom', 'cenote', 'crater', 'deep_plunge', 'canyon_cup'], [0.3, 0.9], 0.4, 'rgba(228,95,28,0.93)', 'rgba(112,18,8,0.98)', null, 0],
-    ['ganymede', 'Ganymede', 'slate', '#10161f', 0.55, ['gom', 'ziggurat', 'stepped_descent', 'gom_smooth', 'crater'], [0.25, 0.85], 0.35, 'rgba(85,145,185,0.88)', 'rgba(15,38,68,0.96)', null, 0],
-    ['titan', 'Titan', 'amber', '#b8722a', 0.5, ['gom', 'gom_lake', 'island_green', 'punchbowl', 'gom_smooth'], [0.2, 0.78], 0.55, 'rgba(120,78,36,0.9)', 'rgba(40,22,8,0.97)', 'ruins', 5],
-    ['enceladus', 'Enceladus', 'bone', '#16222e', 0.5, ['gom', 'sea_stack', 'island_green', 'crater', 'gom_islands'], [0.25, 0.82], 0.7, 'rgba(150,205,225,0.9)', 'rgba(30,72,102,0.97)', null, 0],
-    ['uranus', 'Uranus', 'cyan', '#143038', 0.95, ['gom_islands', 'gom_smooth', 'gauntlet', 'gom'], [0.3, 0.85], null, null, null, null, 0],
-    ['miranda', 'Miranda', 'plum', '#0e0a16', 0.5, ['deep_plunge', 'canyon_cup', 'cenote', 'fortress', 'narrow_gap', 'spire_drown'], [0.5, 0.97], null, null, null, 'obelisk', 6],
-    ['saturn', 'Saturn', 'gold', '#4a3a1c', 1.1, ['gom_islands', 'gauntlet', 'gom', 'gom_smooth'], [0.35, 0.85], null, null, null, null, 0],
-    ['neptune', 'Neptune', 'cobalt', '#0f2547', 1.05, ['gom_islands', 'gom_smooth', 'gauntlet', 'gom'], [0.35, 0.85], null, null, null, null, 0],
-    ['triton', 'Triton', 'rose', '#1a1424', 0.5, ['gom', 'cenote', 'crater', 'sea_stack', 'gom_smooth'], [0.25, 0.8], 0.4, 'rgba(120,150,200,0.88)', 'rgba(20,40,80,0.96)', null, 0],
-    ['pluto', 'Pluto', 'bone', '#0a0810', 0.45, ['gom', 'gom_smooth', 'punchbowl', 'crater', 'deep_pocket'], [0.2, 0.8], 0.35, 'rgba(120,160,180,0.85)', 'rgba(25,45,70,0.96)', 'ruins', 4],
-    ['charon', 'Charon', 'rust', '#08060c', 0.45, ['canyon_cup', 'deep_plunge', 'cenote', 'fortress', 'spire_drown'], [0.45, 0.95], null, null, null, 'obelisk', 6],
+    // id, name, land, sky, grav, archetypes (WIDE + distinct — variance), [dMin,dMax] (pushed), waterBias|null, surfCol, deepCol, special, atIdx
+    ['earth', 'Earth', 'earthgreen', '#3a6a8a', 1.0, ['gom_smooth', 'gentle_slope', 'gentle_hill', 'rolling_hills', 'downhill', 'uphill', 'punchbowl'], [0.08, 0.5], null, null, null, 'ruins', 4],
+    ['luna', 'Luna', 'stone', '#05050a', 0.55, ['crater', 'deep_pocket', 'fortress', 'mesa', 'stepped_descent', 'twin_peaks', 'narrow_gap', 'ziggurat', 'punchbowl'], [0.35, 0.95], null, null, null, 'launchpad', 5],
+    ['mars', 'Mars', 'crimson', '#c08868', 0.6, ['canyon_cup', 'canyon', 'cenote', 'deep_plunge', 'mesa', 'cliff_drop', 'fortress', 'crater', 'dramatic_ridge'], [0.4, 1.0], 0.25, 'rgba(80,135,150,0.85)', 'rgba(20,45,60,0.96)', 'obelisk', 6],
+    ['phobos', 'Phobos', 'ash', '#08080e', 0.5, ['gauntlet', 'narrow_gap', 'twin_peaks', 'spire_drown', 'deep_plunge', 'fortress', 'cliff_shelf', 'canyon'], [0.45, 1.0], null, null, null, null, 0],
+    ['jupiter', 'Jupiter', 'ember', '#3a2818', 1.2, ['gom_islands', 'gauntlet', 'fortress', 'mesa', 'stepped_descent', 'twin_peaks', 'narrow_gap'], [0.45, 0.95], null, null, null, null, 0],
+    ['europa', 'Europa', 'frost', '#1a2838', 0.55, ['island_green', 'sea_stack', 'gom_islands', 'cenote', 'crater', 'deep_pocket', 'gom_lake'], [0.3, 0.9], 0.66, 'rgba(95,175,205,0.9)', 'rgba(10,40,72,0.97)', 'sea_stack', 7],
+    ['io', 'Io', 'sulfur', '#241208', 0.55, ['cenote', 'crater', 'canyon_cup', 'deep_plunge', 'canyon', 'fortress', 'dramatic_ridge', 'mesa'], [0.4, 1.0], 0.4, 'rgba(228,95,28,0.93)', 'rgba(112,18,8,0.98)', null, 0],
+    ['ganymede', 'Ganymede', 'slate', '#10161f', 0.55, ['ziggurat', 'stepped_descent', 'mesa', 'crater', 'shelf', 'deep_pocket', 'canyon', 'gom_smooth'], [0.3, 0.9], 0.35, 'rgba(85,145,185,0.88)', 'rgba(15,38,68,0.96)', null, 0],
+    ['titan', 'Titan', 'amber', '#b8722a', 0.5, ['gom_lake', 'island_green', 'cenote', 'punchbowl', 'crater', 'mesa', 'deep_pocket', 'rolling_hills'], [0.25, 0.85], 0.55, 'rgba(120,78,36,0.9)', 'rgba(40,22,8,0.97)', 'ruins', 5],
+    ['enceladus', 'Enceladus', 'bone', '#16222e', 0.5, ['sea_stack', 'island_green', 'crater', 'cenote', 'gom_islands', 'deep_pocket', 'spire_drown'], [0.3, 0.9], 0.7, 'rgba(150,205,225,0.9)', 'rgba(30,72,102,0.97)', null, 0],
+    ['uranus', 'Uranus', 'cyan', '#143038', 0.95, ['gom_islands', 'gauntlet', 'mesa', 'stepped_descent', 'twin_peaks', 'fortress', 'narrow_gap'], [0.35, 0.9], null, null, null, null, 0],
+    ['miranda', 'Miranda', 'plum', '#0e0a16', 0.5, ['deep_plunge', 'canyon_cup', 'cenote', 'fortress', 'narrow_gap', 'spire_drown', 'cliff_shelf', 'dramatic_ridge', 'canyon'], [0.55, 1.0], null, null, null, 'obelisk', 6],
+    ['saturn', 'Saturn', 'gold', '#4a3a1c', 1.1, ['gom_islands', 'gauntlet', 'fortress', 'mesa', 'twin_peaks', 'stepped_descent', 'narrow_gap'], [0.4, 0.95], null, null, null, null, 0],
+    ['neptune', 'Neptune', 'cobalt', '#0f2547', 1.05, ['gom_islands', 'gauntlet', 'fortress', 'mesa', 'twin_peaks', 'narrow_gap', 'stepped_descent'], [0.4, 0.95], null, null, null, null, 0],
+    ['triton', 'Triton', 'rose', '#1a1424', 0.5, ['cenote', 'crater', 'sea_stack', 'deep_pocket', 'gom_lake', 'mesa', 'canyon', 'island_green'], [0.3, 0.9], 0.4, 'rgba(120,150,200,0.88)', 'rgba(20,40,80,0.96)', null, 0],
+    ['pluto', 'Pluto', 'bone', '#0a0810', 0.45, ['gom_smooth', 'punchbowl', 'crater', 'deep_pocket', 'rolling_hills', 'mesa', 'cenote', 'shelf'], [0.2, 0.8], 0.35, 'rgba(120,160,180,0.85)', 'rgba(25,45,70,0.96)', 'ruins', 4],
+    ['charon', 'Charon', 'rust', '#08060c', 0.45, ['canyon_cup', 'deep_plunge', 'cenote', 'fortress', 'spire_drown', 'narrow_gap', 'cliff_shelf', 'dramatic_ridge'], [0.5, 1.0], null, null, null, 'obelisk', 6],
   ];
   for (const [id, nm, mat, sky, grav, arch, diff, wbias, wcol, wdeep, special, atIdx] of SOLAR) {
     const c = {
       name: nm, worldName: nm, sky: sky, defaultMaterial: mat, materials: [mat],
       gen: 'faceted', archetypes: arch, difficultyRange: diff,
       holeDistMin: 440, holeDistMax: 760, holeCount: 9, validate: true,
+      verticalCam: true,                                 // opt-in vertical framing (high holes pan up; base build untouched)
       phys: { gravityScale: grav, windScale: 1 },
     };
     if (wbias != null) { c.floodWater = true; c.waterBias = wbias; c.waterColor = wcol; c.waterDeep = wdeep; }
@@ -185,8 +186,13 @@
     COURSES[id] = c;
   }
   // Water is RARE on the planets (a hazard, not the theme) — only the genuinely watery worlds stay wet.
-  const WET = { europa: 0.28, enceladus: 0.4, titan: 0.45, earth: 0.5 };
+  const WET = { europa: 0.28, enceladus: 0.4, titan: 0.45 };
   for (const id in WET) if (COURSES[id]) COURSES[id].waterRarity = WET[id];
+  // OVERHANGS on the rocky/dramatic bodies (floating-mass set-pieces; validated; rare via the chasm gate).
+  ['luna', 'mars', 'phobos', 'jupiter', 'io', 'ganymede', 'saturn', 'uranus', 'miranda', 'neptune', 'charon'].forEach(function (id) { if (COURSES[id]) COURSES[id].overhangs = true; });
+  // A SECOND signature set-piece on some bodies (the first comes from special/atIdx above).
+  const SPECIAL2 = { luna: { a: 'ruins', at: 2 }, mars: { a: 'ruins', at: 3 }, miranda: { a: 'ruins', at: 3 }, charon: { a: 'ruins', at: 2 }, titan: { a: 'obelisk', at: 2 }, pluto: { a: 'obelisk', at: 7 }, europa: { a: 'obelisk', at: 3 } };
+  for (const id in SPECIAL2) if (COURSES[id]) COURSES[id].specialHoles = [SPECIAL2[id]];
 
   // THE SOLAR TOUR — the ordered itinerary, Earth → Pluto. A run plays each in order; finishing one warps
   // (the seamless ship-travel transition) to the next. The last (Charon) finishes to the recap.

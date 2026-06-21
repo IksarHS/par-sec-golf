@@ -1107,7 +1107,7 @@ function pickArchetype(difficulty) {
   }
   // Update recent history
   _recentArchetypes.push(picked);
-  if (_recentArchetypes.length > 3) _recentArchetypes.shift();
+  if (_recentArchetypes.length > 5) _recentArchetypes.shift();   // longer memory → a 9-hole course rarely repeats a shape
   return picked;
 }
 
@@ -1237,10 +1237,14 @@ function generateHoleTerrain(holeIndex) {
   }
 
   // Pick archetype and generate vertices
-  // Special signature hole: a course may force one archetype at one hole index (e.g. ruins/launchpad once a course).
-  const archName = (currentCourse && currentCourse.specialHole && holeIndex === currentCourse.specialHoleAt && archetypes[currentCourse.specialHole])
-    ? currentCourse.specialHole
-    : pickArchetype(difficulty);
+  // Special signature holes: a course may force archetypes at given hole indices (ruins/launchpad/obelisk).
+  // Supports a single specialHole/specialHoleAt OR a specialHoles:[{a,at},...] list (1–2 per course).
+  let _special = null;
+  if (currentCourse) {
+    if (currentCourse.specialHole && holeIndex === currentCourse.specialHoleAt && archetypes[currentCourse.specialHole]) _special = currentCourse.specialHole;
+    else if (currentCourse.specialHoles) { for (const sh of currentCourse.specialHoles) { if (sh.at === holeIndex && archetypes[sh.a]) { _special = sh.a; break; } } }
+  }
+  const archName = _special || pickArchetype(difficulty);
   const archFunc = archetypes[archName];
   const startX = teeX + 40; // small gap after tee
   let rawVerts = archFunc(startX, teeY, dist, cupTargetY, difficulty);
@@ -1315,7 +1319,7 @@ function generateHoleTerrain(holeIndex) {
   // Phase 2: overhang set-pieces (the weird 20%) on complex planets — explicit slabs over the heightfield.
   if (typeof generateOverhangs === 'function' && currentCourse) {
     const _oc = (currentCourse.planetComplexity != null) ? currentCourse.planetComplexity
-      : (currentCourse.gomCaves ? difficulty : null);     // Phase C: overhangs on gom courses, scaled by hole difficulty
+      : ((currentCourse.gomCaves || currentCourse.overhangs) ? difficulty : null);   // overhangs on the solar tour, scaled by hole difficulty
     if (_oc != null) generateOverhangs(holes[holeIndex], _oc);
   }
   // Phase W: flat water pools in deep basins (water.js, its own system — not terrain). BEFORE cacti so

@@ -263,6 +263,22 @@ function setHoleCamera(hole) {
     const center = (hole.teeX + hole.cupX) / 2;
     camera.x = center - W / 2;
   }
+
+  // OPT-IN vertical framing (separate from the horizontal logic above; base game keeps camera.y = 0).
+  // When the course sets verticalCam (or window.VCAM), nudge camera.y so the hole's playable band is
+  // centred — high holes pan UP to show their verticality + the star background instead of stranding the
+  // flag at the top. Reads terrain min/max over tee→cup. Safe: the engine already supports non-zero camera.y.
+  const vcam = (typeof currentCourse !== 'undefined' && currentCourse && currentCourse.verticalCam) ||
+    (typeof window !== 'undefined' && window.VCAM);
+  if (vcam && typeof terrainYAt === 'function') {
+    let mx = -Infinity;                                    // deepest terrain over the hole
+    for (let x = hole.teeX; x <= hole.cupX; x += 12) { const y = terrainYAt(x); if (y > mx) mx = y; }
+    // Bring a HIGH cup DOWN toward ~38% of the screen (reveals the star background above), but never pan so
+    // far up that the deepest terrain leaves the view bottom; never pan down. Low holes → camera.y stays 0.
+    camera.y = Math.max(mx - H + 40, Math.min(0, hole.cupY - H * 0.38));
+  } else {
+    camera.y = 0;   // horizontal-only (unchanged behaviour)
+  }
 }
 
 // ── Cup Logic ──────────────────────────────────────────────
