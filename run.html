@@ -145,7 +145,7 @@
      intercepted by the atlas selector (galaxy.js), so this overrides it once RG is ready. -->
 <script>
 (function () {
-  var m = /[?&](?:course|gomoon)=([a-z0-9-]+)/i.exec(location.search);
+  var m = /[?&](?:course|gomoon)=([a-z0-9_-]+)/i.exec(location.search);
   if (!m) return;
   var v = m[1].toLowerCase();
   var alias = { '1': 'moon', '2': 'moon2', '3': 'moon3' };
