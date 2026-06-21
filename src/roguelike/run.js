@@ -1496,6 +1496,8 @@
       var natCY = (typeof camera !== 'undefined') ? (camera.y || 0) : 0;
       var CEND = (T.arrival === 'over') ? (T.CHOLD - H * 1.45) : (T.C0 + H * 0.3);   // shorter final approach = a gentler, more controlled set-down
       RG._sinkWorld(CEND - natCY);                      // frame the destination at camera.y = CEND
+      T.sunkBy = CEND - natCY;                          // remember the sink + natural framing so touchdown can RESTORE the
+      T.natCY = natCY;                                  // natural frame (else play resets camera.y→0 and the sunk world falls off-screen — the hole-2 "all sky" bug)
       var bx = (typeof ball !== 'undefined') ? ball.x : 0;
       RG._shiftWorldX(T.rideX - bx);                    // tee under the travelling column
       T.CEND = CEND;
@@ -1565,6 +1567,13 @@
           var sp = DSET > 0 ? Math.min(1, (now - this._landT0) / DSET) : 1;
           if (prof.dust) this._drawDownwash(ctx, (1 - sp), T.courseId);   // dust settles + fades after touchdown
           if (sp >= 1) {
+            // NORMALIZE THE FRAME: the arrival sank the world by T.sunkBy and parked the camera at T.CEND
+            // so the surface rose into view. Undo BOTH now — net-zero on screen — so play resumes in the
+            // NATURAL frame (camera.y = T.natCY). Without this the world stays sunk while the next
+            // hole-to-hole transition resets camera.y→0, dropping the whole hole off the bottom (the
+            // Luna hole-2 "all sky" bug).
+            if (RG._sinkWorld && T.sunkBy) RG._sinkWorld(-T.sunkBy);
+            if (typeof camera !== 'undefined') camera.y = (T.natCY || 0);
             this._descPhase = 'none'; this.descending = false; this._craneProg = 0; this._craneT0 = 0; this._landT0 = 0; this._travelSeq = null; this._panBand = null;
             if (typeof state !== 'undefined') state = STATE_AIM;
           }
