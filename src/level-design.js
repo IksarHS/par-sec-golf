@@ -326,14 +326,16 @@ const archetypes = {
     const endX = sx + dist;
     const floorY = clampY(H * 0.9);                          // abyss floor (deep → big water column)
     const topY = clampY(Math.min(sy, H * 0.30) - diff * 30); // crown (cup), high
+    const cx = endX - 92, crownHalf = 62;                    // WIDE flat crown (~124px), cup centred = landable even in low gravity
     return [
       { x: sx, y: clampY(sy) },
       { x: sx + dist * 0.17, y: clampY(sy) },                // tee headland
       { x: sx + dist * 0.17 + 24, y: floorY },               // plunge into the abyss
-      { x: endX - 92, y: floorY },                           // abyss floor (long span → lots of water)
-      { x: endX - 70, y: topY },                             // spire rises near-vertical
-      { x: endX - 6, y: topY },                              // crown (cup green ~64px)
-      { x: endX, y: topY },
+      { x: cx - crownHalf - 24, y: floorY },                 // abyss floor (long span → lots of water)
+      { x: cx - crownHalf, y: topY },                        // spire rises near-vertical
+      { x: cx, y: topY, cup: true },                         // CUP centred on the wide flat crown
+      { x: cx + crownHalf, y: topY },                        // crown far edge
+      { x: endX, y: clampY(topY + 26) },                     // small step down off the crown
     ];
   },
 
@@ -594,21 +596,24 @@ const archetypes = {
   },
 
   rolling_hills(sx, sy, dist, cupY, diff) {
-    // 2-4 angular peaks and valleys — sharp zigzag terrain
+    // 2-4 angular peaks and valleys in the FIRST ~62%, then a wide flat green with the cup in the middle.
     const numHills = 2 + Math.floor(random() * (1 + diff * 2));
     const verts = [];
-    const segW = dist / (numHills + 1);
+    const hillSpan = dist * 0.62;                      // hills only occupy the front; leave room for a real green
+    const segW = hillSpan / (numHills + 1);
     for (let i = 1; i <= numHills; i++) {
       const hx = sx + segW * i + (random() - 0.5) * segW * 0.3;
-      const amp = randRange(40, 80 + diff * 80);
+      const amp = randRange(35, 70 + diff * 70);
       const up = (i % 2 === 1) ? -1 : 1;
       const hy = clampY(lerp(sy, cupY, i / (numHills + 1)) + up * amp);
       verts.push({ x: hx, y: hy });
     }
-    // flat landing apron at the end so the cup-at-end always settles the ball (esp. on low-gravity worlds,
-    // where a cup on a slope rolls off forever) — the last vertex is the cup, so keep it level.
-    verts.push({ x: sx + dist - 110, y: clampY(cupY) });
-    verts.push({ x: sx + dist, y: clampY(cupY) });
+    // WIDE flat green with the cup in the MIDDLE (flat on both sides = a forgiving landing that settles the
+    // ball even in low gravity, where a cup on a slope or at the very edge rolls off forever).
+    const fy = clampY(cupY);
+    verts.push({ x: sx + hillSpan + 30, y: fy });           // gentle arrival onto the green (always after the last hill)
+    verts.push({ x: sx + dist - 70, y: fy, cup: true });    // CUP mid-green
+    verts.push({ x: sx + dist, y: fy });                    // green continues past the cup (backstop)
     return verts;
   },
 
@@ -1589,6 +1594,289 @@ const archetypes = {
   ];
 },
 
+
+  // ════ NEW ARCHETYPES — Barnard's Star system ════
+  // WEED_MAT_DRIFT: Tidewell's slow copper seas, read as a string of floating weed-mats the ball hop
+  weed_mat_drift(sx, sy, dist, cupY, diff) {
+  const verts = [];
+  const endX = sx + dist, base = clampY(sy);
+  const gapW = 36 + diff * 60;                 // water gap widens with difficulty
+  const flood = 70 + diff * 60;                // how deep the gap floods below the mats
+  const lip = 8 + diff * 6;                    // tide lip catching a landed ball
+  let x = sx;
+  // tee anchor mat (broad, flat, at the waterline)
+  verts.push({ x, y: base });
+  x += randRange(80, 120); verts.push({ x, y: base });
+  while (x < endX - 230) {
+    // WATER GAP (floods): drop, span, climb
+    x += randRange(8, 14); verts.push({ x, y: clampY(base + flood) });
+    x += gapW;             verts.push({ x, y: clampY(base + flood) });
+    x += randRange(8, 14);
+    // MAT: a tiny lifted lip then a long dead-flat top, gently riding the swell
+    const matY = clampY(base - randRange(0, 18) - diff * 14);
+    verts.push({ x, y: clampY(matY + lip) });   // leading lip
+    x += randRange(14, 26); verts.push({ x, y: matY });
+    x += randRange(90, 150); verts.push({ x, y: matY });  // wide flat body
+  }
+  // final water gap before the cup mat
+  x += randRange(8, 14); verts.push({ x, y: clampY(base + flood) });
+  x += gapW;             verts.push({ x, y: clampY(base + flood) });
+  x += randRange(8, 14);
+  // CUP MAT: widest, dead flat, cup centered with mat on both sides
+  const cupMatY = clampY(base - randRange(4, 16));
+  verts.push({ x, y: clampY(cupMatY + lip) });
+  x += randRange(18, 30); verts.push({ x, y: cupMatY });
+  const cupX = Math.min(x + randRange(60, 100), endX - 80);
+  verts.push({ x: cupX, y: cupMatY, cup: true });
+  verts.push({ x: Math.min(cupX + randRange(70, 110), endX - 10), y: cupMatY });
+  verts.push({ x: endX, y: cupMatY });
+  return verts;
+},
+
+  // WEED_MAT_CLUSTER: A cluster-and-bridge reading of the copper sea: the ball works across a couple o
+  weed_mat_cluster(sx, sy, dist, cupY, diff) {
+  const verts = [];
+  const endX = sx + dist, base = clampY(sy);
+  const gapW = 34 + diff * 55;
+  const flood = 65 + diff * 65;
+  let x = sx;
+  verts.push({ x, y: base });
+  x += randRange(70, 110); verts.push({ x, y: base });   // tee mat
+  // 2-3 mid stepping mats
+  const steps = 2 + (random() < 0.4 + diff * 0.3 ? 1 : 0);
+  for (let i = 0; i < steps; i++) {
+    x += randRange(8, 14); verts.push({ x, y: clampY(base + flood) });
+    x += gapW;             verts.push({ x, y: clampY(base + flood) });
+    x += randRange(8, 14);
+    const matY = clampY(base - randRange(0, 20) - diff * 12);
+    verts.push({ x, y: matY });
+    x += randRange(85, 135); verts.push({ x, y: matY });   // wide flat stepping mat
+    if (x > endX - 300) break;
+  }
+  // final flooded gap before the giant raft
+  x += randRange(8, 14); verts.push({ x, y: clampY(base + flood) });
+  x += gapW;             verts.push({ x, y: clampY(base + flood) });
+  x += randRange(8, 14);
+  // GIANT RAFT: shoulder up, long shallow gathering saucer (cup at low center), shoulder up
+  const rimY  = clampY(base - randRange(10, 26) - diff * 10);
+  const sagY  = clampY(rimY + randRange(20, 34) + diff * 14);   // shallow dish low point
+  const remain = Math.max(endX - 30 - x, 220);
+  const half = remain * 0.5;
+  verts.push({ x, y: rimY });                       // near rim of raft
+  x += half * randRange(0.34, 0.42); verts.push({ x, y: lerp(rimY, sagY, 0.7) });
+  const cupX = x + half * randRange(0.28, 0.42);
+  verts.push({ x: cupX, y: sagY, cup: true });      // cup in the shallow saucer center
+  x = cupX + half * randRange(0.30, 0.44); verts.push({ x, y: lerp(rimY, sagY, 0.7) });
+  verts.push({ x: Math.min(x + half * 0.5, endX - 20), y: rimY });   // far rim
+  verts.push({ x: endX, y: rimY });
+  return verts;
+},
+
+  // TWILIGHT_SHELF: Solace's habitable band is a single broad terminator shelf where the eternal-twi
+  twilight_shelf(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  // terminator shelf sits right-of-center: dim day-slope leads in, shadowed abyss drops away after
+  const termX = sx + dist * randRange(0.50, 0.62);
+  const shelfY = clampY(Math.min(sy + randRange(10, 34), H * 0.58)); // calm twilight shelf level
+  const ringHalf = randRange(78, 116) + diff * 18;                   // generous catch ring
+  const dayCrestY = clampY(Math.min(sy, H * 0.44) - diff * 22);      // low warm day crest
+  const v = [{ x: sx, y: base }];
+  v.push({ x: sx + dist * 0.09, y: dayCrestY });
+  // DIM DAYSIDE: long smooth slope easing down into the shelf (concave, gentle)
+  const rampEnd = termX - ringHalf;
+  for (let t = 0.32; t <= 0.86; t += 0.27) {
+    const ease = t * t;
+    v.push({ x: lerp(sx + dist * 0.09, rampEnd, t), y: clampY(lerp(dayCrestY, shelfY, ease)) });
+  }
+  // FORESTED TERMINATOR RING: shelf lip -> gentle pocket -> cup -> pocket -> lip (the calm catch)
+  const cupLip = clampY(shelfY + randRange(4, 12));
+  v.push({ x: rampEnd, y: shelfY });
+  v.push({ x: termX - ringHalf * 0.42, y: cupLip });
+  v.push({ x: termX, y: cupLip, cup: true });
+  v.push({ x: termX + ringHalf * 0.42, y: cupLip });
+  v.push({ x: termX + ringHalf, y: shelfY });
+  // SHADOWED NIGHTSIDE: the world falls away into a deep dark drop just past the ring
+  const dropX = lerp(termX + ringHalf, endX, randRange(0.18, 0.30));
+  const abyssY = clampY(shelfY + randRange(120, 180) + diff * 70);
+  v.push({ x: dropX, y: shelfY });
+  v.push({ x: dropX + randRange(10, 22), y: abyssY });
+  v.push({ x: endX, y: abyssY });
+  return v;
+},
+
+  // FOREST_CLEARING: A forest clearing carved into Solace's twilight band. The ball is fed in by a di
+  forest_clearing(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  // terminator clearing sits slightly left-of-center; dim day-slope leads in from the tee
+  const termX = sx + dist * randRange(0.46, 0.56);
+  const shelfY = clampY(Math.min(sy + randRange(20, 48), H * 0.60)); // calm forested shelf level
+  const clearHalf = randRange(72, 104) + diff * 16;                  // generous clearing catch
+  const v = [{ x: sx, y: base }];
+  // DIM DAYSIDE: gentle smooth slope easing down from a low crest into the shelf
+  const dayCrestY = clampY(Math.min(sy, H * 0.46) - diff * 18);
+  v.push({ x: sx + dist * 0.08, y: dayCrestY });
+  const rampEnd = termX - clearHalf;
+  for (let t = 0.30; t <= 0.85; t += 0.275) {
+    const ease = t * t;
+    v.push({ x: lerp(sx + dist * 0.08, rampEnd, t), y: clampY(lerp(dayCrestY, shelfY, ease)) });
+  }
+  // FORESTED CLEARING: broad shelf lip -> flat pocket floor -> cup -> floor -> lip (the calm ring)
+  const floorY = clampY(shelfY + randRange(14, 28) + diff * 12);
+  v.push({ x: rampEnd, y: shelfY });
+  v.push({ x: termX - clearHalf * 0.55, y: floorY });
+  v.push({ x: termX, y: floorY, cup: true });
+  v.push({ x: termX + clearHalf * 0.55, y: floorY });
+  v.push({ x: termX + clearHalf, y: shelfY });
+  // SHADOWED NIGHTSIDE: dark canopy ledges stepping DOWN into the shadow as a back-wall
+  const canopySteps = 2 + Math.floor(randRange(0, 1.3 + diff * 1.1));
+  const canopyBotY = clampY(shelfY + randRange(100, 160) + diff * 64);
+  const canopySpan = endX - (termX + clearHalf);
+  const cdy = (canopyBotY - shelfY) / canopySteps;
+  let x = termX + clearHalf, y = shelfY;
+  for (let i = 0; i < canopySteps; i++) {
+    y = clampY(shelfY + cdy * (i + 1));
+    x += canopySpan / canopySteps * 0.42; v.push({ x: Math.min(x, endX - 1), y }); // drop riser
+    x += canopySpan / canopySteps * 0.58; v.push({ x: Math.min(x, endX), y });     // dark tread
+  }
+  return v;
+},
+
+  // CLOUD_DECK_ASCENSION: A stack of horizontal cloud-band platforms climbing left-to-right, each a broad 
+  cloud_deck_ascension(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const bands = 2 + Math.round(diff * 2); // 2..4 decks
+  const topY = clampY(Math.min(sy, H * 0.5) - 110 - diff * 150);
+  const gapW = 30 + diff * 46; // horizontal sky-gap between decks
+  const usable = dist - gapW * (bands - 1);
+  const deckW = usable / bands; // each deck is broad and flat
+  const pts = [{ x: sx, y: base }];
+  let x = sx;
+  for (let i = 0; i < bands; i++) {
+    const t = bands === 1 ? 1 : i / (bands - 1);
+    const deckY = clampY(lerp(base, topY, t));
+    const x0 = x, x1 = x + deckW;
+    // thin shoulder up onto the deck (gentle, not a slot)
+    pts.push({ x: x0 + 8, y: clampY(deckY + 14) });
+    // broad flat deck top
+    if (i === bands - 1) {
+      // top band: wide flat deck, cup centered with generous catch area
+      pts.push({ x: x0 + deckW * 0.18, y: deckY });
+      pts.push({ x: x0 + deckW * 0.5, y: deckY, cup: true });
+      pts.push({ x: x1 - deckW * 0.12, y: deckY });
+    } else {
+      pts.push({ x: x0 + deckW * 0.2, y: deckY });
+      pts.push({ x: x1 - deckW * 0.12, y: deckY });
+      // thin shoulder dropping into the short sky-gap
+      pts.push({ x: x1 - 4, y: clampY(deckY + 18) });
+      x = x1 + gapW; // jump the gap to next deck
+      continue;
+    }
+    x = x1;
+  }
+  pts.push({ x: endX, y: clampY(topY + 4) });
+  return pts;
+},
+
+  // CLOUD_BREAK_LANDING: Two long, broad cloud bands at very different altitudes with a single wide cloud
+  cloud_break_landing(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  // low near band: long flat launch deck
+  const lowY = clampY(sy);
+  const lowEnd = sx + dist * randRange(0.3, 0.4);
+  // the wide cloud-break (single big sky-gap)
+  const gapW = dist * (0.16 + diff * 0.12);
+  const highStart = lowEnd + gapW;
+  // high target band: broad flat deck, higher than near band
+  const highY = clampY(Math.min(sy, H * 0.46) - 70 - diff * 120);
+  const deckEnd = endX - 40;
+  const deckMid = (highStart + deckEnd) / 2;
+  // shallow center pocket on the high deck (gentle gather, not a trap)
+  const pocketY = clampY(highY + randRange(20, 34));
+  const pocketHalf = (deckEnd - highStart) * 0.22;
+  return [
+    { x: sx, y: lowY },
+    { x: lowEnd - 40, y: lowY }, // long flat launch deck
+    { x: lowEnd - 6, y: clampY(lowY + 16) }, // thin shoulder into the break
+    // ---- wide cloud-break (sky-gap) ----
+    { x: highStart + 4, y: clampY(highY + 16) }, // thin shoulder up onto high deck
+    { x: highStart + (deckEnd - highStart) * 0.16, y: highY }, // broad flat landing lip
+    { x: deckMid - pocketHalf, y: highY }, // flat rim of pocket
+    { x: deckMid - pocketHalf * 0.4, y: pocketY }, // gentle slope in
+    { x: deckMid, y: pocketY, cup: true }, // cup in shallow center pocket
+    { x: deckMid + pocketHalf * 0.4, y: pocketY }, // gentle slope out
+    { x: deckMid + pocketHalf, y: highY }, // flat far rim
+    { x: deckEnd, y: highY }, // broad flat deck continues
+    { x: endX, y: clampY(highY + 8) }
+  ];
+},
+
+  // VEIL_PLUME_FIELD: A flat cryo plain studded with a row of tall, needle-thin cryovolcanic jets that
+  veil_plume_field(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(Math.min(sy, H * 0.6));
+  const pts = [{ x: sx, y: base }];
+  // run-up plain before the plume field
+  const fieldStart = sx + dist * 0.24;
+  pts.push({ x: fieldStart - 30, y: base });
+  const nPlumes = 3 + Math.round(diff * 3); // 3..6 jets
+  const fieldEnd = sx + dist * 0.6;
+  const span = fieldEnd - fieldStart;
+  const step = span / nPlumes;
+  for (let i = 0; i < nPlumes; i++) {
+    const cx = fieldStart + step * (i + 0.5);
+    const halfW = lerp(16, 7, diff) + randRange(-2, 2); // narrower at high diff
+    const tipY = clampY(base - lerp(70, 150, diff) - randRange(0, 30));
+    pts.push({ x: cx - halfW * 1.8, y: base });
+    pts.push({ x: cx - halfW, y: clampY(lerp(base, tipY, 0.55)) });
+    pts.push({ x: cx, y: tipY });
+    pts.push({ x: cx + halfW, y: clampY(lerp(base, tipY, 0.55)) });
+    pts.push({ x: cx + halfW * 1.8, y: base });
+  }
+  // broad calm landing shelf beyond the last plume
+  const shelfL = fieldEnd + dist * 0.06;
+  const shelfR = endX - 40;
+  const cupX = (shelfL + shelfR) * 0.5;
+  const dishY = clampY(Math.max(base + 14, Math.min(cupY, base + 28)));
+  pts.push({ x: fieldEnd + 12, y: base });
+  pts.push({ x: shelfL, y: clampY(base + 4) });
+  pts.push({ x: cupX - 70, y: dishY });          // broad gentle shoulder
+  pts.push({ x: cupX, y: dishY, cup: true });     // wide flat catch
+  pts.push({ x: cupX + 70, y: dishY });
+  pts.push({ x: shelfR, y: clampY(base + 4) });
+  pts.push({ x: endX, y: base });
+  return pts;
+},
+
+  // ICE_CRUST_RIFT: The frozen crust has cracked open over the Hollow's sub-ice ocean: a wide chasm 
+  ice_crust_rift(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(Math.min(sy, H * 0.58));
+  // near ice plain
+  const nearLip = sx + dist * lerp(0.34, 0.26, diff);
+  // rift (deep water) — widens with diff
+  const riftW = dist * lerp(0.18, 0.34, diff);
+  const farLip = nearLip + riftW;
+  const waterY = clampY(base + lerp(70, 150, diff)); // deep below both shelves
+  const nearWallTop = clampY(base + 6);
+  // far broad ice shelf, slightly raised, holds the cup
+  const shelfY = clampY(Math.min(cupY, base - lerp(0, 18, diff)));
+  const shelfStart = farLip + dist * 0.05;
+  const cupX = Math.min(endX - 90, shelfStart + dist * 0.16);
+  return [
+    { x: sx, y: base },
+    { x: nearLip - dist * 0.06, y: base },
+    { x: nearLip, y: nearWallTop },                         // near edge of rift
+    { x: nearLip + riftW * 0.18, y: waterY },               // steep drop to water
+    { x: nearLip + riftW * 0.5, y: clampY(waterY + 6) },    // dark water floor
+    { x: farLip - riftW * 0.18, y: waterY },
+    { x: farLip, y: clampY(base + 4) },                     // far rift edge climbs out
+    { x: shelfStart, y: shelfY },                           // onto broad shelf
+    { x: cupX - 80, y: shelfY },                            // wide flat approach
+    { x: cupX, y: shelfY, cup: true },                      // generous level catch
+    { x: cupX + 80, y: clampY(shelfY + 2) },                // gentle far shoulder
+    { x: endX - 30, y: clampY(shelfY + 8) },
+    { x: endX, y: clampY(shelfY + 10) }
+  ];
+},
+
 };
 
 // ── Archetype Selection ──────────────────────────────────────
@@ -1734,6 +2022,15 @@ ARCHETYPE_TABLE.push(['pressure_ridge', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['frozen_lake', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['caldera_shelf', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['collapsed_lava_tube', 0.0, 5.0, 1]);
+// ── NEW: Barnard's Star system archetypes ──
+ARCHETYPE_TABLE.push(['weed_mat_drift', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['weed_mat_cluster', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['twilight_shelf', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['forest_clearing', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['cloud_deck_ascension', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['cloud_break_landing', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['veil_plume_field', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['ice_crust_rift', 0.0, 5.0, 1]);
 
 // ── Main Terrain Generation ──────────────────────────────
 function generateHoleTerrain(holeIndex) {

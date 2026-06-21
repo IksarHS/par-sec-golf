@@ -25,10 +25,16 @@
       // ── TRAPPIST-1 system (red dwarf) palettes ──
       trappist_plasma_crust: ['rock', '#7a1505'], trappist_charred_basalt: ['rock', '#241a18'],
       trappist_ultramafic_basalt: ['rock', '#4a3026'], trappist_haze_clay: ['sand', '#9a5d44'],
-      trappist_terminator_loam: ['sand', '#5a4736'], trappist_glacier_ice: ['ice', '#8fa9b8'],
+      trappist_terminator_loam: ['sand', '#3f6b5a'], trappist_glacier_ice: ['ice', '#8fa9b8'],   // e = the habitable jewel: dusky teal-green
       trappist_pack_ice: ['ice', '#7d8a93'], trappist_frost_ice: ['ice', '#9fb2bf'],
       trappist_riftice: ['ice', '#7c8a9c'], trappist_tidalbasalt: ['rock', '#2b211f'],
       trappist_regolith: ['sand', '#6b5048'],
+      // ── Barnard's Star system (ancient red dwarf) palettes ──
+      barnard_void_iron: ['rock', '#1A1A22'], barnard_banded_methane: ['ice', '#4A6B8A'],
+      veil_pale_blue_ice: ['ice', '#C8DCE8'], barnard_rift_ice: ['ice', '#2A2E55'],
+      barnard_regolith_dust: ['sand', '#8A7E6E'], barnard_copper_silt: ['sand', '#1F7A6D'],
+      barnard_crimson_loam: ['grass', '#3B0A14'], barnard_scorched_basalt: ['rock', '#D94A1F'],
+      barnard_dim_ember: ['rock', '#C23B22'],
     };
     for (const k in CUSTOM) if (!MATERIALS[k]) { const c = CUSTOM[k]; MATERIALS[k] = Object.assign(phys(c[0]), { color: c[1], colorLight: c[1] }); }
   }
@@ -212,7 +218,7 @@
     ['geryn', 'Geryn (TRAPPIST-1g I)', 'trappist_regolith', '#1c1418', 0.48, ['flat_run', 'crater', 'rolling_hills', 'gentle_hill', 'punchbowl', 'mesa', 'stepped_descent', 'washboard_cradle'], [0.12, 0.45], null, null, null, 'washboard_cradle', 2],
     ['trappist1f', 'TRAPPIST-1f', 'trappist_glacier_ice', '#3a2230', 0.96, ['gom_lake', 'cenote', 'gom_islands', 'shelf', 'stepped_descent', 'crater', 'funnel_gather', 'spire_drown', 'frozen_lake'], [0.3, 0.7], 0.42, 'rgba(120,168,196,0.55)', 'rgba(28,52,86,0.92)', 'spire_drown', 6],
     ['fenra', 'Fenra (TRAPPIST-1f I)', 'trappist_tidalbasalt', '#2a0d0a', 0.55, ['geyser_cones', 'crater', 'spire_drown', 'gauntlet', 'deep_pocket', 'wall_shot', 'funnel_gather', 'obelisk', 'caldera_shelf'], [0.32, 0.72], 0.26, 'rgba(255,150,55,0.9)', 'rgba(150,32,12,0.95)', 'caldera_shelf', 6],
-    ['trappist1e', 'TRAPPIST-1e', 'trappist_terminator_loam', '#b5563a', 0.93, ['island_green', 'tidal_terminator', 'gom_lake', 'sea_stack', 'shelf', 'gentle_hill', 'cliff_drop', 'moat_island_flat'], [0.2, 0.6], 0.5, 'rgba(86,140,150,0.55)', 'rgba(24,58,74,0.92)', 'island_green', 4],
+    ['trappist1e', 'TRAPPIST-1e', 'trappist_terminator_loam', '#6e3a34', 0.93, ['island_green', 'tidal_terminator', 'gom_lake', 'sea_stack', 'shelf', 'gentle_hill', 'cliff_drop', 'moat_island_flat'], [0.2, 0.6], 0.5, 'rgba(86,140,150,0.55)', 'rgba(24,58,74,0.92)', 'island_green', 4],
     ['elai', 'Elai (TRAPPIST-1e I)', 'trappist_riftice', '#1a1622', 0.42, ['gentle_slope', 'cenote', 'spire_drown', 'chasm_carry', 'stepping_stones', 'shelf', 'crater', 'narrow_gap', 'tidal_terminator'], [0.18, 0.5], 0.32, 'rgba(120,150,185,0.5)', 'rgba(40,60,95,0.85)', 'tidal_terminator', 4],
     ['trappist1d', 'TRAPPIST-1d', 'trappist_haze_clay', '#c47a4e', 0.55, ['mesa', 'gentle_slope', 'funnel_gather', 'water_valley', 'cliff_shelf', 'amphitheatre', 'rolling_hills', 'tidal_terminator', 'washboard_cradle'], [0.28, 0.62], 0.42, 'rgba(168,128,150,0.42)', 'rgba(74,52,86,0.86)', 'tidal_terminator', 4],
     ['trappist1c', 'TRAPPIST-1c', 'trappist_ultramafic_basalt', '#5e1f14', 1.05, ['faceted', 'mesa', 'canyon', 'cliff_drop', 'spire_drown', 'crater', 'dramatic_ridge', 'geyser_cones', 'shelf_drop_shelf', 'caldera_shelf', 'tidal_terminator'], [0.3, 0.7], 0.18, 'rgba(255,120,40,0.78)', 'rgba(150,28,8,0.92)', 'geyser_cones', 4],
@@ -233,13 +239,43 @@
     COURSES[id] = c;
   }
 
+  // ════════ THE BARNARD'S STAR SYSTEM ════════ the 3rd system, reached after TRAPPIST-1: an ancient, dim,
+  // brooding RED DWARF + planets b/d/e + the worlds Solace & Tidewell and the moons Veil/Hollow/Ember.
+  const BARNARD = [
+    // id, name, mat, sky, grav, archetypes, [dMin,dMax], waterBias|null, surfCol, deepCol, special, atIdx
+    ['barnard_e', 'Barnard e', 'barnard_void_iron', '#3A4A66', 0.55, ['flat_run', 'cliff_drop', 'deep_plunge', 'chasm_carry', 'narrow_gap', 'frozen_lake', 'pressure_ridge', 'stepping_stones', 'ice_crust_rift'], [0.35, 0.78], 0.18, 'rgba(92,120,148,0.55)', 'rgba(30,44,64,0.95)', 'chasm_carry', 7],
+    ['barnard_d', 'Barnard d', 'barnard_banded_methane', '#5E2436', 0.55, ['flat_run', 'sky_terrace', 'shelf', 'stepped_descent', 'chasm_carry', 'narrow_gap', 'banked_curve', 'funnel_gather', 'cloud_deck_ascension', 'cloud_break_landing'], [0.35, 0.8], null, null, null, 'dramatic_ridge', 7],
+    ['veil', 'Veil', 'veil_pale_blue_ice', '#1A0E12', 0.55, ['pressure_ridge', 'geyser_cones', 'frozen_lake', 'spire_drown', 'cliff_shelf', 'narrow_gap', 'stepping_stones', 'veil_plume_field', 'amphitheatre'], [0.4, 0.85], 0.4, 'rgba(127,182,214,0.55)', 'rgba(22,56,79,0.94)', 'geyser_cones', 7],
+    ['hollow', 'Hollow', 'barnard_rift_ice', '#5E3326', 0.62, ['frozen_lake', 'cenote', 'spire_drown', 'pressure_ridge', 'chasm_carry', 'stepping_stones', 'deep_plunge', 'narrow_gap', 'tidal_terminator'], [0.4, 0.85], 0.5, 'rgba(44,110,132,0.6)', 'rgba(10,39,64,0.96)', 'tidal_terminator', 7],
+    ['ember', 'Ember', 'barnard_regolith_dust', '#2A1418', 0.55, ['crater', 'punchbowl', 'deep_pocket', 'funnel_gather', 'rolling_hills', 'gentle_slope', 'mesa', 'washboard_cradle', 'amphitheatre'], [0.3, 0.72], null, null, null, 'crater', 6],
+    ['tidewell', 'Tidewell', 'barnard_copper_silt', '#3A1F2E', 0.78, ['gom_islands', 'gom_lake', 'stepping_stones', 'moat_island_flat', 'sea_stack', 'island_green', 'weed_mat_drift', 'tidal_terminator', 'water_valley'], [0.35, 0.8], 0.7, 'rgba(201,123,74,0.7)', 'rgba(26,74,85,0.95)', 'spire_drown', 7],
+    ['solace', 'Solace', 'barnard_crimson_loam', '#E0805A', 0.92, ['twilight_shelf', 'valley', 'rolling_hills', 'gentle_hill', 'tidal_terminator', 'water_valley', 'funnel_gather', 'banked_curve', 'amphitheatre'], [0.3, 0.72], 0.34, 'rgba(122,78,92,0.5)', 'rgba(42,26,46,0.9)', 'tidal_terminator', 8],
+    ['barnard_b', 'Barnard b', 'barnard_scorched_basalt', '#2A0E14', 0.82, ['flat_run', 'caldera_shelf', 'collapsed_lava_tube', 'geyser_cones', 'cliff_drop', 'chasm_carry', 'shelf_drop_shelf', 'dramatic_ridge', 'melt_basin_shelf'], [0.45, 0.85], 0.4, 'rgba(255,106,26,0.9)', 'rgba(122,26,5,0.96)', 'collapsed_lava_tube', 7],
+    ['barnard_star', 'Barnard\'s Star', 'barnard_dim_ember', '#1A0E14', 1.3, ['granulation_cells', 'sunspot_basin', 'pressure_ridge', 'caldera_shelf', 'dramatic_ridge', 'chasm_carry', 'amphitheatre'], [0.78, 1.0], null, null, null, 'sunspot_basin', 8],
+  ];
+  const BARNARD_OVERHANGS = ['barnard_e', 'barnard_d', 'veil', 'hollow', 'solace', 'barnard_b', 'barnard_star'];
+  for (const [id, nm, mat, sky, grav, arch, diff, wbias, wcol, wdeep, special, atIdx] of BARNARD) {
+    const c = {
+      name: nm, worldName: nm, sky: sky, defaultMaterial: mat, materials: [mat],
+      gen: 'faceted', archetypes: arch, difficultyRange: diff,
+      holeDistMin: 440, holeDistMax: 760, holeCount: 9, validate: true,
+      phys: { gravityScale: grav, windScale: 1 },
+    };
+    if (wbias != null) { c.floodWater = true; c.waterBias = wbias; c.waterColor = wcol; c.waterDeep = wdeep; c.waterRarity = 0.4; }
+    if (special) { c.specialHole = special; c.specialHoleAt = atIdx; }
+    if (BARNARD_OVERHANGS.indexOf(id) >= 0) c.overhangs = true;
+    COURSES[id] = c;
+  }
+
   // THE SOLAR TOUR — the ordered itinerary, Earth → Pluto. A run plays each in order; finishing one warps
   // (the seamless ship-travel transition) to the next. The last (Charon) finishes to the recap.
   if (typeof window !== 'undefined') {
     window.SOLAR_ITINERARY = ['earth', 'luna', 'mars', 'phobos', 'jupiter', 'io', 'europa', 'ganymede',
       'saturn', 'titan', 'enceladus', 'uranus', 'miranda', 'neptune', 'triton', 'pluto', 'charon',
       // ── cross into the TRAPPIST-1 system: outer planets inward, moons after their planet, red dwarf star finale ──
-      'trappist1h', 'trappist1g', 'geryn', 'trappist1f', 'fenra', 'trappist1e', 'elai', 'trappist1d', 'trappist1c', 'trappist1b', 'trappist1'];
+      'trappist1h', 'trappist1g', 'geryn', 'trappist1f', 'fenra', 'trappist1e', 'elai', 'trappist1d', 'trappist1c', 'trappist1b', 'trappist1',
+      // ── cross into the Barnard's Star system: outermost inward, moons after the ice giant, the dim red dwarf as the grand finale ──
+      'barnard_e', 'barnard_d', 'veil', 'hollow', 'ember', 'tidewell', 'solace', 'barnard_b', 'barnard_star'];
   }
 
   // expose the generator so lab.js + the harness build planets at any complexity from the SAME logic
