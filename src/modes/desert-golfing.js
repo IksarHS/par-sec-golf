@@ -306,7 +306,7 @@ function isBallOffScreen() {
 // overlay. Pure rendering effect — geometry, physics, and the editor are
 // untouched. Off by default; the toggle persists in localStorage.
 let TERRAIN_TEXTURE_ON = true; // the textured look is the default now; T toggles it off
-let _strataTopY = null, _strataVLen = -1;   // cached WORLD-fixed strata anchor (see drawTexturedTerrain)
+let _strataTopY = null, _strataCourse = null;   // cached per-COURSE strata anchor (see drawTexturedTerrain)
 try { TERRAIN_TEXTURE_ON = localStorage.getItem('dg-terrain-texture') !== '0'; } catch (e) {}
 window.addEventListener('keydown', (e) => {
   const t = e.target && e.target.tagName;
@@ -489,12 +489,16 @@ function drawTexturedTerrain(startX, endX) {
   // grows), NOT the visible window's min. The viewport-relative min drifted as the camera panned, which
   // RECOLOURED + reseeded every rock bed on each hole-to-hole move (the "terrain pops to a different
   // colour" bug). A world-fixed anchor makes the beds continuous + stable — nothing recolours on a pan.
-  if (_strataTopY == null || _strataVLen !== vertices.length) {
+  // Recompute ONLY when the planet changes (off-screen during travel) — NOT on every terrain regen. A
+  // hole-to-hole transition regenerates the terrain; recomputing then shifts the surface↔deep boundary and
+  // recolours the world (the "brown deep pops to green on transition" bug). Per-course keeps it regen-stable.
+  const _curCourse = (typeof window !== 'undefined' && window.RG && RG.course) || '';
+  if (_strataTopY == null || _strataCourse !== _curCourse) {
     let m = Infinity;
     for (let k = 0; k < vertices.length; k++) { const vy = vertices[k] && vertices[k].y; if (typeof vy === 'number' && vy < m) m = vy; }
-    _strataTopY = (m === Infinity) ? 0 : m; _strataVLen = vertices.length;
+    if (m !== Infinity) { _strataTopY = m; _strataCourse = _curCourse; }   // only cache once terrain exists
   }
-  const yTop = _strataTopY - 40;   // start beds above the highest surface point (world-fixed, pan-stable)
+  const yTop = (_strataTopY == null ? 0 : _strataTopY) - 40;   // beds start above the highest surface (per-course, regen-stable)
   const REF  = 300;                // depth (px) over which the ramp reaches deep red
   const anchor = Math.floor(yTop * 0.013); // bed pattern seed — now world-stable, so it never reseeds mid-run
 
