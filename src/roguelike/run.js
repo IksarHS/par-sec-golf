@@ -1685,7 +1685,10 @@
       if (!ctx) return;
       var a = Math.min(1, held / 240); if (a <= 0.01) return;
       var w = 260, h = 110, x = W / 2 - w / 2, y = H * 0.20;
-      var from = (this._travelSeq && this._travelSeq.courseId === 'moon') ? 'EARTH' : 'THE MOON';
+      var _cs = (typeof WORLDS !== 'undefined' && WORLDS['run-world']) ? WORLDS['run-world'].courses : null;
+      var _dep = this._travelSeq && this._travelSeq.departCourse;
+      var from = (_cs && _dep && _cs[_dep] && _cs[_dep].name) ? _cs[_dep].name.toUpperCase()
+        : ((this._travelSeq && this._travelSeq.courseId === 'moon') ? 'EARTH' : 'THE MOON');
       ctx.save(); ctx.globalAlpha = a;
       ctx.fillStyle = 'rgba(14,12,22,0.55)'; ctx.fillRect(x, y, w, h);
       ctx.textAlign = 'left'; ctx.fillStyle = '#cdd6f5'; ctx.font = '13px "Departure Mono",monospace'; ctx.fillText('COURSE COMPLETE · ' + from, x + 18, y + 26);
@@ -1697,7 +1700,10 @@
     _drawTravelBtn(ctx, held) {
       if (!ctx) return;
       var a = Math.min(1, (held - 120) / 240); if (a <= 0.01) return;
-      var dest = (this._travelSeq && this._travelSeq.courseId === 'moon') ? 'MOON' : 'EARTH';
+      var _cd = (typeof WORLDS !== 'undefined' && WORLDS['run-world']) ? WORLDS['run-world'].courses : null;
+      var _dst = this._travelSeq && this._travelSeq.courseId;
+      var dest = (_cd && _dst && _cd[_dst] && _cd[_dst].name) ? _cd[_dst].name.toUpperCase()
+        : ((this._travelSeq && this._travelSeq.courseId === 'moon') ? 'MOON' : 'EARTH');
       var w = 168, h = 34, x = W / 2 - w / 2, y = H - 96, hot = (Math.floor(held / 460) % 2) === 0;
       ctx.save(); ctx.globalAlpha = a;
       ctx.fillStyle = hot ? '#e8a93a' : 'rgba(120,130,170,0.18)';

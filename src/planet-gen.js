@@ -129,7 +129,7 @@
       name: nm, worldName: nm, sky: sky, defaultMaterial: mat, materials: [mat],
       gen: 'faceted', archetypes: arch,
       difficultyRange: diff, holeDistMin: 460, holeDistMax: 780, holeCount: 9,
-      floodWater: true, waterBias: wbias, waterColor: wcol, waterDeep: wdeep, validate: true,
+      floodWater: true, waterBias: wbias, waterColor: wcol, waterDeep: wdeep, waterRarity: 0.12, validate: true,   // water WORLDS stay wet
       phys: { gravityScale: 1, windScale: 1 },
     };
   }
@@ -167,6 +167,11 @@
     ['enceladus', 'Enceladus', 'bone', '#16222e', 0.5, ['gom', 'sea_stack', 'island_green', 'crater', 'gom_islands'], [0.25, 0.82], 0.7, 'rgba(150,205,225,0.9)', 'rgba(30,72,102,0.97)', null, 0],
     ['uranus', 'Uranus', 'cyan', '#aaccd0', 0.95, ['gom_islands', 'gom_smooth', 'gauntlet', 'gom'], [0.3, 0.85], 0.5, 'rgba(90,192,202,0.88)', 'rgba(15,62,82,0.96)', null, 0],
     ['miranda', 'Miranda', 'plum', '#0e0a16', 0.5, ['deep_plunge', 'canyon_cup', 'cenote', 'fortress', 'narrow_gap', 'spire_drown'], [0.5, 0.97], null, null, null, 'obelisk', 6],
+    ['saturn', 'Saturn', 'gold', '#b89a5a', 1.1, ['gom_islands', 'gauntlet', 'gom', 'gom_smooth'], [0.35, 0.85], null, null, null, null, 0],
+    ['neptune', 'Neptune', 'cobalt', '#16345e', 1.05, ['gom_islands', 'gom_smooth', 'gauntlet', 'gom'], [0.35, 0.85], 0.5, 'rgba(60,110,200,0.9)', 'rgba(8,30,80,0.97)', null, 0],
+    ['triton', 'Triton', 'rose', '#1a1424', 0.5, ['gom', 'cenote', 'crater', 'sea_stack', 'gom_smooth'], [0.25, 0.8], 0.4, 'rgba(120,150,200,0.88)', 'rgba(20,40,80,0.96)', null, 0],
+    ['pluto', 'Pluto', 'bone', '#0a0810', 0.45, ['gom', 'gom_smooth', 'punchbowl', 'crater', 'deep_pocket'], [0.2, 0.8], 0.35, 'rgba(120,160,180,0.85)', 'rgba(25,45,70,0.96)', 'ruins', 4],
+    ['charon', 'Charon', 'rust', '#08060c', 0.45, ['canyon_cup', 'deep_plunge', 'cenote', 'fortress', 'spire_drown'], [0.45, 0.95], null, null, null, 'obelisk', 6],
   ];
   for (const [id, nm, mat, sky, grav, arch, diff, wbias, wcol, wdeep, special, atIdx] of SOLAR) {
     const c = {
@@ -178,6 +183,16 @@
     if (wbias != null) { c.floodWater = true; c.waterBias = wbias; c.waterColor = wcol; c.waterDeep = wdeep; }
     if (special) { c.specialHole = special; c.specialHoleAt = atIdx; }
     COURSES[id] = c;
+  }
+  // Water is RARE on the planets (a hazard, not the theme) — only the genuinely watery worlds stay wet.
+  const WET = { europa: 0.28, enceladus: 0.4, titan: 0.45, earth: 0.5 };
+  for (const id in WET) if (COURSES[id]) COURSES[id].waterRarity = WET[id];
+
+  // THE SOLAR TOUR — the ordered itinerary, Earth → Pluto. A run plays each in order; finishing one warps
+  // (the seamless ship-travel transition) to the next. The last (Charon) finishes to the recap.
+  if (typeof window !== 'undefined') {
+    window.SOLAR_ITINERARY = ['earth', 'luna', 'mars', 'phobos', 'jupiter', 'io', 'europa', 'ganymede',
+      'saturn', 'titan', 'enceladus', 'uranus', 'miranda', 'neptune', 'triton', 'pluto', 'charon'];
   }
 
   // expose the generator so lab.js + the harness build planets at any complexity from the SAME logic

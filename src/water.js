@@ -41,6 +41,7 @@ function placeWater(holeIndex) {
     let deepest = greensY;
     for (let x = teeX; x <= cupX; x += 10) { const y = terrainYAt(x); if (y > deepest) deepest = y; }
     if (deepest - greensY < 32) return;                              // no basin below the greens → nothing to flood (dry hole)
+    if (random() < (currentCourse.waterRarity != null ? currentCourse.waterRarity : 0.62)) return;   // water is RARE: most eligible holes stay dry
     // per-hole WATER AMOUNT (the modifier): fraction of the basin depth that fills, varied around the
     // course bias. ~1 → floods up to the greens (lots of water); ~0 → only the deepest pocket (a little).
     const bias = currentCourse.waterBias != null ? currentCourse.waterBias : 0.55;

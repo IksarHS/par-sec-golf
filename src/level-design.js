@@ -472,10 +472,11 @@ const archetypes = {
     const ox = sx + dist * randRange(0.42, 0.56), top = clampY(base - 170 - diff * 80);
     return [
       { x: sx, y: clampY(sy) },
-      { x: ox - 90, y: base },
-      { x: ox - 13, y: base }, { x: ox - 11, y: top },          // monolith up (tall, narrow)
+      { x: ox - 95, y: base },
+      { x: ox - 70, y: base, cup: true },                       // cup at the monolith's NEAR foot (no need to clear it)
+      { x: ox - 13, y: base }, { x: ox - 11, y: top },          // monolith up (tall, narrow) — a landmark past the cup
       { x: ox + 11, y: top }, { x: ox + 13, y: base },          // monolith top + down
-      { x: ox + 70, y: base, cup: true },                       // cup at the monolith's foot
+      { x: ox + 70, y: base },
       { x: endX - 60, y: base }, { x: endX, y: base },
     ];
   },

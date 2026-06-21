@@ -97,9 +97,14 @@
       // Only the two REAL surface worlds ping-pong; any other course (the ?galaxy sampler planets,
       // future one-off worlds) finishes to its own recap instead of being yanked to the Moon.
       if (typeof state !== 'undefined' && state === STATE_COMPLETE && window.RG && RG.active && !RG.failed
-          && RG._surfaceRunOnly && RG._surfaceRunOnly() && RG._beginTravel
-          && (RG.course === 'earth-course' || RG.course === 'moon')) {
-        RG._beginTravel(RG.course === 'moon' ? 'earth-course' : 'moon', 'descend');
+          && RG._surfaceRunOnly && RG._surfaceRunOnly() && RG._beginTravel) {
+        var _itin = window.SOLAR_ITINERARY, _ci = _itin ? _itin.indexOf(RG.course) : -1;
+        if (_ci >= 0 && _ci < _itin.length - 1) {
+          RG._beginTravel(_itin[_ci + 1], 'descend');         // SOLAR TOUR: warp to the next body in order
+        } else if (RG.course === 'earth-course' || RG.course === 'moon') {
+          RG._beginTravel(RG.course === 'moon' ? 'earth-course' : 'moon', 'descend');   // original earth↔moon ping-pong
+        }
+        // else: last itinerary body (Charon) → no travel, finishes to recap
       }
     },
     onRest() {
