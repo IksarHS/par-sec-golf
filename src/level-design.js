@@ -434,10 +434,17 @@ const archetypes = {
     const span = dist * 0.6, gap = span / n, cupIdx = Math.floor(n / 2);
     let x = sx + dist * 0.2;
     for (let i = 0; i < n; i++) {
-      const ph = randRange(45, 80) + random() * (70 + diff * 60);   // broken column height (varied)
+      if (i === cupIdx) {
+        // an OPEN PLAZA among the ruins — a wide flat clearing with NO tall column to block the lob, so a
+        // dropped ball lands and settles on the cup (the old layout wedged the cup beside a tall column → unsinkable in low gravity).
+        v.push({ x, y: base });
+        v.push({ x: x + gap * 0.5, y: base, cup: true });        // CUP in the open clearing
+        v.push({ x: x + gap, y: base });
+        x += gap; continue;
+      }
+      const ph = randRange(45, 80) + random() * (60 + diff * 50);   // broken column height (varied)
       const pw = randRange(15, 24);
       v.push({ x, y: base });                                   // foundation
-      if (i === cupIdx) v.push({ x: x + gap * 0.3, y: base, cup: true });  // cup among the ruins
       v.push({ x: x + gap * 0.5, y: base });
       v.push({ x: x + gap * 0.5 + 3, y: clampY(base - ph) });   // column up (jagged broken top)
       v.push({ x: x + gap * 0.5 + pw, y: clampY(base - ph) });
@@ -598,7 +605,10 @@ const archetypes = {
       const hy = clampY(lerp(sy, cupY, i / (numHills + 1)) + up * amp);
       verts.push({ x: hx, y: hy });
     }
-    verts.push({ x: sx + dist, y: cupY });
+    // flat landing apron at the end so the cup-at-end always settles the ball (esp. on low-gravity worlds,
+    // where a cup on a slope rolls off forever) — the last vertex is the cup, so keep it level.
+    verts.push({ x: sx + dist - 110, y: clampY(cupY) });
+    verts.push({ x: sx + dist, y: clampY(cupY) });
     return verts;
   },
 
@@ -1029,6 +1039,556 @@ const archetypes = {
       { x: sx + dist, y: rightY }
     ];
   },
+
+  // ════ NEW ARCHETYPES — generic variance batch ════
+  // SKY_TERRACE: A switchback mountain road climbing in alternating wide terraces to a broad summit terrace where the cup waits against open sky
+  sky_terrace(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const tiers = 3 + Math.floor(diff * 2 + randRange(0, 1.4));
+  const topY = clampY(Math.min(sy, H * 0.30) - diff * 80 - randRange(20, 50));
+  const climbW = dist * 0.78;
+  const dy = (base - topY) / tiers;
+  const v = [{ x: sx, y: base }];
+  let x = sx + dist * 0.08, y = base;
+  for (let i = 0; i < tiers; i++) {
+    const next = clampY(base - dy * (i + 1));
+    const riseW = (climbW / tiers) * 0.42;
+    const flatW = (climbW / tiers) * 0.58;
+    x += riseW; y = next; v.push({ x, y });
+    x += flatW; v.push({ x, y });
+  }
+  const sumW = Math.min(dist * 0.16, endX - x - 30);
+  v.push({ x: x + sumW * 0.5, y: topY, cup: true });
+  v.push({ x: x + sumW, y: topY });
+  v.push({ x: endX, y: clampY(topY + randRange(10, 40)) });
+  return v;
+},
+
+  // FLAT_TOP_BUTTE: A lone towering flat-topped butte rising out of the desert floor, sheer dramatic sides and a wide windswept mesa-cap holding the cup
+  flat_top_butte(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const cx = sx + dist * randRange(0.46, 0.58);
+  const capHalf = randRange(80, 120);
+  const capY = clampY(Math.min(sy, H * 0.34) - diff * 90 - randRange(20, 60));
+  const shoulderY = clampY(lerp(capY, base, 0.62));
+  return [
+    { x: sx, y: base },
+    { x: cx - capHalf - randRange(50, 90), y: clampY(lerp(base, shoulderY, 0.7)) },
+    { x: cx - capHalf - 18, y: shoulderY },
+    { x: cx - capHalf, y: capY },
+    { x: cx - capHalf * 0.4, y: capY },
+    { x: cx, y: capY, cup: true },
+    { x: cx + capHalf * 0.4, y: capY },
+    { x: cx + capHalf, y: capY },
+    { x: cx + capHalf + 18, y: shoulderY },
+    { x: cx + capHalf + randRange(50, 90), y: clampY(lerp(base, shoulderY, 0.7)) },
+    { x: endX, y: base },
+  ];
+},
+
+  // SUMMIT_SADDLE: Twin shoulders flanking a high mountain saddle — you crest the ridge and the cup nestles in a broad gentle dip cradled between two soaring peaks
+  summit_saddle(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const cx = sx + dist * randRange(0.48, 0.56);
+  const peakY = clampY(Math.min(sy, H * 0.26) - diff * 95 - randRange(20, 55));
+  const saddleY = clampY(peakY + randRange(46, 78));
+  const saddleHalf = randRange(80, 130);
+  const peakOff = saddleHalf + randRange(40, 80);
+  return [
+    { x: sx, y: base },
+    { x: cx - peakOff - randRange(40, 80), y: clampY(lerp(base, peakY, 0.6)) },
+    { x: cx - peakOff, y: peakY },
+    { x: cx - saddleHalf, y: clampY(lerp(peakY, saddleY, 0.85)) },
+    { x: cx - saddleHalf * 0.45, y: saddleY },
+    { x: cx, y: saddleY, cup: true },
+    { x: cx + saddleHalf * 0.45, y: saddleY },
+    { x: cx + saddleHalf, y: clampY(lerp(peakY, saddleY, 0.85)) },
+    { x: cx + peakOff, y: peakY },
+    { x: cx + peakOff + randRange(40, 80), y: clampY(lerp(base, peakY, 0.6)) },
+    { x: endX, y: base },
+  ];
+},
+
+  // CHASM_CARRY: A single yawning vertical-walled chasm splits the fairway; clear it to a broad sunlit mesa where the cup waits
+  chasm_carry(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const gapW = randRange(70, 110) + diff * 90;
+  const gx = sx + dist * randRange(0.34, 0.42);
+  const pitY = clampY(Math.max(base, H * 0.6) + randRange(70, 120) + diff * 60);
+  const landY = clampY(base - randRange(0, 18) - diff * 14);
+  const landStart = gx + gapW;
+  const landFlat = Math.min(landStart + randRange(150, 230), endX - 70);
+  const cupX = (landStart + landFlat) / 2;
+  return [
+    { x: sx, y: base },
+    { x: gx - 60, y: base },
+    { x: gx - 8, y: clampY(base + 6) },
+    { x: gx, y: pitY },
+    { x: gx + gapW * 0.5, y: clampY(pitY + 10) },
+    { x: gx + gapW, y: clampY(base + 6) },
+    { x: landStart + 24, y: landY },
+    { x: cupX, y: landY, cup: true },
+    { x: landFlat, y: landY },
+    { x: endX, y: clampY(landY + randRange(0, 24)) },
+  ];
+},
+
+  // STEPPING_STONES: Two carry hazards in a row with a safe rest plateau between, then a generous green — a rhythmic skip-skip-land
+  stepping_stones(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const pitY = clampY(Math.max(base, H * 0.58) + randRange(60, 100) + diff * 55);
+  const g1 = sx + dist * 0.24, g1w = randRange(55, 80) + diff * 45;
+  const restStart = g1 + g1w;
+  const restW = randRange(80, 120);
+  const g2 = restStart + restW, g2w = randRange(55, 80) + diff * 45;
+  const restY = clampY(base - randRange(4, 16));
+  const greenStart = g2 + g2w;
+  const greenFlat = Math.min(greenStart + randRange(140, 200), endX - 60);
+  const greenY = clampY(base - diff * 12);
+  const cupX = (greenStart + greenFlat) / 2;
+  return [
+    { x: sx, y: base },
+    { x: g1 - 30, y: base },
+    { x: g1, y: pitY },
+    { x: g1 + g1w * 0.5, y: clampY(pitY + 8) },
+    { x: restStart, y: clampY(base + 4) },
+    { x: restStart + restW * 0.5, y: restY },
+    { x: g2, y: pitY },
+    { x: g2 + g2w * 0.5, y: clampY(pitY + 8) },
+    { x: greenStart, y: clampY(base + 4) },
+    { x: greenStart + 26, y: greenY },
+    { x: cupX, y: greenY, cup: true },
+    { x: greenFlat, y: greenY },
+    { x: endX, y: clampY(greenY + randRange(0, 20)) },
+  ];
+},
+
+  // MOAT_ISLAND_FLAT: A wide flat green ringed by a moat-like dip on its approach side — carry the moat and the ball rolls onto an oversized landing apron with the pin
+  moat_island_flat(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const moatStart = sx + dist * randRange(0.4, 0.5);
+  const moatW = randRange(90, 130) + diff * 70;
+  const moatY = clampY(Math.max(base, H * 0.6) + randRange(55, 95) + diff * 50);
+  const apronStart = moatStart + moatW;
+  const apronY = clampY(base - randRange(6, 22) - diff * 16);
+  const apronEnd = Math.min(apronStart + randRange(180, 260), endX - 50);
+  const cupX = lerp(apronStart, apronEnd, 0.5);
+  return [
+    { x: sx, y: base },
+    { x: moatStart - 70, y: base },
+    { x: moatStart - 18, y: clampY(base + 4) },
+    { x: moatStart, y: clampY(lerp(base, moatY, 0.7)) },
+    { x: moatStart + moatW * 0.5, y: moatY },
+    { x: apronStart - 12, y: clampY(lerp(moatY, apronY, 0.6)) },
+    { x: apronStart + 30, y: apronY },
+    { x: cupX, y: apronY, cup: true },
+    { x: apronEnd, y: apronY },
+    { x: endX, y: clampY(apronY + randRange(4, 28)) },
+  ];
+},
+
+  // FUNNEL_GATHER: A wide symmetric V-funnel of converging slopes that vacuums any landing ball straight down into a flat sink at the throat
+  funnel_gather(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const cx = sx + dist * randRange(0.5, 0.6);
+  const mouthHalf = randRange(150, 230);
+  const floorY = clampY(Math.max(base, H * 0.6) + diff * randRange(30, 70));
+  const rimY = clampY(floorY - randRange(90, 150) - diff * 40);
+  const flatHalf = randRange(34, 52);
+  return [
+    { x: sx, y: base },
+    { x: cx - mouthHalf, y: rimY },
+    { x: cx - mouthHalf * 0.6, y: clampY(lerp(rimY, floorY, 0.5)) },
+    { x: cx - mouthHalf * 0.28, y: clampY(lerp(rimY, floorY, 0.82)) },
+    { x: cx - flatHalf, y: floorY },
+    { x: cx, y: floorY, cup: true },
+    { x: cx + flatHalf, y: floorY },
+    { x: cx + mouthHalf * 0.28, y: clampY(lerp(rimY, floorY, 0.82)) },
+    { x: cx + mouthHalf * 0.6, y: clampY(lerp(rimY, floorY, 0.5)) },
+    { x: cx + mouthHalf, y: rimY },
+    { x: endX, y: base },
+  ];
+},
+
+  // WASHBOARD_CRADLE: A gentle ramp textured with small washboard ripples that bleed off speed, ending in a soft scooped cradle where the ball nestles
+  washboard_cradle(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const v = [{ x: sx, y: base }];
+  const rampEnd = sx + dist * randRange(0.58, 0.68);
+  const rampTopY = clampY(Math.min(sy, H * 0.4) - diff * 26);
+  const bumps = 4 + Math.floor(randRange(0, 3));
+  const amp = randRange(7, 13);
+  for (let i = 1; i <= bumps; i++) {
+    const t = i / (bumps + 1);
+    const x = lerp(sx + dist * 0.1, rampEnd, t);
+    const baseLine = lerp(base, rampTopY, t);
+    v.push({ x: x - 10, y: clampY(baseLine - amp) });
+    v.push({ x: x + 10, y: clampY(baseLine + amp * 0.5) });
+  }
+  const cradleW = randRange(120, 180);
+  const cradleLip = clampY(rampTopY - randRange(6, 18));
+  const cradleBot = clampY(rampTopY + randRange(40, 80) + diff * 24);
+  const ccx = rampEnd + cradleW * 0.5;
+  v.push({ x: rampEnd, y: cradleLip });
+  v.push({ x: ccx - cradleW * 0.25, y: clampY(lerp(cradleLip, cradleBot, 0.85)) });
+  v.push({ x: ccx, y: cradleBot, cup: true });
+  v.push({ x: ccx + cradleW * 0.25, y: clampY(lerp(cradleLip, cradleBot, 0.85)) });
+  v.push({ x: ccx + cradleW * 0.5, y: cradleLip });
+  v.push({ x: endX, y: clampY(lerp(cradleLip, base, 0.5)) });
+  v.push({ x: endX, y: base });
+  return v;
+},
+
+  // BANKED_CURVE: A sweeping banked turn like a luge wall — the outer bank rises high then curls down into a wide flat infield where the ball comes to rest
+  banked_curve(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const v = [{ x: sx, y: base }];
+  const bankStart = sx + dist * randRange(0.22, 0.3);
+  const bankPeakX = sx + dist * randRange(0.46, 0.56);
+  const bankY = clampY(Math.min(sy, H * 0.34) - diff * randRange(40, 80));
+  v.push({ x: bankStart, y: clampY(lerp(base, bankY, 0.45)) });
+  v.push({ x: lerp(bankStart, bankPeakX, 0.5), y: clampY(lerp(base, bankY, 0.85)) });
+  v.push({ x: bankPeakX, y: bankY });
+  const infieldY = clampY(bankY + randRange(70, 120) + diff * 20);
+  const infW = randRange(150, 220);
+  const infStart = bankPeakX + randRange(40, 70);
+  v.push({ x: bankPeakX + 30, y: clampY(lerp(bankY, infieldY, 0.55)) });
+  v.push({ x: infStart, y: clampY(lerp(bankY, infieldY, 0.92)) });
+  const icx = infStart + infW * 0.5;
+  v.push({ x: icx, y: infieldY, cup: true });
+  v.push({ x: infStart + infW, y: clampY(infieldY - randRange(6, 16)) });
+  v.push({ x: endX - 50, y: clampY(lerp(infieldY, base, 0.5)) });
+  v.push({ x: endX, y: base });
+  return v;
+},
+
+  // AMPHITHEATRE: An ancient alien amphitheatre — concentric stone tiers stepping down to a broad central stage where the cup rests
+  amphitheatre(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const cx = sx + dist * randRange(0.5, 0.6);
+    const tiers = 3 + Math.floor(randRange(0, 2.2));
+    const stageY = clampY(Math.max(base, H * 0.6) + randRange(28, 64) + diff * 30);
+    const topY = clampY(stageY - randRange(70, 120) - diff * 40);
+    const stageHalf = randRange(70, 110);
+    const dy = (stageY - topY) / tiers;
+    const tierW = (dist * 0.34 - stageHalf) / tiers;
+    const v = [{ x: sx, y: base }];
+    let lx = cx - stageHalf - tierW * tiers;
+    v.push({ x: lx, y: topY });
+    for (let i = 0; i < tiers; i++) {
+      const y = clampY(lerp(topY, stageY, (i + 1) / tiers));
+      lx += tierW - 12; v.push({ x: lx, y: clampY(y - dy * 0.5) });
+      lx += 12; v.push({ x: lx, y });
+    }
+    v.push({ x: cx, y: stageY, cup: true });
+    let rx = cx + stageHalf;
+    for (let i = tiers - 1; i >= 0; i--) {
+      const y = clampY(lerp(topY, stageY, (i + 1) / tiers));
+      v.push({ x: rx, y });
+      rx += 12; v.push({ x: rx, y: clampY(y - dy * 0.5) });
+      rx += tierW - 12;
+    }
+    v.push({ x: Math.min(rx, endX - 40), y: topY });
+    v.push({ x: endX, y: base });
+    return v;
+  },
+
+  // CRASHED_HULL: The buckled fuselage of a crashed alien ship juts from the ground; the cup nestles in the sheltered sand pocket scooped out behind the wreck
+  crashed_hull(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const hullX = sx + dist * randRange(0.4, 0.52);
+    const hullLen = randRange(120, 180);
+    const noseY = clampY(Math.min(sy, H * 0.4) - 30 - diff * 50);
+    const tailY = clampY(noseY + randRange(50, 90));
+    const pocketY = clampY(Math.max(base, H * 0.62) + randRange(20, 55) + diff * 22);
+    const pocketHalf = randRange(75, 105);
+    const farRim = clampY(lerp(pocketY, base, 0.55));
+    return [
+      { x: sx, y: base },
+      { x: hullX - 40, y: clampY(lerp(base, noseY, 0.7)) },
+      { x: hullX, y: noseY },
+      { x: hullX + hullLen * 0.5, y: clampY(noseY + (tailY - noseY) * 0.35) },
+      { x: hullX + hullLen, y: tailY },
+      { x: hullX + hullLen + 28, y: clampY(lerp(tailY, pocketY, 0.85)) },
+      { x: hullX + hullLen + 28 + pocketHalf, y: pocketY, cup: true },
+      { x: hullX + hullLen + 28 + pocketHalf * 2, y: clampY(lerp(pocketY, farRim, 0.8)) },
+      { x: endX - 50, y: farRim },
+      { x: endX, y: base },
+    ];
+  },
+
+  // GEYSER_CONES: A field of mineral geyser cones rises across the plain; the cup sits in the calm wide caldera atop the largest, dormant cone
+  geyser_cones(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{ x: sx, y: base }];
+    const small1X = sx + dist * 0.22, small1Y = clampY(base - randRange(30, 55) - diff * 18);
+    v.push({ x: small1X - 26, y: clampY(lerp(base, small1Y, 0.6)) });
+    v.push({ x: small1X, y: small1Y });
+    v.push({ x: small1X + 26, y: clampY(lerp(base, small1Y, 0.6)) });
+    v.push({ x: sx + dist * 0.34, y: base });
+    const cx = sx + dist * randRange(0.52, 0.62);
+    const coneH = randRange(80, 130) + diff * 45;
+    const rimY = clampY(Math.min(sy, H * 0.5) - coneH);
+    const caldHalf = randRange(60, 90);
+    const caldY = clampY(rimY + randRange(20, 38));
+    v.push({ x: cx - caldHalf - 70, y: clampY(lerp(base, rimY, 0.5)) });
+    v.push({ x: cx - caldHalf, y: rimY });
+    v.push({ x: cx - caldHalf * 0.45, y: caldY });
+    v.push({ x: cx, y: caldY, cup: true });
+    v.push({ x: cx + caldHalf * 0.45, y: caldY });
+    v.push({ x: cx + caldHalf, y: rimY });
+    v.push({ x: cx + caldHalf + 70, y: clampY(lerp(base, rimY, 0.5)) });
+    const small2X = sx + dist * 0.82, small2Y = clampY(base - randRange(26, 48) - diff * 16);
+    v.push({ x: small2X - 24, y: clampY(lerp(base, small2Y, 0.6)) });
+    v.push({ x: small2X, y: small2Y });
+    v.push({ x: small2X + 24, y: clampY(lerp(base, small2Y, 0.6)) });
+    v.push({ x: endX, y: base });
+    return v;
+  },
+
+  // ════ NEW ARCHETYPES — TRAPPIST-1 system ════
+  // TIDAL_TERMINATOR: A planet frozen on one face, baked on the other. The right half is the SUNLIT side: a sing
+  tidal_terminator(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  // terminator sits left-of-center: frozen steps on the left, melt-slope on the right
+  const termX = sx + dist * randRange(0.40, 0.50);
+  // broad calm pocket at the terminator (the habitable ring) -- this is the cup floor
+  const pocketY = clampY(Math.min(sy + 8, H * 0.60));
+  const pocketHalf = randRange(64, 96); // generous catch width
+  // FROZEN NIGHTSIDE: stepped ice shelves descending from tee down into the pocket
+  const steps = 2 + Math.floor(randRange(0, 1.6 + diff * 1.4));
+  const iceTopY = clampY(Math.min(sy, H * 0.40) - diff * 26); // raised frozen plateau near tee
+  const v = [{ x: sx, y: base }];
+  // climb/settle onto frozen plateau
+  v.push({ x: sx + dist * 0.07, y: iceTopY });
+  const stepSpan = (termX - pocketHalf) - (sx + dist * 0.07);
+  const dy = (pocketY - iceTopY) / steps;
+  let x = sx + dist * 0.07, y = iceTopY;
+  for (let i = 0; i < steps; i++) {
+    x += stepSpan / steps * 0.34; v.push({ x, y }); // flat tread
+    y = clampY(iceTopY + dy * (i + 1));
+    x += stepSpan / steps * 0.66; v.push({ x, y }); // riser drop
+  }
+  // enter the broad terminator pocket (left lip -> flat floor -> cup -> flat floor)
+  v.push({ x: termX - pocketHalf, y: pocketY });
+  v.push({ x: termX, y: pocketY, cup: true });
+  v.push({ x: termX + pocketHalf, y: pocketY });
+  // SUNLIT DAYSIDE: one long smooth melted slope rising gently away to the right
+  const sunPeakY = clampY(pocketY - randRange(40, 70) - diff * 30);
+  v.push({ x: lerp(termX + pocketHalf, endX, 0.62), y: clampY(lerp(pocketY, sunPeakY, 0.7)) });
+  v.push({ x: endX, y: sunPeakY });
+  return v;
+},
+
+  // MELT_BASIN_SHELF: This is the inverse stitching of the same locked world: the SUNLIT melt is now the BIG fea
+  melt_basin_shelf(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  // terminator sits right-of-center: long sunlit melt on the left, frozen ledge-wall on the right
+  const termX = sx + dist * randRange(0.55, 0.66);
+  // broad meltwater basin floor at the seam -- the cup catch
+  const basinY = clampY(Math.min(sy + randRange(40, 80) + diff * 24, H * 0.66));
+  const basinHalf = randRange(70, 100); // generous catch width
+  // SUNLIT DAYSIDE: one long smooth melted slope from tee down to the basin
+  const dayHighY = clampY(Math.min(sy, H * 0.46) - diff * 20);
+  const v = [{ x: sx, y: base }];
+  v.push({ x: sx + dist * 0.10, y: dayHighY }); // crest of the warm slope
+  // smooth multi-point melt ramp easing down into the basin (concave, gentle)
+  const rampEnd = termX - basinHalf;
+  for (let t = 0.30; t <= 0.85; t += 0.275) {
+    const ease = t * t; // accelerating melt-drop, smooth
+    v.push({ x: lerp(sx + dist * 0.10, rampEnd, t), y: clampY(lerp(dayHighY, basinY, ease)) });
+  }
+  // broad basin: left lip -> flat floor -> cup -> flat floor (the calm ring)
+  v.push({ x: rampEnd, y: basinY });
+  v.push({ x: termX, y: basinY, cup: true });
+  v.push({ x: termX + basinHalf, y: basinY });
+  // FROZEN NIGHTSIDE: stepped ice ledges climbing UP and away as a back-wall
+  const iceSteps = 2 + Math.floor(randRange(0, 1.4 + diff * 1.2));
+  const iceTopY = clampY(basinY - randRange(70, 110) - diff * 34);
+  const iceSpan = endX - (termX + basinHalf);
+  const idy = (basinY - iceTopY) / iceSteps;
+  let x = termX + basinHalf, y = basinY;
+  for (let i = 0; i < iceSteps; i++) {
+    y = clampY(basinY - idy * (i + 1));
+    x += iceSpan / iceSteps * 0.45; v.push({ x, y }); // riser up
+    x += iceSpan / iceSteps * 0.55; v.push({ x: Math.min(x, endX), y }); // flat ice tread
+  }
+  return v;
+},
+
+  // GRANULATION_CELLS: The boiling skin of the red dwarf: a row of broad, low convective domes (granules) glowing
+  granulation_cells(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const cells = 3 + Math.floor(randRange(0, 1.6));              // 3-4 broad convective domes
+  const domeH = 26 + diff * 40;                                // dome rise (drama scales w/ diff)
+  const laneY = clampY(Math.min(base, H * 0.5));              // flat intergranular lanes
+  const cellW = (dist * 0.82) / cells, pocket = cellW * 0.18; // pocket half-width scales w/ cell
+  const v = [{ x: sx, y: base }, { x: sx + dist * 0.09, y: laneY }];
+  let x = sx + dist * 0.09;
+  const cupCell = 1 + Math.floor(random() * (cells - 2));      // interior lane: index 1..cells-2
+  for (let i = 0; i < cells; i++) {
+    const last = i === cells - 1, peakX = x + cellW * 0.5;
+    const domeY = clampY(laneY - domeH - randRange(0, 14));
+    v.push({ x: peakX - cellW * 0.22, y: clampY(lerp(laneY, domeY, 0.7)) });
+    v.push({ x: peakX, y: domeY });                           // rounded granule crest
+    v.push({ x: peakX + cellW * 0.22, y: clampY(lerp(laneY, domeY, 0.7)) });
+    x += cellW;
+    const laneX = last ? Math.min(x, endX - 60) : x;
+    if (i === cupCell) {                                       // wide flat lane = generous catch pocket
+      v.push({ x: laneX - pocket, y: laneY });
+      v.push({ x: laneX, y: laneY, cup: true });
+      v.push({ x: laneX + pocket, y: laneY });
+    } else {
+      v.push({ x: laneX, y: laneY });
+    }
+  }
+  v.push({ x: endX, y: base });
+  return v;
+},
+
+  // SUNSPOT_BASIN: A vast magnetic sunspot: a raised, brilliant penumbral ring of hot plasma encircling a wid
+  sunspot_basin(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const penY = clampY(Math.min(base, H * 0.44) - diff * 30);   // raised bright penumbral rim
+  const floorY = clampY(penY + randRange(70, 110) + diff * 24);// deep cool umbral floor
+  const cx = sx + dist * randRange(0.46, 0.56);
+  const maxHalf = Math.min(cx - sx, endX - cx) - 70;           // keep room for approach + exit
+  const ringHalf = Math.min(dist * (0.30 + diff * 0.06), maxHalf);
+  const floorHalf = Math.max(ringHalf - randRange(58, 86), ringHalf * 0.45); // broad flat floor
+  return [
+    { x: sx, y: base },
+    { x: cx - ringHalf - 40, y: clampY(lerp(base, penY, 0.55)) },
+    { x: cx - ringHalf, y: penY },                            // bright rim crest
+    { x: cx - floorHalf, y: floorY },                         // dive into the umbra
+    { x: cx - floorHalf * 0.5, y: floorY },
+    { x: cx, y: floorY, cup: true },                         // cup on the wide flat dark floor
+    { x: cx + floorHalf * 0.5, y: floorY },
+    { x: cx + floorHalf, y: floorY },
+    { x: cx + ringHalf, y: penY },
+    { x: cx + ringHalf + 40, y: clampY(lerp(penY, base, 0.5)) },
+    { x: endX, y: base }
+  ];
+},
+
+  // PRESSURE_RIDGE: A field of low jagged pressure ridges — buckled plates of sea ice shoved up against each o
+  pressure_ridge(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const v = [{ x: sx, y: base }];
+  // ----- pressure-ridge field across first ~58% of the hole -----
+  const fieldEnd = sx + dist * 0.58;
+  const ridges = 3 + Math.floor(randRange(0, 2.6));
+  const ridgeAmp = 16 + diff * 30;          // low; scales with drama
+  const span = fieldEnd - (sx + dist * 0.08);
+  const stepW = span / ridges;
+  let x = sx + dist * 0.08;
+  for (let i = 0; i < ridges; i++) {
+    // shallow trough then a rounded ridge crest (no deep slots)
+    const troughY = clampY(base + randRange(4, 12));
+    const crestY  = clampY(base - ridgeAmp * randRange(0.7, 1.0));
+    x += stepW * 0.30; v.push({ x, y: troughY });
+    x += stepW * 0.22; v.push({ x, y: crestY });
+    x += stepW * 0.48; v.push({ x, y: clampY(base + randRange(0, 6)) });
+  }
+  // ----- gentle lip down into the cracked fissure -----
+  const lipX = clampY ? x + 30 : x + 30;
+  const fissureFloorY = clampY(base + 46 + diff * 60);   // deeper with drama
+  v.push({ x: x + 26, y: clampY(base + randRange(2, 10)) });          // outer rim
+  v.push({ x: x + 56, y: clampY(lerp(base, fissureFloorY, 0.55)) });   // wall in
+  // ----- BROAD flat refrozen basin floor = the cup (generous catch) -----
+  const basinStart = x + 84;
+  const basinW = Math.max(110, (endX - 60) - basinStart - 40);
+  const cupX = basinStart + basinW * 0.5;
+  v.push({ x: basinStart, y: fissureFloorY });
+  v.push({ x: cupX, y: fissureFloorY, cup: true });
+  v.push({ x: basinStart + basinW, y: fissureFloorY });
+  // ----- gentle far wall back up so the ball is contained -----
+  v.push({ x: Math.min(basinStart + basinW + 46, endX - 24), y: clampY(lerp(fissureFloorY, base, 0.5)) });
+  v.push({ x: endX, y: clampY(lerp(fissureFloorY, base, 0.8)) });
+  return v;
+},
+
+  // FROZEN_LAKE: After the tee the terrain drops to a long, almost perfectly smooth frozen-lake apron — gla
+  frozen_lake(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const v = [{ x: sx, y: base }];
+  // ----- short slope from tee down onto the lake apron -----
+  const apronY = clampY(Math.max(base + 18, H * 0.52) + diff * 26);
+  v.push({ x: sx + dist * 0.10, y: clampY(lerp(base, apronY, 0.65)) });
+  // ----- long glassy near-level apron with micro undulations -----
+  const apronEnd = sx + dist * 0.66;
+  const segs = 4;
+  let x = sx + dist * 0.16;
+  const segW = (apronEnd - x) / segs;
+  for (let i = 0; i < segs; i++) {
+    x += segW;
+    const wobble = randRange(-3, 3);                 // glassy = tiny variance
+    const tilt = lerp(apronY, apronY + 10, i / segs); // faint drift downhill
+    v.push({ x, y: clampY(tilt + wobble) });
+  }
+  const apronFloorY = clampY(apronY + 10);
+  // ----- low lip into a wide, shallow refrozen scoop -----
+  const scoopFloorY = clampY(apronFloorY + 26 + diff * 34);  // gentle, scales w/ drama
+  v.push({ x: x + 34, y: clampY(apronFloorY - randRange(0, 6)) });   // faint lip
+  v.push({ x: x + 64, y: clampY(lerp(apronFloorY, scoopFloorY, 0.6)) });
+  // ----- BROAD flat scoop floor = the cup (generous catch) -----
+  const basinStart = x + 92;
+  const basinW = Math.max(120, (endX - 50) - basinStart - 36);
+  const cupX = basinStart + basinW * 0.5;
+  v.push({ x: basinStart, y: scoopFloorY });
+  v.push({ x: cupX, y: scoopFloorY, cup: true });
+  v.push({ x: basinStart + basinW, y: scoopFloorY });
+  // ----- gentle far rise so the glide is contained -----
+  v.push({ x: Math.min(basinStart + basinW + 40, endX - 20), y: clampY(lerp(scoopFloorY, apronFloorY, 0.55)) });
+  v.push({ x: endX, y: clampY(lerp(scoopFloorY, base, 0.6)) });
+  return v;
+},
+
+  // CALDERA_SHELF: A massive volcanic caldera dominates the hole. The terrain climbs from the tee up a broad 
+  caldera_shelf(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const rimY = clampY(Math.min(sy, H * 0.40) - 26 - diff * 40);
+  const shelfY = clampY(rimY + randRange(40, 58));        // cooled crust shelf, below rim lip
+  const lavaY = clampY(shelfY + randRange(120, 150) + diff * 60); // molten floor far below shelf = hazard
+  const cx = sx + dist * randRange(0.50, 0.60);
+  const shelfHalf = randRange(78, 100) + diff * 26;       // WIDER catch area with difficulty
+  const rampX = cx - shelfHalf - randRange(40, 60);       // soft approach lip onto shelf
+  return [
+    { x: sx, y: base },
+    { x: lerp(sx, rampX, 0.55), y: clampY(lerp(base, rimY, 0.5)) }, // ash slope up to rim
+    { x: rampX, y: clampY(rimY - 6) },                    // outer rim crest
+    { x: cx - shelfHalf, y: shelfY },                     // onto the broad cooled shelf
+    { x: cx, y: shelfY, cup: true },                      // cup centered on wide flat
+    { x: cx + shelfHalf, y: shelfY },                     // shelf still flat past the cup
+    { x: cx + shelfHalf + 18, y: lavaY },                 // shelf ends, drop to molten floor
+    { x: lerp(cx + shelfHalf, endX, 0.55), y: lavaY },    // lava lake floor
+    { x: endX - 70, y: clampY(lerp(lavaY, base, 0.5)) },  // far rim rises back
+    { x: endX, y: base }
+  ];
+},
+
+  // COLLAPSED_LAVA_TUBE: A roof of basalt has caved in, exposing a collapsed lava tube. The ground runs flat-ish fr
+  collapsed_lava_tube(sx, sy, dist, cupY, diff) {
+  const endX = sx + dist, base = clampY(sy);
+  const lipY = clampY(sy - randRange(6, 22) - diff * 18);   // crust edge of the collapse
+  const benchY = clampY(lipY + randRange(70, 92) + diff * 26); // rescued tube-floor bench, partway down
+  const sag = randRange(12, 20) + diff * 8;                 // shallow dish so the ball gathers to center
+  const lavaY = clampY(benchY + randRange(60, 84) + diff * 50); // lava channel against far wall = hazard
+  const px = sx + dist * randRange(0.42, 0.52);             // front edge of pit
+  const benchHalf = randRange(72, 94) + diff * 24;          // WIDE bench, wider with difficulty
+  return [
+    { x: sx, y: base },
+    { x: px - randRange(50, 70), y: clampY(lipY + 4) },     // approach run to the collapse
+    { x: px, y: lipY },                                     // crust lip, edge of the open pit
+    { x: px + 16, y: clampY(benchY - sag) },               // drop onto the bench (raised front rim)
+    { x: px + 16 + benchHalf, y: benchY, cup: true },      // cup in the dished saucer center
+    { x: px + 16 + benchHalf * 2, y: clampY(benchY - sag * 0.6) }, // bench far rim, still solid
+    { x: px + 16 + benchHalf * 2 + 14, y: lavaY },         // beyond bench: drop to lava channel
+    { x: lerp(px + benchHalf * 2, endX, 0.5), y: lavaY },  // molten channel floor
+    { x: endX - 64, y: clampY(lerp(lavaY, base, 0.55)) },  // far wall climbs back to grade
+    { x: endX, y: base }
+  ];
+},
+
 };
 
 // ── Archetype Selection ──────────────────────────────────────
@@ -1152,6 +1712,28 @@ ARCHETYPE_TABLE.push(['ziggurat', 0.0, 5.0, 1]);      // stepped climb to a cup 
 ARCHETYPE_TABLE.push(['ruins', 0.0, 5.0, 1]);         // special: colonnade of broken columns, cup among them
 ARCHETYPE_TABLE.push(['launchpad', 0.0, 5.0, 1]);     // special: launch platform + gantry, cup on the pad
 ARCHETYPE_TABLE.push(['obelisk', 0.0, 5.0, 1]);       // special: a lone monolith, cup at its foot
+// ── NEW: generic variance archetypes ──
+ARCHETYPE_TABLE.push(['sky_terrace', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['flat_top_butte', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['summit_saddle', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['chasm_carry', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['stepping_stones', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['moat_island_flat', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['funnel_gather', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['washboard_cradle', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['banked_curve', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['amphitheatre', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['crashed_hull', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['geyser_cones', 0.0, 5.0, 1]);
+// ── NEW: TRAPPIST-1 system archetypes ──
+ARCHETYPE_TABLE.push(['tidal_terminator', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['melt_basin_shelf', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['granulation_cells', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['sunspot_basin', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['pressure_ridge', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['frozen_lake', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['caldera_shelf', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['collapsed_lava_tube', 0.0, 5.0, 1]);
 
 // ── Main Terrain Generation ──────────────────────────────
 function generateHoleTerrain(holeIndex) {
@@ -1621,25 +2203,30 @@ function _validateHole(i) {
   if (typeof window === 'undefined' || !window.RG || !RG.bot || !RG.bot.calculateShot || !RG.bot.simulateShot) return true;
   if (!holes[i] || typeof terrainYAt !== 'function' || typeof ball === 'undefined') return true;
   const save = { x: ball.x, y: ball.y, vx: ball.vx, vy: ball.vy, r: ball.atRest, og: ball.onGround, st: state, ch: currentHole, cx: (typeof camera !== 'undefined' ? camera.x : 0), cy: (typeof camera !== 'undefined' ? camera.y : 0) };
-  const sSteps = window.RG_BOT_STEPS; window.RG_BOT_STEPS = 14;
+  const sSteps = window.RG_BOT_STEPS; window.RG_BOT_STEPS = 20;   // match the real bot's base search grid
   _inValidation = true;
   let ok = false, minD = Infinity;
   try {
     currentHole = i; const h = holes[i];
     ball.x = h.teeX; ball.y = terrainYAt(h.teeX) - BALL_RADIUS; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true; state = STATE_AIM;
-    let prevD = Infinity;
-    for (let shot = 0; shot < 6 && !ok; shot++) {
-      // CRITICAL: frame the camera on the ball — isBallOffScreen() is camera-relative, so a ball at hole i
-      // while the camera is elsewhere reads as instant OOB and every hole looks unsinkable.
-      if (typeof camera !== 'undefined') { camera.x = ball.x - W * 0.25; camera.y = 0; }
+    // Frame the hole EXACTLY like real play (fixed per-hole camera). isBallOffScreen() is camera-relative,
+    // so the validator MUST face the same camera the bot will — otherwise it can't see the OOB walls that
+    // make a hole unsinkable in play. The prior ball-following camera hid every OOB → slip-through stuck holes.
+    if (typeof setHoleCamera === 'function') setHoleCamera(h);
+    let prevD = Infinity, noProg = 0;
+    for (let shot = 0; shot < 16 && !ok; shot++) {
       const s = RG.bot.calculateShot(); if (!s) break;
       const r = RG.bot.simulateShot(s.vx, s.vy);
       if (r.scored) { ok = true; break; }
       if (r.distToCup < minD) minD = r.distToCup;
-      if (r.oob || !(r.distToCup < prevD - 5)) break;
+      if (r.oob) break;
+      if (!(r.distToCup < prevD - 5)) { if (++noProg >= 3) break; } else noProg = 0;   // persist through a couple stalls (like the real bot) before giving up
       prevD = r.distToCup; ball.x = r.x; ball.y = r.y; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true; state = STATE_AIM;
     }
-    if (!ok && minD < CUP_WIDTH * 2.2) ok = true;                  // close enough → the real (finer) bot finishes it
+    // r.scored above is the true sink. The lenient is now ONLY a tap-in safety: the ball must have RESTED
+    // essentially in the cup footprint (<0.5 cup-widths). distToCup is a REST distance, so a slope/fly-by
+    // near-miss no longer counts (that was the 0.9/1.3/2.2 bug — it passed balls that rest near but roll off).
+    if (!ok && minD < CUP_WIDTH * 0.5) ok = true;
   } catch (e) { ok = true; }
   _inValidation = false;
   window.RG_BOT_STEPS = sSteps;

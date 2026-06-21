@@ -22,6 +22,13 @@
       ash: ['rock', '#46464f'], ember: ['rock', '#c2603a'], cobalt: ['rock', '#4f6fc0'],
       cactus: ['grass', '#4f7d39'], stone: ['rock', '#8b8e94'],   // cactus = green obstacle; stone = grey-rock accent
       earthgreen: ['grass', '#4f8a3e'], sulfur: ['sand', '#d6c63e'], cyan: ['ice', '#79c6cf'],   // solar-system bodies
+      // ── TRAPPIST-1 system (red dwarf) palettes ──
+      trappist_plasma_crust: ['rock', '#7a1505'], trappist_charred_basalt: ['rock', '#241a18'],
+      trappist_ultramafic_basalt: ['rock', '#4a3026'], trappist_haze_clay: ['sand', '#9a5d44'],
+      trappist_terminator_loam: ['sand', '#5a4736'], trappist_glacier_ice: ['ice', '#8fa9b8'],
+      trappist_pack_ice: ['ice', '#7d8a93'], trappist_frost_ice: ['ice', '#9fb2bf'],
+      trappist_riftice: ['ice', '#7c8a9c'], trappist_tidalbasalt: ['rock', '#2b211f'],
+      trappist_regolith: ['sand', '#6b5048'],
     };
     for (const k in CUSTOM) if (!MATERIALS[k]) { const c = CUSTOM[k]; MATERIALS[k] = Object.assign(phys(c[0]), { color: c[1], colorLight: c[1] }); }
   }
@@ -195,11 +202,44 @@
   const SPECIAL2 = { luna: { a: 'ruins', at: 2 }, mars: { a: 'ruins', at: 3 }, miranda: { a: 'ruins', at: 3 }, charon: { a: 'ruins', at: 2 }, titan: { a: 'obelisk', at: 2 }, pluto: { a: 'obelisk', at: 7 }, europa: { a: 'obelisk', at: 3 } };
   for (const id in SPECIAL2) if (COURSES[id]) COURSES[id].specialHoles = [SPECIAL2[id]];
 
+  // ════════ THE TRAPPIST-1 SYSTEM ════════ the next system, reached after Charon: an ultracool RED DWARF
+  // star + 7 tidally-locked rocky planets (b–h) + 3 assumed moons. Reddish dim palettes; lava on the hot
+  // worlds, water/ice on the habitable ones; the red dwarf STAR itself is the grand finale course.
+  const TRAPPIST = [
+    // id, name, mat, sky, grav, archetypes, [dMin,dMax], waterBias|null, surfCol, deepCol, special, atIdx
+    ['trappist1h', 'TRAPPIST-1h', 'trappist_frost_ice', '#1c1014', 0.52, ['gom_lake', 'cenote', 'spire_drown', 'sea_stack', 'deep_plunge', 'tidal_terminator', 'pressure_ridge', 'gom_islands', 'punchbowl'], [0.5, 0.9], 0.7, 'rgba(150,196,214,0.55)', 'rgba(28,58,82,0.95)', 'pressure_ridge', 7],
+    ['trappist1g', 'TRAPPIST-1g', 'trappist_pack_ice', '#5a3242', 1.05, ['gom_islands', 'gom_lake', 'island_green', 'sea_stack', 'spire_drown', 'moat_island_flat', 'stepping_stones', 'cenote', 'chasm_carry', 'melt_basin_shelf'], [0.3, 0.7], 0.62, 'rgba(86,150,158,0.55)', 'rgba(18,46,62,0.94)', 'melt_basin_shelf', 4],
+    ['geryn', 'Geryn (TRAPPIST-1g I)', 'trappist_regolith', '#1c1418', 0.48, ['flat_run', 'crater', 'rolling_hills', 'gentle_hill', 'punchbowl', 'mesa', 'stepped_descent', 'washboard_cradle'], [0.12, 0.45], null, null, null, 'washboard_cradle', 2],
+    ['trappist1f', 'TRAPPIST-1f', 'trappist_glacier_ice', '#3a2230', 0.96, ['gom_lake', 'cenote', 'gom_islands', 'shelf', 'stepped_descent', 'crater', 'funnel_gather', 'spire_drown', 'frozen_lake'], [0.3, 0.7], 0.42, 'rgba(120,168,196,0.55)', 'rgba(28,52,86,0.92)', 'spire_drown', 6],
+    ['fenra', 'Fenra (TRAPPIST-1f I)', 'trappist_tidalbasalt', '#2a0d0a', 0.55, ['geyser_cones', 'crater', 'spire_drown', 'gauntlet', 'deep_pocket', 'wall_shot', 'funnel_gather', 'obelisk', 'caldera_shelf'], [0.32, 0.72], 0.26, 'rgba(255,150,55,0.9)', 'rgba(150,32,12,0.95)', 'caldera_shelf', 6],
+    ['trappist1e', 'TRAPPIST-1e', 'trappist_terminator_loam', '#b5563a', 0.93, ['island_green', 'tidal_terminator', 'gom_lake', 'sea_stack', 'shelf', 'gentle_hill', 'cliff_drop', 'moat_island_flat'], [0.2, 0.6], 0.5, 'rgba(86,140,150,0.55)', 'rgba(24,58,74,0.92)', 'island_green', 4],
+    ['elai', 'Elai (TRAPPIST-1e I)', 'trappist_riftice', '#1a1622', 0.42, ['gentle_slope', 'cenote', 'spire_drown', 'chasm_carry', 'stepping_stones', 'shelf', 'crater', 'narrow_gap', 'tidal_terminator'], [0.18, 0.5], 0.32, 'rgba(120,150,185,0.5)', 'rgba(40,60,95,0.85)', 'tidal_terminator', 4],
+    ['trappist1d', 'TRAPPIST-1d', 'trappist_haze_clay', '#c47a4e', 0.55, ['mesa', 'gentle_slope', 'funnel_gather', 'water_valley', 'cliff_shelf', 'amphitheatre', 'rolling_hills', 'tidal_terminator', 'washboard_cradle'], [0.28, 0.62], 0.42, 'rgba(168,128,150,0.42)', 'rgba(74,52,86,0.86)', 'tidal_terminator', 4],
+    ['trappist1c', 'TRAPPIST-1c', 'trappist_ultramafic_basalt', '#5e1f14', 1.05, ['faceted', 'mesa', 'canyon', 'cliff_drop', 'spire_drown', 'crater', 'dramatic_ridge', 'geyser_cones', 'shelf_drop_shelf', 'caldera_shelf', 'tidal_terminator'], [0.3, 0.7], 0.18, 'rgba(255,120,40,0.78)', 'rgba(150,28,8,0.92)', 'geyser_cones', 4],
+    ['trappist1b', 'TRAPPIST-1b', 'trappist_charred_basalt', '#3a1410', 0.85, ['faceted', 'crater', 'geyser_cones', 'cliff_drop', 'mesa', 'spire_drown', 'gauntlet', 'cliff_valley_climb', 'collapsed_lava_tube', 'melt_basin_shelf'], [0.3, 0.8], 0.22, 'rgba(255,120,30,0.92)', 'rgba(150,20,5,0.96)', 'geyser_cones', 6],
+    ['trappist1', 'TRAPPIST-1 (The Star)', 'trappist_plasma_crust', '#1a0402', 1.15, ['geyser_cones', 'spire_drown', 'deep_pocket', 'washboard_cradle', 'chasm_carry', 'dramatic_ridge', 'funnel_gather', 'amphitheatre', 'granulation_cells', 'sunspot_basin'], [0.8, 1.0], 0.46, 'rgba(255,150,40,0.78)', 'rgba(150,18,2,0.95)', 'sunspot_basin', 8],
+  ];
+  const TRAPPIST_OVERHANGS = ['trappist1', 'trappist1b', 'trappist1c', 'trappist1f', 'trappist1h', 'elai', 'fenra'];
+  for (const [id, nm, mat, sky, grav, arch, diff, wbias, wcol, wdeep, special, atIdx] of TRAPPIST) {
+    const c = {
+      name: nm, worldName: nm, sky: sky, defaultMaterial: mat, materials: [mat],
+      gen: 'faceted', archetypes: arch, difficultyRange: diff,
+      holeDistMin: 440, holeDistMax: 760, holeCount: 9, validate: true,
+      phys: { gravityScale: grav, windScale: 1 },
+    };
+    if (wbias != null) { c.floodWater = true; c.waterBias = wbias; c.waterColor = wcol; c.waterDeep = wdeep; c.waterRarity = 0.4; }
+    if (special) { c.specialHole = special; c.specialHoleAt = atIdx; }
+    if (TRAPPIST_OVERHANGS.indexOf(id) >= 0) c.overhangs = true;
+    COURSES[id] = c;
+  }
+
   // THE SOLAR TOUR — the ordered itinerary, Earth → Pluto. A run plays each in order; finishing one warps
   // (the seamless ship-travel transition) to the next. The last (Charon) finishes to the recap.
   if (typeof window !== 'undefined') {
     window.SOLAR_ITINERARY = ['earth', 'luna', 'mars', 'phobos', 'jupiter', 'io', 'europa', 'ganymede',
-      'saturn', 'titan', 'enceladus', 'uranus', 'miranda', 'neptune', 'triton', 'pluto', 'charon'];
+      'saturn', 'titan', 'enceladus', 'uranus', 'miranda', 'neptune', 'triton', 'pluto', 'charon',
+      // ── cross into the TRAPPIST-1 system: outer planets inward, moons after their planet, red dwarf star finale ──
+      'trappist1h', 'trappist1g', 'geryn', 'trappist1f', 'fenra', 'trappist1e', 'elai', 'trappist1d', 'trappist1c', 'trappist1b', 'trappist1'];
   }
 
   // expose the generator so lab.js + the harness build planets at any complexity from the SAME logic

@@ -80,7 +80,7 @@ RESULT = (function () {
       aiUpdate(); update();
       if (state === STATE_COMPLETE) return { ok: true, masses };
       const st = RG.bot.stats && RG.bot.stats();
-      if (st && st.stuckHole) return { ok: false, hole: st.stuckHole.hole, why: 'stuck' + (st.stuckHole.shots || ''), masses };
+      if (st && st.stuckHole) { const _sh = holes[st.stuckHole.hole - 1]; return { ok: false, hole: st.stuckHole.hole, why: 'stuck' + (st.stuckHole.shots || ''), arch: (_sh && _sh.archetype) || '?', ovh: !!(_sh && _sh._overhangs), masses }; }
     }
     return { ok: false, hole: currentHole, why: 'timeout', masses };
   }
@@ -142,7 +142,7 @@ for (const p of Object.keys(byPlanet)) {
   const ok = rs.filter((r) => r.ok).length;
   const masses = rs.reduce((a, r) => a + (r.masses || 0), 0);
   pass += ok; fail += rs.length - ok;
-  const fails = rs.filter((r) => !r.ok).map((r) => `seed${r.seed}@h${r.hole}(${r.why})`).join(' ');
+  const fails = rs.filter((r) => !r.ok).map((r) => `seed${r.seed}@h${r.hole}[${r.arch || '?'}${r.ovh ? '+ovh' : ''}](${r.why})`).join(' ');
   console.log(`${p.padEnd(6)}  ${ok}/${rs.length}    ${ok === rs.length ? 'OK' : 'FAIL: ' + fails}   masses=${masses}`);
 }
 console.log(`\nTOTAL: ${pass}/${pass + fail} hole-runs complete (${fail} fail)`);
