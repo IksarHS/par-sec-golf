@@ -306,6 +306,7 @@ function isBallOffScreen() {
 // overlay. Pure rendering effect — geometry, physics, and the editor are
 // untouched. Off by default; the toggle persists in localStorage.
 let TERRAIN_TEXTURE_ON = true; // the textured look is the default now; T toggles it off
+let _strataTopY = null, _strataVLen = -1;   // cached WORLD-fixed strata anchor (see drawTexturedTerrain)
 try { TERRAIN_TEXTURE_ON = localStorage.getItem('dg-terrain-texture') !== '0'; } catch (e) {}
 window.addEventListener('keydown', (e) => {
   const t = e.target && e.target.tagName;
@@ -484,11 +485,18 @@ function drawTexturedTerrain(startX, endX) {
   // 1+2) Stratified substrate: world-horizontal beds (with a gentle shared fold)
   //      stacked top→deep. The terrain clip TRUNCATES them, so the surface cuts
   //      across the layers — the angular unconformity that reads as real rock.
-  let topY = Infinity;
-  for (let k = 0; k < n; k++) if (S[k].y < topY) topY = S[k].y;
-  const yTop = topY - 40;          // start beds above the highest surface point
+  // STABLE strata anchor: the WORLD's highest surface point (cached; recomputed only when the terrain
+  // grows), NOT the visible window's min. The viewport-relative min drifted as the camera panned, which
+  // RECOLOURED + reseeded every rock bed on each hole-to-hole move (the "terrain pops to a different
+  // colour" bug). A world-fixed anchor makes the beds continuous + stable — nothing recolours on a pan.
+  if (_strataTopY == null || _strataVLen !== vertices.length) {
+    let m = Infinity;
+    for (let k = 0; k < vertices.length; k++) { const vy = vertices[k] && vertices[k].y; if (typeof vy === 'number' && vy < m) m = vy; }
+    _strataTopY = (m === Infinity) ? 0 : m; _strataVLen = vertices.length;
+  }
+  const yTop = _strataTopY - 40;   // start beds above the highest surface point (world-fixed, pan-stable)
   const REF  = 300;                // depth (px) over which the ramp reaches deep red
-  const anchor = Math.floor(yTop * 0.013); // varies the bed pattern per hole
+  const anchor = Math.floor(yTop * 0.013); // bed pattern seed — now world-stable, so it never reseeds mid-run
 
   // a single low-frequency fold shared by every bed (they flex together)
   const fold = (x) => Math.sin(x * 0.0016 + 1.3) * 15 + Math.sin(x * 0.0041 + 5.1) * 6;
