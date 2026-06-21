@@ -139,6 +139,28 @@
     { label: '◀ Prev hole-type', cls: 'hole', run: function () { return tourArch(-1); } },
     { label: '✕ Clear hole-type lock', cls: 'hole', run: function () { tourIdx = -1; if (window.setArchetypeOverride) window.setArchetypeOverride(null); RG.startRun({ course: (RG.course || 'earth-course'), seed: RG.rollSeed() }); return 'hole-type lock OFF — back to the normal pool.'; } },
     { label: '⛰ Terrain-pop test hole', cls: 'hole', run: function () { if (!window.setArchetypeOverride) return 'hard-refresh to load it'; window.setArchetypeOverride('strata_test'); tourIdx = -1; RG.startRun({ course: (RG.course || 'earth-course'), seed: RG.rollSeed() }); return 'WORST-CASE strata hole on all 9. Sink + advance (or ⏭ Skip) → terrain must hold its colours, no recolour.'; } },
+    { label: '⟳ Stress: auto-cycle transitions', cls: 'hole', run: function () {
+      if (window.__stressIv) { clearInterval(window.__stressIv); window.__stressIv = null; return 'stress cycle STOPPED.'; }
+      if (window.setArchetypeOverride) window.setArchetypeOverride('strata_test');
+      RG.startRun({ course: (RG.course || 'earth-course'), seed: RG.rollSeed() });
+      // Force a regen+reframe (the recolour-relevant part of a transition) every 0.7s on VARIED strata holes,
+      // looping the course — so you watch dozens of transitions in seconds. Watch the ─ events ─ log: REGEN
+      // lines are expected; a "*** REAL POP" (a fixed world point recolouring) is the bug. No bot needed.
+      window.__stressIv = setInterval(function () {
+        try {
+          if (!(window.RG && RG.active) || typeof currentHole === 'undefined' || typeof holes === 'undefined') return;
+          var n = currentHole + 1;
+          if (n >= (RG.holeCount || 9)) { RG.startRun({ course: RG.course, seed: RG.rollSeed() }); return; }   // loop: fresh varied run
+          currentHole = n;
+          if (typeof ensureHolesAhead === 'function') ensureHolesAhead(currentHole + 2);   // regen ahead (the pop source)
+          var h = holes[currentHole];
+          if (h && typeof terrainYAt === 'function') { ball.x = h.teeX; ball.y = terrainYAt(h.teeX) - 8; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true; }
+          if (typeof setHoleCamera === 'function' && h) setHoleCamera(h);
+          if (typeof state !== 'undefined' && typeof STATE_AIM !== 'undefined') state = STATE_AIM;
+        } catch (e) {}
+      }, 700);
+      return 'stress cycle STARTED — varied strata hole + forced regen/reframe every 0.7s, looping. Watch ─ events ─ for "*** REAL POP". Click again to stop.';
+    } },
     { label: '$ Give $50', cls: 'econ', run: function () {
       if (!window.RG_ECON) return 'no economy';
       RG_ECON.add(50);

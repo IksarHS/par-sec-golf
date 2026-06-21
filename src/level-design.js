@@ -2040,7 +2040,10 @@ ARCHETYPE_TABLE.push(['ice_crust_rift', 0.0, 5.0, 1]);
 // Rule of thumb: for any visual bug, build a hole that exaggerates it and test against THAT, not the wild.
 archetypes.strata_test = function (sx, sy, dist, cupY, diff) {
   const d = Math.min(dist, 760);
-  const green = clampY(H * 0.62), peak = clampY(H * 0.12), deep = clampY(H * 0.93), mid = clampY(H * 0.40);
+  const green = clampY(H * 0.62);
+  const peak = clampY(H * randRange(0.10, 0.34));   // RANDOM per hole → consecutive holes differ maximally,
+  const deep = clampY(H * randRange(0.80, 0.95));   //   which is exactly what would swing a per-regen strata
+  const mid  = clampY(H * randRange(0.34, 0.48));   //   anchor — the hardest stress for the recolour pop
   return [
     { x: sx,            y: green },               // tee on a flat green
     { x: sx + d * 0.08, y: green },

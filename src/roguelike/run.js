@@ -1547,8 +1547,11 @@
         this._drawTravelSummary(ctx, held);
         this._drawTravelBtn(ctx, held);
         this._drawTravelBall(ctx);
-        var auto = (typeof window.aiEnabled !== 'undefined' && window.aiEnabled) || !ctx;   // autoplay bot / headless never hangs on the gate
-        if (T.go || auto) { this._travelSwap(); this._descPhase = 'descend'; this._craneT0 = now; T.streamPhase = 0; }
+        // Autoplay should CONVEY the journey, not skip it: hold on the "TRAVEL TO X" screen ~1.1s, then
+        // auto-"click" travel and descend onto the planet naturally. Headless (!ctx — the harness/recorder)
+        // still proceeds immediately so it never hangs on the gate. A human tap (T.go) goes immediately.
+        var auto = (typeof window.aiEnabled !== 'undefined' && window.aiEnabled);
+        if (T.go || !ctx || (auto && held > 1100)) { this._travelSwap(); this._descPhase = 'descend'; this._craneT0 = now; T.streamPhase = 0; }
       } else if (this._descPhase === 'descend') {
         if (!this._craneT0) this._craneT0 = now;
         var dp = Math.min(1, (now - this._craneT0) / DESC_DUR);
