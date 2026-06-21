@@ -1494,10 +1494,17 @@
       if (typeof showTitle !== 'undefined') showTitle = false;
       RG.startRun({ course: T.courseId, seed: RG.rollSeed() });
       var natCY = (typeof camera !== 'undefined') ? (camera.y || 0) : 0;
-      var CEND = (T.arrival === 'over') ? (T.CHOLD - H * 1.45) : (T.C0 + H * 0.3);   // shorter final approach = a gentler, more controlled set-down
-      RG._sinkWorld(CEND - natCY);                      // frame the destination at camera.y = CEND
-      T.sunkBy = CEND - natCY;                          // remember the sink + natural framing so touchdown can RESTORE the
-      T.natCY = natCY;                                  // natural frame (else play resets camera.y→0 and the sunk world falls off-screen — the hole-2 "all sky" bug)
+      // SEAMLESS LANDING: the descend lands exactly in the natural play frame (camera.y = natCY) with the
+      // world left at its natural height — the set-down reveals it purely by the camera lowering from CHOLD,
+      // so the hand-off to play needs NO snap (no camera.y or starfield pop). Only 'over' (moon-from-above,
+      // unused by the solar tour) still displaces the world. (Old: descend landed at C0+0.3H and sank the
+      // world ~162px to match, which forced a camera.y→0 pop — and a starfield pop — on the first
+      // hole-to-hole transition.)
+      var CEND = (T.arrival === 'over') ? (T.CHOLD - H * 1.45) : natCY;
+      var sink = CEND - natCY;                          // descend → 0 (no sink, nothing to un-pop); 'over' → displaces as before
+      if (sink) RG._sinkWorld(sink);
+      T.sunkBy = sink;
+      T.natCY = natCY;
       var bx = (typeof ball !== 'undefined') ? ball.x : 0;
       RG._shiftWorldX(T.rideX - bx);                    // tee under the travelling column
       T.CEND = CEND;
