@@ -90,6 +90,19 @@
   function curHole() { return (typeof currentHole !== 'undefined') ? currentHole : 0; }
   function holeTotal() { return (window.RG && RG.holeCount) || ((typeof holes !== 'undefined' && holes.length) || 9); }
 
+  // ── HOLE-TYPE TOUR ── lock the current course to ONE archetype across all 9 holes, so you can step
+  // through every hole-type (incl. the new ones) in whatever planet's palette is loaded. Uses the
+  // window.setArchetypeOverride hook exposed by level-design.js.
+  var tourIdx = -1;
+  function tourArch(delta) {
+    var NM = window.ARCHETYPE_NAMES || [];
+    if (!NM.length || !window.setArchetypeOverride) return 'hole-type tour unavailable — hard-refresh (Ctrl+Shift+R) to load it';
+    tourIdx = (tourIdx + delta + NM.length) % NM.length;
+    window.setArchetypeOverride(NM[tourIdx]);
+    RG.startRun({ course: (RG.course || 'earth-course'), seed: RG.rollSeed() });
+    return 'hole-type <b>' + NM[tourIdx] + '</b> (' + (tourIdx + 1) + '/' + NM.length + ') — all 9 holes forced. Use ⏭ Skip to see variants.';
+  }
+
   var CHEATS = [
     { label: '⤼ Reset run (fresh seed)', cls: 'warp', run: function () {
       RG.startRun({ seed: RG.rollSeed(), course: (RG.course || 'earth-course') });
@@ -122,6 +135,9 @@
       try { localStorage.setItem('rg-knows-moon', '1'); } catch (e) {}
       return '☾ On <b>the Moon</b>.';
     } },
+    { label: 'Next hole-type ▶', cls: 'hole', run: function () { return tourArch(1); } },
+    { label: '◀ Prev hole-type', cls: 'hole', run: function () { return tourArch(-1); } },
+    { label: '✕ Clear hole-type lock', cls: 'hole', run: function () { tourIdx = -1; if (window.setArchetypeOverride) window.setArchetypeOverride(null); RG.startRun({ course: (RG.course || 'earth-course'), seed: RG.rollSeed() }); return 'hole-type lock OFF — back to the normal pool.'; } },
     { label: '$ Give $50', cls: 'econ', run: function () {
       if (!window.RG_ECON) return 'no economy';
       RG_ECON.add(50);

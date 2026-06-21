@@ -2031,6 +2031,11 @@ ARCHETYPE_TABLE.push(['cloud_deck_ascension', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['cloud_break_landing', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['veil_plume_field', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['ice_crust_rift', 0.0, 5.0, 1]);
+// LAB TOUR: expose every hole-type name + an override setter so the lab can step through them one by one.
+if (typeof window !== 'undefined') {
+  window.ARCHETYPE_NAMES = Object.keys(archetypes);                 // all polygon hole-types (incl. the new ones)
+  window.setArchetypeOverride = function (n) { _archetypeOverride = (n && archetypes[n]) ? n : null; return _archetypeOverride; };
+}
 
 // ── Main Terrain Generation ──────────────────────────────
 function generateHoleTerrain(holeIndex) {
