@@ -178,7 +178,8 @@
       name: nm, worldName: nm, sky: sky, defaultMaterial: mat, materials: [mat],
       gen: 'faceted', archetypes: arch, difficultyRange: diff,
       holeDistMin: 440, holeDistMax: 760, holeCount: 9, validate: true,
-      verticalCam: true,                                 // opt-in vertical framing (high holes pan up; base build untouched)
+      // verticalCam left OFF: a per-hole pan can't help the tall dramatic holes (they exceed the screen);
+      // the opt-in code remains in setHoleCamera for a possible future zoom-out approach.
       phys: { gravityScale: grav, windScale: 1 },
     };
     if (wbias != null) { c.floodWater = true; c.waterBias = wbias; c.waterColor = wcol; c.waterDeep = wdeep; }
