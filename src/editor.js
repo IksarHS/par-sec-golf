@@ -137,6 +137,18 @@
     ED.on = true; ED.holeIdx = (typeof currentHole !== 'undefined') ? currentHole : 0;
     window.aiEnabled = false;
     baseline(); buildToolbar(); patchDraw();
+    // exposed API (programmatic build + v2 round-trip LOAD of an exported design)
+    ED.setCup = setCup; ED.parkBall = parkBall; ED.baseline = baseline;
+    ED.load = function (d) {
+      if (!d || !d.verts) return;
+      var m = defMat();
+      vertices = d.verts.map(function (v) { return { x: Math.round(v.x), y: Math.round(v.y), mat: v.mat || m }; });
+      var h = holes[ED.holeIdx];
+      if (d.tee) { h.teeX = d.tee.x; h.teeY = (d.tee.y != null ? d.tee.y : terrainYAt(d.tee.x)); }
+      setCup((d.cup && d.cup.x) || (vertices[vertices.length - 1].x - 60));
+      if (typeof setHoleCamera === 'function') setHoleCamera(h);
+      parkBall();
+    };
     window.addEventListener('mousedown', onDown, true);
     window.addEventListener('mousemove', onMove, true);
     window.addEventListener('mouseup', onUp, true);
