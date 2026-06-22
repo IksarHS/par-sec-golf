@@ -23,9 +23,24 @@
     c: 0.35,                 // complexity 0..1
     matIdx: 0,               // terrain-type index
     archIdx: 0,              // hole-type index (0 = ALL / random)
+    liqIdx: 0,               // liquid index (0 = None, 1 = Water, 2 = Lava)
     seed: 12345,
     ready: false,
   };
+
+  // ── LIQUID flood control (None / Water / Lava) ─────────────────────────────────────────────────
+  // Reuses the engine's REAL water system (src/water.js placeWater, gated on currentCourse.floodWater —
+  // water.js:38). Water spawns by flooding the hole's low spots below the tee/cup greens. LAVA is the
+  // SAME system with a molten surface/deep colour — exactly how the TRAPPIST/Barnard hot planets do it
+  // (src/planet-gen.js:230,258 set floodWater + an orange waterColor). We just set those course flags
+  // before startRun, with waterRarity:0 so the shown hole is ALWAYS flooded (no rare-roll skip), and a
+  // high waterBias so the basin reads obviously full.
+  //   label,   floodWater, waterColor (surface),       waterDeep (deep fill)
+  var LIQUIDS = [
+    ['None',  false, null,                       null],
+    ['Water', true,  'rgba(46,150,205,0.92)',    'rgba(8,38,76,0.97)'],
+    ['Lava',  true,  'rgba(255,120,30,0.93)',    'rgba(140,18,4,0.97)'],
+  ];
 
   // ── Curated TERRAIN TYPES (label → MATERIALS key + a sky tint) ─────────────────────────────────
   // Base engine materials first (sand/grass/rock/ice/mud), then a few planet palettes so the user
@@ -96,6 +111,16 @@
       validate: true,                            // re-roll an unsinkable hole (keeps shapes honest)
       _dynamic: true,                            // opt out of the course-template cache (live tuning)
     };
+    // LIQUID: flood the hole via the REAL water system. waterRarity:0 → never skips (always wet here);
+    // high waterBias → the basin fills obviously. Lava is the same system with a molten colour.
+    var liq = LIQUIDS[SC.liqIdx];
+    if (liq && liq[1]) {
+      course.floodWater = true;
+      course.waterRarity = 0;                    // showcase: always flood (real worlds keep this rare)
+      course.waterBias = 0.85;                   // fill most of the basin so it reads clearly
+      course.waterColor = liq[2];
+      course.waterDeep = liq[3];
+    }
     WORLDS['run-world'].courses['showcase'] = course;
     return course;
   }
@@ -141,6 +166,7 @@
         '<span style="color:#9fd8e8">complexity</span> ' + SC.c.toFixed(2) +
         ' &nbsp;·&nbsp; <span style="color:#9fd8e8">terrain</span> ' + TERRAINS[SC.matIdx][0] +
         ' &nbsp;·&nbsp; <span style="color:#9fd8e8">hole</span> ' + archName +
+        ' &nbsp;·&nbsp; <span style="color:#9fd8e8">liquid</span> ' + LIQUIDS[SC.liqIdx][0] +
         ' &nbsp;·&nbsp; <span style="color:#9fd8e8">seed</span> ' + SC.seed;
     }
   }
@@ -209,6 +235,20 @@
     archSel.onchange = function () { SC.archIdx = parseInt(archSel.value, 10) || 0; regen(); };
     p.appendChild(archSel);
     els.archSel = archSel;
+
+    // LIQUID select (None / Water / Lava) — floods the shown hole's low spots via the real water system
+    p.appendChild(lbl('Liquid'));
+    var liqSel = document.createElement('select');
+    liqSel.style.cssText = selCss();
+    LIQUIDS.forEach(function (l, i) { var o = document.createElement('option'); o.value = i; o.textContent = l[0]; liqSel.appendChild(o); });
+    liqSel.value = String(SC.liqIdx);
+    liqSel.onchange = function () { SC.liqIdx = parseInt(liqSel.value, 10) || 0; regen(); };
+    p.appendChild(liqSel);
+    els.liqSel = liqSel;
+    var liqHint = document.createElement('div');
+    liqHint.textContent = 'flood the low spots (water / lava)';
+    liqHint.style.cssText = 'font-size:10px;color:rgba(242,236,255,0.35);margin-top:2px;';
+    p.appendChild(liqHint);
 
     // NEW SEED button
     var btn = document.createElement('button');
