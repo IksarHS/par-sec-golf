@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Golf Orbit — planet gravity prototype</title>
+  <title>Planetoid — planet gravity prototype</title>
   <link rel="preload" href="../assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
   <style>
     @font-face {
@@ -17,7 +17,7 @@
 <body>
 <canvas id="c" width="960" height="540"></canvas>
 <script>
-// ── GOLF ORBIT ────────────────────────────────────────────────────────────────
+// ── PLANETOID ────────────────────────────────────────────────────────────────
 // A small circular planet at screen center. Gravity points toward its core (radial). The ball rests
 // on the surface. A big drive sends the ball into ORBIT: its path CURVES with the radial gravity and
 // sails AROUND the planet, landing on the far side. Mastery = tuning angle + power against how far
@@ -440,7 +440,7 @@ function drawHUD() {
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(255,255,255,0.92)';
   ctx.font = "22px 'Departure Mono', monospace";
-  ctx.fillText('GOLF ORBIT', 24, 38);
+  ctx.fillText('PLANETOID', 24, 38);
   ctx.fillStyle = 'rgba(255,255,255,0.45)';
   ctx.font = "12px 'Departure Mono', monospace";
   ctx.fillText('drag BACK from the ball to drive · curve it around the planet into the cup', 24, 58);
