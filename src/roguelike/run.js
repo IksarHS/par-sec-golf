@@ -1644,15 +1644,16 @@
         }
         ctx.globalAlpha = 1;
       }
-      // The home planet ENTERS FROM OFFSCREEN (slides down from above the frame as the camera climbs
-      // into space), then holds dead-steady at its rest spot through the whole descent + landing. It is
-      // never faded in/out at a fixed point (that read as a pop). Travelling back the other way it slides
-      // back OUT the top as you near the world you land on (you never see a planet at the planet you land on).
-      var onSky = (T.courseId === 'moon') ? smooth(0.20, 0.50, jT)        // Earth slides IN as you climb toward the Moon
-                                           : (1 - smooth(0.52, 0.84, jT)); // ...and back OUT as you descend toward Earth
+      // The RECENTLY-PLAYED planet (the world you just left) hangs in the sky during the crossing: it slides
+      // IN from offscreen-top as you climb away from it (rise), holds dead-steady through the cruise, then
+      // slides back OUT the top as you near the world you land on (descend) — so it FLIES on + off by motion,
+      // never fading/popping at a fixed point, and you never see a planet at the world you're landing on.
+      // Coloured per the departure planet's own surface (was hardcoded to the Earth glyph + an Earth↔Moon-only
+      // easing branch left over from the 2-body game, so every transition wrongly showed the same blue Earth).
+      var onSky = smooth(0.20, 0.50, jT) * (1 - smooth(0.55, 0.85, jT));  // 0→1 on the climb, hold, 1→0 on the descent
       var pe = onSky * onSky * (3 - 2 * onSky);
       var prest = H * 0.18, py = -70 + (prest + 70) * pe;
-      if (py > -36) this._drawEarthGlyph(ctx, W * 0.16, py, 17, 1);       // full alpha — it appears by MOTION, not a fade
+      if (py > -36) this._drawPlanetGlyph(ctx, W * 0.16, py, 17, this._courseGlyphColor(T.departCourse), 1);   // the world you left — appears by MOTION, not a fade
       ctx.restore();
     },
     // A course's REAL sky-stars at a fade multiplier — the same functions the live game uses. The Earth
@@ -1774,6 +1775,42 @@
       ctx.globalAlpha = 0.32 * AM; ctx.fillStyle = '#d7ece2';                 // a wisp of cloud/land on the lit side
       ctx.beginPath(); ctx.ellipse(ex - r * 0.34, ey - r * 0.06, r * 0.5, r * 0.2, -0.35, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
+    },
+    // A generic lit planet disc (the colour-agnostic sibling of _drawEarthGlyph): a clipped disc with a
+    // darkened night side + an offset lit day side (soft terminator) + a faint lit-side highlight, all from
+    // one base colour. Used by the travel sequence so the sky planet matches whichever world it represents.
+    _drawPlanetGlyph(ctx, ex, ey, r, color, AM) {
+      AM = (AM == null) ? 1 : AM; if (AM <= 0.001) return;
+      color = color || '#7faecf';
+      ctx.save();
+      ctx.beginPath(); ctx.arc(ex, ey, r, 0, Math.PI * 2); ctx.clip();
+      ctx.globalAlpha = 0.95 * AM; ctx.fillStyle = this._shadeHex(color, -0.58);      // night side (darkened)
+      ctx.fillRect(ex - r, ey - r, r * 2, r * 2);
+      ctx.globalAlpha = 0.95 * AM; ctx.fillStyle = this._shadeHex(color, 0.06);       // lit day side — offset disc → soft terminator
+      ctx.beginPath(); ctx.arc(ex - r * 0.40, ey - r * 0.30, r * 1.02, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 0.26 * AM; ctx.fillStyle = this._shadeHex(color, 0.5);        // a wisp of highlight on the lit side
+      ctx.beginPath(); ctx.ellipse(ex - r * 0.34, ey - r * 0.06, r * 0.5, r * 0.2, -0.35, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    },
+    // A course's representative body colour = its surface material colour (mars→red, an ice world→pale blue…).
+    _courseGlyphColor(courseId) {
+      try {
+        var w = (typeof WORLDS !== 'undefined') && WORLDS['run-world'];
+        var c = w && w.courses && w.courses[courseId];
+        var m = c && c.defaultMaterial;
+        var col = (typeof MATERIALS !== 'undefined') && m && MATERIALS[m] && MATERIALS[m].color;
+        return col || '#7faecf';
+      } catch (e) { return '#7faecf'; }
+    },
+    // Lighten (amt>0) / darken (amt<0) a #hex by a fraction → 'rgb(...)'.
+    _shadeHex(hex, amt) {
+      var h = (hex || '#888888').replace('#', ''); if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+      var r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
+      var f = amt < 0 ? (1 + amt) : 1, add = amt > 0 ? amt * 255 : 0;
+      r = Math.max(0, Math.min(255, Math.round(r * f + add)));
+      g = Math.max(0, Math.min(255, Math.round(g * f + add)));
+      b = Math.max(0, Math.min(255, Math.round(b * f + add)));
+      return 'rgb(' + r + ',' + g + ',' + b + ')';
     },
 
     // A rare, faint shooting star (twinkle level 2) — a "moment" without constant motion. Render-only,
