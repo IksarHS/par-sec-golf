@@ -281,6 +281,24 @@
       'trappist1h', 'trappist1g', 'geryn', 'trappist1f', 'fenra', 'trappist1e', 'elai', 'trappist1d', 'trappist1c', 'trappist1b', 'trappist1',
       // ── cross into the Barnard's Star system: outermost inward, moons after the ice giant, the dim red dwarf as the grand finale ──
       'barnard_e', 'barnard_d', 'veil', 'hollow', 'ember', 'tidewell', 'solace', 'barnard_b', 'barnard_star'];
+
+    // ── FIRST TWO PLANETS LOOP (?loop2) — a gated, peel-off-able direct comparable to the
+    // original desert-golf-roguelike (which loops Earth → Moon forever). When present, the run
+    // plays ONLY this project's REAL first two itinerary bodies — earth (9) → luna/Moon (9) —
+    // and LOOPS them indefinitely, never advancing to mars and never finishing to the recap.
+    //
+    // HOW it loops with ZERO change to the advance logic (which lives in the off-limits wrap.js):
+    // wrap's tour-advance computes the next body as SOLAR_ITINERARY[indexOf(RG.course) + 1] and
+    // only advances while indexOf(RG.course) < length-1. We build a 3-slot itinerary that wraps:
+    //   ['earth','luna','earth']
+    //   · on 'earth' → indexOf finds the FIRST (0) → next = [1] = 'luna'      (earth → luna)
+    //   · on 'luna'  → indexOf = 1, 1 < 2 → next = [2] = 'earth'             (luna → BACK to earth)
+    //   · on the 3rd 'earth' there is no separate state — indexOf re-finds 0, so it self-corrects
+    //     and the next is 'luna' again. An endless earth ↔ luna ping-pong, no mars, no end.
+    // The default tour (flag absent) is byte-for-byte the array above — untouched.
+    if (/[?&]loop2(?:=|&|$)/.test(location.search)) {
+      window.SOLAR_ITINERARY = ['earth', 'luna', 'earth'];
+    }
   }
 
   // expose the generator so lab.js + the harness build planets at any complexity from the SAME logic
