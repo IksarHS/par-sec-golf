@@ -26,19 +26,26 @@
 
   // ── tunables (engine units: world px, gravity per-frame) ──────────────────────────────────────────
   // Launch power is in the engine's velocity units (px/frame; the base game caps a normal shot at 8).
-  // We slam at hundreds, so the ball screams across the long hole. LAUNCH_DEG sets the flatish arc.
-  var LAUNCH_DEG = 26;
-  var VBASE = 380, VPOW = 340;        // power01 in [0,1] -> launch speed VBASE..VBASE+VPOW (perfect ≈ 720)
+  // WATCHABILITY RETUNE: the old drive was V≈720 + g≈45 — a flat shot that screamed across in <2s, too
+  // quick to appreciate the curve. We now want a SLOW, MAJESTIC, HIGH arc you can watch bow over the
+  // planet for ~6-8 seconds. The engine has no air drag, so flight is purely ballistic:
+  //     hangtime T(frames) = 2·V·sin(θ)/g ,  range = V·cos(θ)·T = V²·sin(2θ)/g  ,  g = 0.04·GRAV_SCALE
+  // For a ~7s (≈420-frame) hang AND a ~11k carry (1k short of the 12k pin → then BOUNDS forward into it),
+  // the horizontal speed must be only ~27 px/frame and the gravity must be TINY. Solving for a 43° launch:
+  //   V=37, θ=43°, g=0.04·3.2=0.128 → T≈7.0s, carry≈11.5k (short of the 12k pin → bounds in), apex≈2.5k.
+  // (Tuned empirically in-engine: the swept landing + a slight shallow descent stretch the idealized
+  //  flat-ground numbers, so GRAV_SCALE is set to hit ~7s of measured airtime, not the textbook value.)
+  var LAUNCH_DEG = 43;                 // a high, dramatic lob (was 26° flat) — long hang, tall arc to watch
+  var VBASE = 20, VPOW = 17;           // power01 in [0,1] -> launch speed VBASE..VBASE+VPOW (perfect ≈ 37)
   var SWEET_LO = 0.74, SWEET_HI = 0.88;   // stop the bar here for a PERFECT (max-power) drive
   var METER_SPEED = 0.020;            // how fast the power marker sweeps per frame
 
   // long-hole geometry: a single hole spanning ~12000 world px, cup at the far end ("the pin").
   var HOLE_SPAN = 12000;
 
-  // GRAVITY tuning: the engine has NO air drag, so range is purely ballistic: range ≈ 0.787·V²/g.
-  // With a perfect V≈720 we want the ball to carry ~10–11k px (landing near the far pin, then bounding
-  // the rest), so g ≈ 0.787·720²/10500 ≈ 39. Base GRAVITY is 0.04, so gravityScale ≈ 39/0.04 ≈ 975.
-  var GRAV_SCALE = 1130;
+  // GRAVITY tuning (see the ballistic math above): a tiny g so the high lob hangs ~7s and carries ~11.5k.
+  // Base GRAVITY is 0.04, so effective g = 0.04·GRAV_SCALE = 0.128 px/frame².
+  var GRAV_SCALE = 3.2;
 
   // ── the long fairway archetype — gently rolling run spanning the whole drive, cup at the far end ──
   // Registered onto the engine's global archetypes table (pure ADD; the core file is untouched and every
@@ -76,6 +83,13 @@
 
   // ── meter state ──
   var pm = 0, pmDir = 1, lastPerfect = false, lastYds = 0;
+
+  // ── flight TRAIL state — sampled ball world positions for the glowing arc tracker ──
+  // We push {x,y} world samples every frame the ball is in flight, then draw a fading line through them
+  // in the world-space frame() hook (curveWorldDY applied per-sample so the trail follows the planet bow).
+  var trail = [];                     // [{x, y}] oldest→newest world-space ball positions during this drive
+  var TRAIL_MAX = 240;                // ~4s of samples at 60fps; plenty to span the whole arc on screen
+  var trailWasFlying = false;         // edge-detect launch → clear the trail at the start of each drive
 
   function teeX() {
     if (typeof holes === 'undefined' || !holes.length) return 0;
@@ -193,16 +207,19 @@
         var gy = teeY();                                   // tee/ground elevation (world Y)
         var height = Math.max(0, gy - ball.y);             // how far above the ground (world px)
 
-        // zoom target: 1 at address, shrinking HARD as the ball climbs so the apex frames the curved
-        // planet + the whole arc (not a lonely dot in empty sky). Floor at 0.34 keeps the ball a visible
-        // dot at the very top of the arc; a smaller numerator makes height dominate (zooms out sooner).
+        // zoom target: 1 at address, shrinking HARD as the ball climbs so the apex frames the WHOLE
+        // curving arc + the planet limb (not a lonely dot in empty sky). The high lob now peaks ~2,500
+        // world-px up, so to fit ground→ball (~2,500px) into the ~0.45·H screen band between the ground
+        // anchor and the ball anchor we need a deep pull-back (z ≈ 0.45·H/2500 ≈ 0.10). The numerator
+        // H·0.55 makes apex zoom land near the FLOOR ~0.10 (whole arc + limb framed at full pull-back).
         var z;
         if (typeof state !== 'undefined' && state === STATE_AIM) {
           z = 1;
         } else {
-          // floor 0.22 + this numerator keeps the ball ~upper-third AND the planet anchored low even at a
-          // PERFECT drive's extreme peak (so the apex never collapses to a lonely dot in empty sky).
-          z = Math.max(0.22, Math.min(1, (H * 0.52) / (height + H * 0.52)));
+          // floor 0.10 + this numerator pulls WAY back at the peak so the full majestic arc + the curved
+          // planet limb all fit — the ball is framed low (see the vertical anchors below) so it never
+          // drifts off the top even at full zoom-out.
+          z = Math.max(0.10, Math.min(1, (H * 0.55) / (height + H * 0.55)));
         }
         // lerp toward the target. The mega-arc apex is BRIEF (~6 frames), so a slow lerp never reaches the
         // zoom-out before the ball descends (the old 0.09 barely bowed). Zoom OUT fast (track the climb so
@@ -213,8 +230,9 @@
         var zz = RG._zoom;
 
         // pivot: a fixed lower-screen point so the curved ground stays anchored and the planet limb fills
-        // the lower third (the bow grows downward from the pivot toward the edges).
-        RG._zoomPivot = { x: W / 2, y: H * 0.78 };
+        // the lower band (the bow grows downward from the pivot toward the edges). Lowered to match the
+        // lower ground anchor so the limb sits along the bottom and the sky opens for the tall arc.
+        RG._zoomPivot = { x: W / 2, y: H * 0.84 };
         var px = RG._zoomPivot.x, py = RG._zoomPivot.y;
 
         // follow the ball horizontally: frame it ~38% across so the arc has room to its right. The mega-arc
@@ -224,13 +242,16 @@
         // post-zoom screen x of a world point wx: px + (wx - camera.x - px) * zz  (mirrors applyCameraTransform)
         var targetCamX = ball.x - px - (wantSX - px) / zz;
 
-        // VERTICAL: anchor the ground so the planet fills the lower third, BUT if the ball would fly off
-        // the top at this zoom, lower the camera so the ball sits no higher than ~30% down — both framed.
-        var wantGroundSY = H * 0.70;
-        var targetCamY = gy - py - (wantGroundSY - py) / zz;            // ground-anchored frame
+        // VERTICAL: anchor the ground LOW so the planet limb sits along the bottom and the whole sky
+        // opens above for the tall arc, BUT if the ball would still fly off the top at this zoom, lower
+        // the camera so the ball sits no higher than ~28% down — framing the ball LOWER (a big ballTopSY)
+        // so at full zoom-out the ball + the curved limb + the entire arc are all comfortably in frame.
+        var wantGroundSY = H * 0.84;
+        var targetCamY = gy - py - (wantGroundSY - py) / zz;            // ground-anchored frame (limb low)
         if (typeof state !== 'undefined' && state !== STATE_AIM) {
-          // ball screen Y under this camera = py + (ball.y - camY - py)*zz; clamp it to >= ballTopSY
-          var ballTopSY = H * 0.30;
+          // ball screen Y under this camera = py + (ball.y - camY - py)*zz; clamp it to >= ballTopSY.
+          // 0.28 keeps the ball low-ish (lots of headroom is wasted otherwise) so the arc reads centred.
+          var ballTopSY = H * 0.28;
           var camYForBall = ball.y - py - (ballTopSY - py) / zz;        // camera.y that puts the ball at ballTopSY
           // pick the camera that shows the ball if anchoring the ground would push it off the top
           if (camYForBall < targetCamY) targetCamY = camYForBall;
@@ -338,6 +359,84 @@
           ctx.fillStyle = atmo;
           ctx.fillRect(0, groundSY - 150, W, 160);
         }
+        ctx.restore();
+      },
+
+      // WORLD-space per-frame hook (wrap.drawWorld → RG_ATLAS.frame, inside the camera transform). Two
+      // jobs, both purely to make the small ball TRIVIAL TO TRACK through the whole majestic arc:
+      //   1. sample the ball's world position each flight frame and draw a long FADING ARC TRAIL through
+      //      the samples — curveWorldDY() applied to each sample's Y so the trail bows with the planet limb
+      //      (a glowing arc spanning the sky, exactly tracing where the ball has flown).
+      //   2. a soft GLOW HALO + a faint outer RING around the ball so the dot pops against deep space.
+      // Runs after the base world + juice, so it draws on top; gated on isOrbit() so it's inert elsewhere.
+      frame: function (ctx) {
+        if (!isOrbit() || !ctx || typeof ball === 'undefined') return;
+        var flying = (typeof state !== 'undefined') && (state === STATE_FLIGHT || (state !== STATE_AIM && state !== STATE_COMPLETE && !ball.atRest));
+        // edge-detect a fresh launch (AIM→flight): clear last drive's trail so each shot starts clean.
+        if (flying && !trailWasFlying) trail.length = 0;
+        trailWasFlying = flying;
+
+        // sample the ball's CURRENT world position while it's moving (skip while at rest/aiming).
+        if (flying && !ball.atRest) {
+          var lastS = trail.length ? trail[trail.length - 1] : null;
+          // de-dupe near-identical points (cheap), keep the sample list bounded.
+          if (!lastS || Math.abs(lastS.x - ball.x) > 1 || Math.abs(lastS.y - ball.y) > 1) {
+            trail.push({ x: ball.x, y: ball.y });
+            if (trail.length > TRAIL_MAX) trail.shift();
+          }
+        }
+
+        var dy = (window.RG && RG._curveWorldDY) ? RG._curveWorldDY : function () { return 0; };
+        var z = (window.RG && RG._zoom != null) ? RG._zoom : 1;
+
+        // ── the fading arc trail ──────────────────────────────────────────────────────────────────────
+        if (trail.length > 1) {
+          ctx.save();
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          // draw as fading segments (newest = brightest/thickest). Two passes: a wide soft GLOW under a
+          // crisp core line, so the arc reads as a luminous contrail. Line width is in WORLD units, so we
+          // divide by z to keep a roughly constant ON-SCREEN thickness as the camera zooms way out.
+          var n = trail.length;
+          for (var pass = 0; pass < 2; pass++) {
+            for (var i = 1; i < n; i++) {
+              var a = trail[i - 1], b = trail[i];
+              var t = i / n;                              // 0 (oldest) → 1 (newest)
+              var alpha = Math.pow(t, 1.4) * (pass === 0 ? 0.22 : 0.85);   // tail fades out smoothly
+              if (alpha < 0.01) continue;
+              var wBase = (pass === 0 ? 10 : 3) * t + (pass === 0 ? 4 : 1.2);
+              ctx.lineWidth = wBase / z;                  // world units → ~constant screen px
+              ctx.strokeStyle = (pass === 0)
+                ? 'rgba(120,200,255,' + (alpha * 0.5).toFixed(3) + ')'   // cool blue outer glow
+                : 'rgba(235,248,255,' + alpha.toFixed(3) + ')';          // bright white-blue core
+              ctx.beginPath();
+              ctx.moveTo(a.x, a.y + dy(a.x));
+              ctx.lineTo(b.x, b.y + dy(b.x));
+              ctx.stroke();
+            }
+          }
+          ctx.restore();
+        }
+
+        // ── ball glow + ring (only while it's the small high dot; harmless at rest too) ────────────────
+        var bx = ball.x, by = ball.y + dy(ball.x);
+        var BR = (typeof BALL_RADIUS !== 'undefined') ? BALL_RADIUS : 4;
+        ctx.save();
+        // soft radial halo — grows a touch as we zoom out so the dot never disappears. World-space radius
+        // scaled by 1/z to hold a steady on-screen size.
+        var haloR = (10 + 6 * Math.max(0, 1 - z)) / z;
+        var g = ctx.createRadialGradient(bx, by, 0, bx, by, haloR);
+        g.addColorStop(0, 'rgba(180,225,255,0.55)');
+        g.addColorStop(0.5, 'rgba(150,205,255,0.22)');
+        g.addColorStop(1, 'rgba(150,205,255,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(bx, by, haloR, 0, Math.PI * 2); ctx.fill();
+        // a faint crisp ring a constant ~5 screen-px outside the ball's screen edge so it reads as a
+        // tracked target, not a smudge. The ball draws at world-radius BR (×z on screen), so a ring at
+        // world-radius BR + 5/z sits ~5 screen-px out at any zoom.
+        ctx.lineWidth = 1.5 / z;
+        ctx.strokeStyle = 'rgba(210,235,255,0.7)';
+        ctx.beginPath(); ctx.arc(bx, by, BR + 5 / z, 0, Math.PI * 2); ctx.stroke();
         ctx.restore();
       },
 
