@@ -151,6 +151,11 @@
 <script src="src/roguelike/atlas-golf-orbit.js"></script>
 <script src="src/roguelike/atlas-objects.js"></script>
 <script src="src/roguelike/atlas-setpieces.js"></script>
+<!-- Puzzle Mode (?course=puzzle) — a Super Stickman Golf-style 2D hand-designed hole: a big multi-screen
+     level worked over several shots, with WALLS, BLOCKS and STICKY surfaces, in OUR flat faceted art. The
+     generated heightfield is pushed FAR BELOW (only an OOB floor); all real collision is the authored 2D
+     geometry via the inert RG_ATLAS.collide / camera / isOOB / frame hooks. Peel the file + this tag → gone. -->
+<script src="src/roguelike/atlas-puzzle-mode.js"></script>
 <script src="src/main.js"></script>
 <!-- Dev shortcut: jump straight to a BASE course (the Moon tiers) for testing. ?course= is otherwise
      intercepted by the atlas selector (galaxy.js), so this overrides it once RG is ready. -->
