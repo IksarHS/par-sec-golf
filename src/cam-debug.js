@@ -12,6 +12,7 @@
   var MODE = 1;                      // 0 off · 1 stats · 2 stats + numbered terrain
   var el = null;
   var frame = 0, evLog = [], pState = null, pHole = -1, pVlen = -1, pCol = null;
+  var _vid = 0, vidCol = {}, _vidCourse = null;   // persistent per-vertex ids + last-seen terrain colour (recolour watch)
   var lastT = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
   var fps = 0, dropCount = 0, worstDt = 0, dtAvg = 16.7;
 
@@ -52,8 +53,9 @@
       var sx = v.x - camX, sy = v.y - camY;
       if (sx < -4 || sx > W + 4 || sy < -22 || sy > H + 4) continue;
       ctx.fillStyle = '#ff3'; ctx.beginPath(); ctx.arc(sx, sy, 2.2, 0, 6.2832); ctx.fill();
-      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(sx - 11, sy - 17, 22, 12);
-      ctx.fillStyle = '#9f9'; ctx.fillText(String(i), sx, sy - 7);
+      var lbl = String(v._dbgId != null ? v._dbgId : i);   // PERSISTENT id (survives transitions), not the array index
+      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(sx - 4 - lbl.length * 3.5, sy - 17, 8 + lbl.length * 7, 12);
+      ctx.fillStyle = '#9f9'; ctx.fillText(lbl, sx, sy - 7);
     }
     ctx.restore();
   }
@@ -130,11 +132,28 @@
         if (pState !== null && st !== pState) push('state ' + pState + '→' + st + '  (hole ' + (ci + 1) + ')');
         if (pHole !== -1 && ci !== pHole) push('HOLE ' + (pHole + 1) + '→' + (ci + 1) + '  [' + (h.archetype || '?') + ']');
         if (pVlen !== -1 && vlen !== pVlen) push('terrain REGEN  verts ' + pVlen + '→' + vlen);
-        // Only a REAL recolour: same hole AND same vertex count (so the terrain itself did NOT change) but the
-        // colour did — i.e. the SAME terrain recoloured. (A hole change or a REGEN legitimately changes terrain.)
-        if (ci === pHole && vlen === pVlen && pCol && col && (Math.abs(col[0] - pCol[0]) + Math.abs(col[1] - pCol[1]) + Math.abs(col[2] - pCol[2])) > 55)
-          push('CUP-AREA RECOLOUR ' + cs(pCol) + '→' + cs(col) + ' *** REAL POP');
         pState = st; pHole = ci; pVlen = vlen; pCol = col;
+
+        // PERSISTENT vertex ids + per-vertex RECOLOUR WATCH (your idea): a vertex's terrain colour should never
+        // change while it exists — if vtx #N goes blue→green, flag it with its STABLE id (precise pop catcher).
+        // Sampled a bit INTO the terrain (solid strata, not the surface highlight); throttled to keep it cheap.
+        if (typeof vertices !== 'undefined') {
+          for (var ai = 0; ai < vertices.length; ai++) { var av = vertices[ai]; if (av && av._dbgId == null) av._dbgId = ++_vid; }
+          var _cc = (window.RG && RG.course) || '';
+          if (_cc !== _vidCourse) { vidCol = {}; _vidCourse = _cc; }   // new course = new terrain → reset colour memory (no false pop)
+          if (frame % 12 === 0 && frame > 50) {                        // skip startup churn (default course → real course swap)
+            for (var qi = 0; qi < vertices.length; qi++) {
+              var qv = vertices[qi]; if (!qv || qv._dbgId == null) continue;
+              var qx = qv.x - camera.x, qy = (qv.y + 22) - camY;
+              if (qx < 6 || qx > W - 6 || qy < 6 || qy > H - 6) continue;
+              var qc = sampleAt(qx, qy); if (!qc) continue;
+              var qp = vidCol[qv._dbgId];
+              if (qp && (Math.abs(qc[0] - qp[0]) + Math.abs(qc[1] - qp[1]) + Math.abs(qc[2] - qp[2])) > 50)
+                push('vtx #' + qv._dbgId + ' RECOLOUR ' + cs(qp) + '→' + cs(qc) + ' *** POP');
+              vidCol[qv._dbgId] = qc;
+            }
+          }
+        }
 
         var live =
           'course ' + course + '   hole ' + (ci + 1) + '/' + tot + '   FPS ' + fps + (dropCount ? ('  drops ' + dropCount + '/worst ' + R(worstDt) + 'ms') : '') + '\n' +

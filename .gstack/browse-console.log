@@ -1,10 +1,2 @@
-[2026-06-22T00:00:08.402Z] [warning] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
-[2026-06-22T00:00:08.735Z] [log] [dbg] f12 terrain REGEN  verts 131→127
-[2026-06-22T00:00:08.741Z] [log] [dbg] f13 CUP-AREA RECOLOUR 98,168,78→31,122,109 *** REAL POP
-[2026-06-22T00:00:14.844Z] [log] [dbg] f357 FRAME DROP 397ms
-[2026-06-22T00:00:14.844Z] [log] [dbg] f357 terrain REGEN  verts 127→95
-[2026-06-22T00:04:59.944Z] [warning] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
-[2026-06-22T00:05:00.338Z] [log] [dbg] f11 terrain REGEN  verts 144→121
-[2026-06-22T00:05:00.343Z] [log] [dbg] f12 CUP-AREA RECOLOUR 98,168,78→31,122,109 *** REAL POP
-[2026-06-22T00:05:00.936Z] [log] [dbg] f48 CUP-AREA RECOLOUR 31,129,121→86,153,162 *** REAL POP
-[2026-06-22T00:05:00.969Z] [log] [dbg] f50 CUP-AREA RECOLOUR 69,147,140→31,122,109 *** REAL POP
+[2026-06-22T00:16:18.994Z] [warning] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
+[2026-06-22T00:16:19.689Z] [log] [dbg] f12 terrain REGEN  verts 130→115
