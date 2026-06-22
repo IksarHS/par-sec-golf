@@ -83,12 +83,10 @@ function drawWater() {
   const deepCol = (typeof currentCourse !== 'undefined' && currentCourse && currentCourse.waterDeep) || 'rgba(12,40,78,0.97)';
   for (const w of _waters) {
     const sY = w.surfaceY;
-    // settle-on-reveal ripple (VISUAL ONLY; the hazard uses the flat sY → harness stays deterministic)
-    const vis = (typeof camera === 'undefined') || (w.x1 > camera.x && w.x0 < camera.x + W);
-    if (w._t0 == null && vis) w._t0 = _waterFrame;
-    const amp = w._t0 == null ? 0 : 6.5 * Math.exp(-(_waterFrame - w._t0) / 30);
-    const topY = (x) => (amp < 0.05) ? sY
-      : sY + amp * (Math.sin(x * 0.06 + w._ph) + 0.55 * Math.sin(x * 0.028 - _waterFrame * 0.13 + w._ph));
+    // CALM, continuous surface: a small always-on gentle ripple — NOT a big decaying "settle-slosh" on reveal,
+    // which read as a non-physical POP when a water hole spawned / scrolled into view. Subtle + smooth (±~2px).
+    const topY = (x) => sY + 1.5 * Math.sin(x * 0.04 + w._ph + _waterFrame * 0.045)
+                           + 0.7 * Math.sin(x * 0.018 - _waterFrame * 0.03 + w._ph);
     // DEEP fill: each wet span (terrain below the waterline) fills from the surface STRAIGHT DOWN to past the
     // screen bottom — a vertical gradient (surface tint → near-black deep) sells depth instead of a floor.
     const grad = ctx.createLinearGradient(0, sY, 0, camY + H);
@@ -107,7 +105,7 @@ function drawWater() {
       const rx0 = run[0].x, rx1 = run[run.length - 1].x;
       ctx.beginPath();
       ctx.moveTo(rx0, topY(rx0));
-      if (amp >= 0.05) for (let x = rx0 + 4; x < rx1; x += 4) ctx.lineTo(x, topY(x));   // rippling surface (top)
+      for (let x = rx0 + 4; x < rx1; x += 4) ctx.lineTo(x, topY(x));                    // gentle rippling surface (top)
       ctx.lineTo(rx1, topY(rx1));
       for (let k = run.length - 1; k >= 0; k--) ctx.lineTo(run[k].x, run[k].y);          // trace the terrain floor back (bottom)
       ctx.closePath(); ctx.fill();
@@ -134,14 +132,14 @@ function drawWater() {
   for (let i = _ripples.length - 1; i >= 0; i--) {
     const r = _ripples[i]; r.life++; if (r.life < 0) continue; r.r += 1.7;
     if (r.life > r.max) { _ripples.splice(i, 1); continue; }
-    ctx.strokeStyle = 'rgba(200,232,248,' + (1 - r.life / r.max) * 0.5 + ')'; ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(200,232,248,' + (1 - r.life / r.max) * 0.3 + ')'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.ellipse(r.x, r.y, r.r, r.r * 0.38, 0, 0, 6.283); ctx.stroke();
   }
   for (let i = _splash.length - 1; i >= 0; i--) {
     const p = _splash[i]; p.life++; p.vy += 0.16; p.x += p.vx; p.y += p.vy;
     if (p.life > p.max) { _splash.splice(i, 1); continue; }
-    ctx.fillStyle = 'rgba(155,212,242,' + (1 - p.life / p.max) * 0.9 + ')';
-    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    ctx.fillStyle = 'rgba(155,212,242,' + (1 - p.life / p.max) * 0.6 + ')';
+    ctx.fillRect(p.x - 1.25, p.y - 1.25, 2.5, 2.5);
   }
 }
 
