@@ -807,7 +807,12 @@ MODE = {
 
   // ── Rendering ──────────────────────────────────────────
   applyCameraTransform(ctx) {
-    ctx.translate(-camera.x, 0);
+    // PIXEL-SNAP the camera to the display grid: terrain + the sand-grain texture otherwise render at sub-pixel
+    // offsets that shift every frame as the camera moves → the "choppy/shimmer on camera move" jank. Snapping
+    // the world's screen offset to whole device pixels makes it crawl-free. Physics/positions are untouched —
+    // only the render transform snaps (everything else still reads the real camera.x).
+    var _sc = (typeof displayScale === 'number' && displayScale) ? displayScale : 1;
+    ctx.translate(-Math.round(camera.x * _sc) / _sc, 0);
   },
 
   drawSky() {
