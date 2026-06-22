@@ -14,23 +14,28 @@
   // Each clones a base material's physics and just recolours, so behaviour stays sane.
   if (typeof MATERIALS !== 'undefined') {
     const phys = (b) => ({ restitution: MATERIALS[b].restitution, rollingFriction: MATERIALS[b].rollingFriction, surfaceFriction: MATERIALS[b].surfaceFriction });
+    // [2026-06-21] SOFTENED the surfaces: rock (restitution 0.75 = very bouncy/hard, and samey) was the base
+    // for most worlds → the game played harder + more uniform than intended. Most rock→sand (0.47, forgiving);
+    // a few uncertain/charred worlds→mud (0.15, sticky); rock kept ONLY for the genuinely volcanic/molten
+    // bodies (ash, ember, plasma_crust, scorched_basalt, dim_ember) so hardness still exists as variety, not
+    // the default. Colours unchanged — worlds LOOK identical, just play softer. (base physics in shared.js)
     const CUSTOM = {
-      jade: ['grass', '#3fa688'], moss: ['grass', '#7a8f3c'], crimson: ['rock', '#b0463e'],
-      rust: ['rock', '#a85a36'], slate: ['rock', '#586878'], plum: ['rock', '#6e4a6e'],
+      jade: ['grass', '#3fa688'], moss: ['grass', '#7a8f3c'], crimson: ['sand', '#b0463e'],
+      rust: ['sand', '#a85a36'], slate: ['sand', '#586878'], plum: ['mud', '#6e4a6e'],
       amber: ['sand', '#d99a3c'], rose: ['sand', '#c77d8a'], gold: ['sand', '#c2a24a'],
       bone: ['sand', '#cabfa0'], teal: ['ice', '#3f9aa6'], frost: ['ice', '#9fd8e8'],
-      ash: ['rock', '#46464f'], ember: ['rock', '#c2603a'], cobalt: ['rock', '#4f6fc0'],
-      cactus: ['grass', '#4f7d39'], stone: ['rock', '#8b8e94'],   // cactus = green obstacle; stone = grey-rock accent
+      ash: ['rock', '#46464f'], ember: ['rock', '#c2603a'], cobalt: ['sand', '#4f6fc0'],
+      cactus: ['grass', '#4f7d39'], stone: ['sand', '#8b8e94'],   // cactus = green obstacle; stone = sandy-grey accent
       earthgreen: ['grass', '#4f8a3e'], sulfur: ['sand', '#d6c63e'], cyan: ['ice', '#79c6cf'],   // solar-system bodies
       // ── TRAPPIST-1 system (red dwarf) palettes ──
-      trappist_plasma_crust: ['rock', '#7a1505'], trappist_charred_basalt: ['rock', '#241a18'],
-      trappist_ultramafic_basalt: ['rock', '#4a3026'], trappist_haze_clay: ['sand', '#9a5d44'],
+      trappist_plasma_crust: ['rock', '#7a1505'], trappist_charred_basalt: ['mud', '#241a18'],
+      trappist_ultramafic_basalt: ['sand', '#4a3026'], trappist_haze_clay: ['sand', '#9a5d44'],
       trappist_terminator_loam: ['sand', '#3f6b5a'], trappist_glacier_ice: ['ice', '#8fa9b8'],   // e = the habitable jewel: dusky teal-green
       trappist_pack_ice: ['ice', '#7d8a93'], trappist_frost_ice: ['ice', '#9fb2bf'],
-      trappist_riftice: ['ice', '#7c8a9c'], trappist_tidalbasalt: ['rock', '#2b211f'],
+      trappist_riftice: ['ice', '#7c8a9c'], trappist_tidalbasalt: ['mud', '#2b211f'],
       trappist_regolith: ['sand', '#6b5048'],
       // ── Barnard's Star system (ancient red dwarf) palettes ──
-      barnard_void_iron: ['rock', '#1A1A22'], barnard_banded_methane: ['ice', '#4A6B8A'],
+      barnard_void_iron: ['sand', '#1A1A22'], barnard_banded_methane: ['ice', '#4A6B8A'],
       veil_pale_blue_ice: ['ice', '#C8DCE8'], barnard_rift_ice: ['ice', '#2A2E55'],
       barnard_regolith_dust: ['sand', '#8A7E6E'], barnard_copper_silt: ['sand', '#1F7A6D'],
       barnard_crimson_loam: ['grass', '#3B0A14'], barnard_scorched_basalt: ['rock', '#D94A1F'],
