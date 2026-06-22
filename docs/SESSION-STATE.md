@@ -2,6 +2,8 @@
 
 A fresh-context handoff. Everything below is committed unless noted. The base 3-system game is byte-identical / untouched — all new work is **peel-off + gated** (a `?flag` or `RG.course===id`); delete a file + its `<script>` tag and it's gone.
 
+**→ Picking up work? The workday task queue is `docs/WORKLOAD-PLAN.md`** (physics lab, true complexity control, caves/overhangs, 100+ hole types, more colorful systems, backgrounds/stars, wind FX, a basic star map). Start there.
+
 ## Project facts
 - **This repo (editable):** `/mnt/c/dev/indie/active/faceted-golf` — the 3-system, 37-body golf tour ("Par Sec").
 - **READ-ONLY main project:** `/mnt/c/dev/indie/active/desert-golf-roguelike` — the original Earth→Moon-loop game. Do NOT edit. (Also don't touch the old editor `desert-golfing`.)
