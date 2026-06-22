@@ -25,6 +25,19 @@ function _spEdges(loop) {
 // angular polygon near its rim with clearance below. `complexity` 0..1 gates frequency/size. Reachable by
 // construction: the cup is on the heightfield floor; the mass floats high over a chasm mid-hole (clear
 // gap below), never blocking the cup approach.
+// A floating set-piece's outline (convex, centred at cx,cy, width w, half-height hh). Variety of "interesting"
+// shapes: two SMOOTH (island/platform) to match the curvier terrain, three ANGULAR (crystal/mesa/blob). MUST
+// stay convex — the swept collision + _pointInSlab assume it. (Review via the lab "☁ Floating-object showcase".)
+function _floatShape(cx, cy, w, hh, kind) {
+  var pts = [], i, a, n;
+  if (kind === 'island') { n = 13; for (i = 0; i < n; i++) { a = (i / n) * 6.2832; pts.push({ x: cx + Math.cos(a) * w * 0.5, y: cy + Math.sin(a) * hh * 1.05 }); } }            // round floating island
+  else if (kind === 'platform') { n = 15; for (i = 0; i < n; i++) { a = (i / n) * 6.2832; pts.push({ x: cx + Math.cos(a) * w * 0.62, y: cy + Math.sin(a) * hh * 0.5 }); } }       // wide flat disc / sky platform
+  else if (kind === 'crystal') { pts.push({ x: cx, y: cy - hh * 1.1 }, { x: cx + w * 0.4, y: cy - hh * 0.1 }, { x: cx + w * 0.22, y: cy + hh * 0.9 }, { x: cx - w * 0.22, y: cy + hh * 0.9 }, { x: cx - w * 0.4, y: cy - hh * 0.1 }); }  // faceted crystal / asteroid
+  else if (kind === 'mesa') { pts.push({ x: cx - w * 0.5, y: cy + hh * 0.55 }, { x: cx - w * 0.33, y: cy - hh * 0.7 }, { x: cx + w * 0.33, y: cy - hh * 0.7 }, { x: cx + w * 0.5, y: cy + hh * 0.55 }); }   // flat-topped floating plateau
+  else { var j = function () { return random() - 0.5; }; pts.push({ x: cx - w * 0.5, y: cy + hh * 0.2 }, { x: cx - w * (0.28 + j() * 0.1), y: cy - hh * 0.5 }, { x: cx + w * (0.3 + j() * 0.1), y: cy - hh * 0.4 }, { x: cx + w * 0.5, y: cy + hh * 0.25 }, { x: cx + j() * w * 0.2, y: cy + hh * 0.6 }); }   // original angular blob
+  return pts;
+}
+
 function generateOverhangs(hole, complexity) {
   if (!hole || complexity == null || complexity < 0.5 || typeof terrainYAt !== 'function') return;
   const teeX = hole.teeX, cupX = hole.cupX, span = cupX - teeX; if (span < 300) return;
@@ -43,15 +56,9 @@ function generateOverhangs(hole, complexity) {
     const w = 56 + random() * 56 + complexity * 44, hh = 28 + random() * 34;
     const cx = chasmX + (random() - 0.5) * 30, cy = rimY - 8 - random() * (30 + complexity * 30);  // float near/above the rim
     if (cy - hh < H * 0.06) continue;
-    // a 5-point ANGULAR convex blob (reads as a chunk of terrain, not a UI bar)
-    const j = () => (random() - 0.5);
-    const mass = [
-      { x: cx - w * 0.5, y: cy + hh * (0.15 + random() * 0.2) },
-      { x: cx - w * (0.28 + j() * 0.1), y: cy - hh * (0.4 + random() * 0.3) },
-      { x: cx + w * (0.3 + j() * 0.1), y: cy - hh * (0.3 + random() * 0.35) },
-      { x: cx + w * 0.5, y: cy + hh * (0.2 + random() * 0.2) },
-      { x: cx + j() * w * 0.2, y: cy + hh * (0.55 + random() * 0.25) },
-    ];
+    // pick an interesting convex floating shape (was always the angular 5-point blob)
+    var _fk = ['island', 'platform', 'crystal', 'mesa', 'blob'];
+    const mass = _floatShape(cx, cy, w, hh, _fk[(random() * _fk.length) | 0]);
     pieces.push({ pts: mass, edges: _spEdges(mass) });
   }
   if (pieces.length) hole._overhangs = pieces;

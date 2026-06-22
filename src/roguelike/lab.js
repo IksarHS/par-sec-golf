@@ -161,6 +161,16 @@
       }, 700);
       return 'stress cycle STARTED — varied strata hole + forced regen/reframe every 0.7s, looping. Watch ─ events ─ for "*** REAL POP". Click again to stop.';
     } },
+    { label: '☁ Floating-object showcase', cls: 'hole', run: function () {
+      if (typeof _floatShape !== 'function' || typeof holes === 'undefined' || !holes[curHole()]) return 'hard-refresh to load it';
+      var h = holes[curHole()];
+      var kinds = ['island', 'platform', 'crystal', 'mesa', 'blob'];   // 2 smooth + 3 angular floating-object shapes
+      var pieces = [], x0 = h.teeX + 60, cy = (typeof H !== 'undefined' ? H : 540) * 0.38;
+      for (var i = 0; i < kinds.length; i++) { var pts = _floatShape(x0 + i * 155, cy, 100, 44, kinds[i]); pieces.push({ pts: pts, edges: (typeof _spEdges === 'function' ? _spEdges(pts) : []) }); }
+      h._overhangs = pieces;                                            // the existing per-hole floating-mass slot
+      if (typeof camera !== 'undefined') { camera.x = h.teeX - 30; camera.y = 0; }
+      return '☁ island · platform · crystal · mesa · blob (left→right) — the floating-object shapes.';
+    } },
     { label: '$ Give $50', cls: 'econ', run: function () {
       if (!window.RG_ECON) return 'no economy';
       RG_ECON.add(50);
