@@ -113,7 +113,7 @@
       ED.drag = nv; ED.tool = 'drag'; syncTool();
     }
     else if (ED.tool === 'del') { var dv = hitVert(c.x, c.y); if (dv) { var ix = vertices.indexOf(dv); if (ix >= 0) vertices.splice(ix, 1); } }
-    else if (ED.tool === 'cup') { setCup(Math.round(w.x), Math.round(w.y)); }
+    else if (ED.tool === 'cup') { setCup(Math.round(w.x)); }          // snap the cup to the terrain SURFACE at the clicked x (not the click height) — click anywhere along the hole
     e.stopPropagation(); e.preventDefault();
   }
   function onMove(e) {

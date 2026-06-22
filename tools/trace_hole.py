@@ -66,7 +66,7 @@ for hole in holes:                                   # stitch each cave in with 
 verts = [{'x': int(round(x * EDW / W)), 'y': int(round(y * EDH / H))} for (x, y) in path_pts]
 
 # --- cup: centroid of the yellow flag, if present ---
-ym = ((r > 150) & (g > 110) & (b < 110) & (r - b > 50)).astype(np.uint8) * 255
+ym = ((r > 140) & (g > 110) & (b < g - 30)).astype(np.uint8) * 255   # yellowish flag (R&G high, B low) — excludes red terrain / grey sky / white score
 cupx = 600
 yc, _ = cv2.findContours(ym, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 if yc:
