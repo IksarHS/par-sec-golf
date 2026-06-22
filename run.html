@@ -152,8 +152,7 @@
 <script>
 (function () {
   var m = /[?&](?:course|gomoon)=([a-z0-9_-]+)/i.exec(location.search);
-  if (!m) return;
-  var v = m[1].toLowerCase();
+  var v = m ? m[1].toLowerCase() : 'earth';   // no ?course -> default to the 3-system tour start (Earth), not the engine's Front Nine
   var alias = { '1': 'moon', '2': 'moon2', '3': 'moon3' };
   var course = alias[v] || v;
   var n = 0;
