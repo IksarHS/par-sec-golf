@@ -730,6 +730,7 @@
     // a defaultMaterial, remap every vertex whose material isn't in the course palette so
     // the planet reads as ONE coherent surface (Earth = grass, the Moon = regolith).
     _applyTerrainDefault(course) {
+      if (window.ED && window.ED.on) return;                              // the hole editor owns its own materials
       if (!course || !course.defaultMaterial || typeof vertices === 'undefined') return;
       const ok = {};
       (course.materials || []).forEach(function (m) { ok[m] = 1; });
@@ -748,6 +749,7 @@
     // Fault tile (the startRun pass runs before hazards exist, so this guard is inert there →
     // determinism untouched). Called from the generateHoleTerrain wrap at the bottom of this file.
     _clampTerrainMats() {
+      if (window.ED && window.ED.on) return;                              // the hole editor owns its own materials
       if (typeof vertices === 'undefined' || typeof currentCourse === 'undefined' || !currentCourse) return;
       const def = currentCourse.defaultMaterial;
       if (!def) return;
