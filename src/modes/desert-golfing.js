@@ -596,6 +596,21 @@ function drawTerrainDG() {
   }
   if (TERRAIN_TEXTURE_ON) { drawTexturedTerrain(startX, endX); return; }
 
+  // WORLD-CURVE (golf-orbit): a screen-space parabolic bow that makes the flat heightfield read as the
+  // convex limb of a planet when zoomed OUT. Inert by default — RG._worldCurve is unset in the base game,
+  // so `cv` is null and every lineTo below uses the raw vertex Y (byte-identical to the old render).
+  // When active, RG._curveWorldDY(wx) returns a WORLD-Y offset (added to a vertex's y) that, after the
+  // camera scale, lands the point at its bowed screen Y — the SAME offset the ball/flag use, so they all
+  // stay glued to the surface. Long segments are subdivided so the parabola reads as a smooth curve
+  // (a chord between two far-apart vertices would otherwise show as a flat facet).
+  const cv = (typeof window !== 'undefined' && window.RG && window.RG._worldCurve && window.RG._curveWorldDY) ? window.RG._curveWorldDY : null;
+  const cvY = cv ? function (x, y) { return y + cv(x); } : null;
+  const cvLineTo = cv ? function (x, yPrev, x2, y2) {
+    // subdivide the segment (yPrev,y2 are RAW vertex Ys) so the bow is smooth
+    const steps = Math.max(1, Math.min(40, Math.ceil(Math.abs(x2 - x) / 60)));
+    for (let s = 1; s <= steps; s++) { const t = s / steps; const xx = x + (x2 - x) * t, yy = yPrev + (y2 - yPrev) * t; ctx.lineTo(xx, cvY(xx, yy)); }
+  } : null;
+
   // Group consecutive same-material vertices into runs.
   // Each run is drawn as ONE polygon tracing all vertices in order,
   // closed along the bottom. Canvas nonzero fill rule handles
@@ -631,10 +646,18 @@ function drawTerrainDG() {
     const onSurface = !((typeof camera !== 'undefined') && camera.y);
     const leftX = (runStart === 0 && onSurface) ? Math.min(vertices[runStart].x, startX) : vertices[runStart].x;
     ctx.beginPath();
-    ctx.moveTo(leftX, vertices[runStart].y);
-    ctx.lineTo(vertices[runStart].x, vertices[runStart].y);
-    for (let j = runStart + 1; j <= runEnd && j < vertices.length; j++) {
-      ctx.lineTo(vertices[j].x, vertices[j].y);
+    if (cv) {
+      ctx.moveTo(leftX, cvY(leftX, vertices[runStart].y));
+      cvLineTo(leftX, vertices[runStart].y, vertices[runStart].x, vertices[runStart].y);
+      for (let j = runStart + 1; j <= runEnd && j < vertices.length; j++) {
+        cvLineTo(vertices[j - 1].x, vertices[j - 1].y, vertices[j].x, vertices[j].y);
+      }
+    } else {
+      ctx.moveTo(leftX, vertices[runStart].y);
+      ctx.lineTo(vertices[runStart].x, vertices[runStart].y);
+      for (let j = runStart + 1; j <= runEnd && j < vertices.length; j++) {
+        ctx.lineTo(vertices[j].x, vertices[j].y);
+      }
     }
     // Close along the bottom — camera-relative on Y so a vertically-shifted world
     // (camera.y > 0 in the roguelike's sunken bonus rooms) still fills DOWNWARD.

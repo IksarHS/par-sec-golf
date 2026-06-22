@@ -115,6 +115,31 @@
 
   function hole() { return (typeof holes !== 'undefined') ? holes[(typeof currentHole !== 'undefined') ? currentHole : 0] : null; }
 
+  // ── WORLD CURVE — the planet's limb ───────────────────────────────────────────────────────────────
+  // The engine draws terrain/ball/flag in WORLD coords inside a linear camera transform (translate+scale),
+  // which can't express a parabola. So we publish a per-x WORLD-Y offset that, AFTER the camera scale,
+  // lands each point at a screen Y bowed DOWN toward the screen edges — the convex limb of a planet.
+  // drawTerrainDG / drawBall / drawFlag all add RG._curveWorldDY(worldX) to their Y, so the surface, the
+  // ball and the pin share one bow and stay glued together. GATED on RG._worldCurve (set only here, only
+  // on this course); 0 at address (RG._zoom==1) → flat, growing as the camera zooms OUT.
+  //   screen math (wrap.applyCameraTransform, pivot x = W/2):
+  //     screenX = W/2 + z*(wx - camera.x - W/2)         → screenDX = z*(wx - camera.x - W/2)
+  //     want screenYoffset = amt * screenDX^2           where amt = RG._worldCurve * (1-z)^1.4
+  //     worldYoffset = screenYoffset / z                (camera scales world-Y by z)
+  var CURVE_BASE = 0.00100;     // limb strength; tuned so address reads flat and apex bows clearly
+  function curveWorldDY(wx) {
+    if (!window.RG || !window.RG._worldCurve) return 0;
+    if (typeof camera === 'undefined') return 0;
+    var z = (window.RG._zoom != null) ? window.RG._zoom : 1;
+    if (z >= 0.999) return 0;                 // flat at address (and a hair below) → byte-identical look
+    var W = W_();
+    var amt = window.RG._worldCurve * Math.pow(Math.max(0, 1 - z), 1.4);
+    var sdx = z * (wx - camera.x - W / 2);    // screen px from centre (pivot.x = W/2)
+    return (amt * sdx * sdx) / z;             // → world-Y offset (screen bow / z)
+  }
+  window.RG_CURVE_curveWorldDY = curveWorldDY;   // (debug handle)
+  if (window.RG) window.RG._curveWorldDY = curveWorldDY;
+
   // SAFE ground height: terrainYAt EXTRAPOLATES the last/first segment past the terrain ends, which on a
   // long hole shoots to ±millions (the ball then falls forever into a void). Clamp to a FLAT extension at
   // the boundary vertex's Y so a ball that bounds past the pin still lands on (flat) ground and settles.
@@ -153,6 +178,8 @@
         RG._holeDistCap = HOLE_SPAN + 600;                 // unlock the one-screen distance cap
         RG._clampYBand = [-H_() * 4, H_() * 0.92];         // tall band so the fairway draws across the long hole
         RG._zoom = 1; RG._zoomPivot = { x: W_() / 2, y: H_() * 0.78 };
+        RG._worldCurve = CURVE_BASE;            // arm the planet-limb bow (inert until zoomed out)
+        RG._curveWorldDY = curveWorldDY;        // publish the shared world->screen bow offset
         pm = 0; pmDir = 1; lastPerfect = false; lastYds = 0;
       },
 
@@ -166,36 +193,53 @@
         var gy = teeY();                                   // tee/ground elevation (world Y)
         var height = Math.max(0, gy - ball.y);             // how far above the ground (world px)
 
-        // zoom target: 1 at address, shrinking as the ball climbs. Tuned so a full mega-arc fits.
+        // zoom target: 1 at address, shrinking HARD as the ball climbs so the apex frames the curved
+        // planet + the whole arc (not a lonely dot in empty sky). Floor at 0.34 keeps the ball a visible
+        // dot at the very top of the arc; a smaller numerator makes height dominate (zooms out sooner).
         var z;
         if (typeof state !== 'undefined' && state === STATE_AIM) {
           z = 1;
         } else {
-          z = Math.max(0.12, Math.min(1, (H * 0.62) / (height + H * 0.62)));
+          // floor 0.22 + this numerator keeps the ball ~upper-third AND the planet anchored low even at a
+          // PERFECT drive's extreme peak (so the apex never collapses to a lonely dot in empty sky).
+          z = Math.max(0.22, Math.min(1, (H * 0.52) / (height + H * 0.52)));
         }
-        // smooth-lerp both ways (out on the way up, back in on descent)
+        // lerp toward the target. The mega-arc apex is BRIEF (~6 frames), so a slow lerp never reaches the
+        // zoom-out before the ball descends (the old 0.09 barely bowed). Zoom OUT fast (track the climb so
+        // the apex truly opens to the planet), ease back IN gently on the descent (no jarring snap-in).
         var cz = (RG._zoom != null) ? RG._zoom : 1;
-        RG._zoom = cz + (z - cz) * 0.09;
+        var zlerp = (z < cz) ? 0.30 : 0.10;     // out fast, in slow
+        RG._zoom = cz + (z - cz) * zlerp;
+        var zz = RG._zoom;
 
-        // pivot: keep the zoom centred on a fixed lower-screen point so the ground stays anchored.
+        // pivot: a fixed lower-screen point so the curved ground stays anchored and the planet limb fills
+        // the lower third (the bow grows downward from the pivot toward the edges).
         RG._zoomPivot = { x: W / 2, y: H * 0.78 };
+        var px = RG._zoomPivot.x, py = RG._zoomPivot.y;
 
-        // follow the ball: at the current zoom, the ball appears at screen x = (ball.x - camera.x)
-        // scaled about the pivot. We want the ball framed around 42% of the screen so the arc has room
-        // to its right. Solve for camera.x so the ball sits at that screen fraction post-zoom.
-        var zz = RG._zoom, px = RG._zoomPivot.x;
-        var wantSX = (typeof state !== 'undefined' && state === STATE_AIM) ? 120 : W * 0.42;
+        // follow the ball horizontally: frame it ~38% across so the arc has room to its right. The mega-arc
+        // races horizontally, so X tracks FAST (near the prototype's instant follow) — otherwise the ball
+        // lags to the screen edge while the camera catches up.
+        var wantSX = (typeof state !== 'undefined' && state === STATE_AIM) ? 120 : W * 0.38;
         // post-zoom screen x of a world point wx: px + (wx - camera.x - px) * zz  (mirrors applyCameraTransform)
-        // set = wantSX, solve camera.x:  camera.x = ball.x - px - (wantSX - px) / zz
         var targetCamX = ball.x - px - (wantSX - px) / zz;
-        // vertical: keep the ground near the pivot. ground screen y post-zoom: py + (gy - camera.y - py)*zz.
-        var py = RG._zoomPivot.y;
-        var wantGroundSY = H * 0.80;
-        var targetCamY = gy - py - (wantGroundSY - py) / zz;
 
-        var lerp = (typeof state !== 'undefined' && state === STATE_AIM) ? 0.14 : 0.16;
-        camera.x += (targetCamX - camera.x) * lerp;
-        camera.y += (targetCamY - camera.y) * lerp;
+        // VERTICAL: anchor the ground so the planet fills the lower third, BUT if the ball would fly off
+        // the top at this zoom, lower the camera so the ball sits no higher than ~30% down — both framed.
+        var wantGroundSY = H * 0.70;
+        var targetCamY = gy - py - (wantGroundSY - py) / zz;            // ground-anchored frame
+        if (typeof state !== 'undefined' && state !== STATE_AIM) {
+          // ball screen Y under this camera = py + (ball.y - camY - py)*zz; clamp it to >= ballTopSY
+          var ballTopSY = H * 0.30;
+          var camYForBall = ball.y - py - (ballTopSY - py) / zz;        // camera.y that puts the ball at ballTopSY
+          // pick the camera that shows the ball if anchoring the ground would push it off the top
+          if (camYForBall < targetCamY) targetCamY = camYForBall;
+        }
+
+        var lerpX = (typeof state !== 'undefined' && state === STATE_AIM) ? 0.14 : 0.55;   // X tracks fast (racing arc)
+        var lerpY = (typeof state !== 'undefined' && state === STATE_AIM) ? 0.14 : 0.30;   // Y eases (no jarring)
+        camera.x += (targetCamX - camera.x) * lerpX;
+        camera.y += (targetCamY - camera.y) * lerpY;
         return true;
       },
 
@@ -260,6 +304,41 @@
         if (typeof ball === 'undefined') return null;
         // only consider OOB once the ball has truly come to rest far past the pin (a degenerate overshoot)
         return false;
+      },
+
+      // DEEP-SPACE SKY (behind the terrain) — a dense static starfield + a subtle atmosphere limb glow
+      // that only emerges as we zoom OUT (hidden at address, so the hole still reads normal). Screen-space,
+      // deterministic (seeded by index), drawn after the base sky fill and before the terrain (wrap.drawSky
+      // → RG_ATLAS.drawSkyBehind) so the planet's green limb occludes the lower stars.
+      drawSkyBehind: function (ctx) {
+        if (!isOrbit()) return;
+        var W = W_(), H = H_();
+        var z = (window.RG && RG._zoom != null) ? RG._zoom : 1;
+        ctx.save();
+        // ~140 stars, seeded screen positions; a few brighter/blue. Twinkle is static (no per-frame jitter).
+        for (var i = 0; i < 140; i++) {
+          var h = (Math.imul(i + 1, 2654435761) >>> 0);
+          var sx = h % W;
+          var sy = (Math.imul(h ^ 0x9e3779b9, 40503) >>> 0) % H;
+          var big = (i % 11 === 0);
+          ctx.fillStyle = (i % 5 === 0) ? 'rgba(190,210,255,0.85)' : (big ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.45)');
+          var b = big ? 2 : 1;
+          ctx.fillRect(sx, sy, b, b);
+        }
+        // atmosphere glow hugging the limb — only as we zoom out, tracking the curved ground screen Y.
+        var aA = 0.34 * Math.max(0, 1 - z);
+        if (aA > 0.01 && typeof camera !== 'undefined') {
+          // approximate ground screen Y at centre (where the bow is ~0): pivot-zoom of the tee elevation
+          var py = (RG._zoomPivot && RG._zoomPivot.y) || H * 0.82;
+          var gy = teeY();
+          var groundSY = py + z * (gy - ((camera.y) || 0) - py);
+          var atmo = ctx.createLinearGradient(0, groundSY - 150, 0, groundSY);
+          atmo.addColorStop(0, 'rgba(80,150,215,0)');
+          atmo.addColorStop(1, 'rgba(116,196,236,' + aA + ')');
+          ctx.fillStyle = atmo;
+          ctx.fillRect(0, groundSY - 150, W, 160);
+        }
+        ctx.restore();
       },
 
       // SCREEN-space HUD — the oscillating POWER BAR at address, and the yds-to-pin readout in flight.

@@ -103,6 +103,7 @@
     onRest: function () { var p = current(); return !!(p && p.hooks && p.hooks.onRest && p.hooks.onRest(p)); },
     frame:  function (ctx) { var p = current(); if (p && p.hooks && p.hooks.frame) p.hooks.frame(ctx, p); },
     frameScreen: function (ctx) { var p = current(); if (p && p.hooks && p.hooks.frameScreen) p.hooks.frameScreen(ctx, p); },   // SCREEN-space HUD (after the world transform) — e.g. the long-drive distance bar
+    drawSkyBehind: function (ctx) { var p = current(); if (p && p.hooks && p.hooks.drawSkyBehind) p.hooks.drawSkyBehind(ctx, p); },   // SCREEN-space sky drawn BEHIND the terrain — e.g. golf-orbit's deep-space starfield + limb glow
     force:  function () { var p = current(); if (p && p.hooks && p.hooks.force) p.hooks.force(p); },   // every physics substep (sim-consistent)
     collide: function () { var p = current(); return !!(p && p.hooks && p.hooks.collide && p.hooks.collide(p)); },   // SOLID-PLATFORM collision (circle vs AABB) — returns true if the ball rests on a platform top; runs alongside the base heightfield collide
     isGoalReached: function () { var p = current(); return (p && p.hooks && p.hooks.isGoalReached) ? p.hooks.isGoalReached(p) : undefined; },   // custom goal (finish ON a goal block); undefined = no planet goal → engine uses the base sunken-cup

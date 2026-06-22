@@ -228,6 +228,10 @@
         return;
       }
       if (baseSky) baseSky();
+      // Experimental-planet SKY treatment (atlas.js): a behind-the-world screen-space layer (e.g. the
+      // golf-orbit deep-space starfield + atmosphere limb glow) drawn over the base sky fill and BEHIND
+      // the terrain, so the planet occludes its own stars. Inert unless the live planet defines it.
+      if (window.RG_ATLAS && RG_ATLAS.drawSkyBehind) RG_ATLAS.drawSkyBehind(ctx);
       // Ambient sky treatments draw BEHIND the world (after the base sky fill, before drawWorld)
       // so horizon bands / the far body / strata never paint over the flag or an airborne ball.
       // Inert by default (ships OFF); guards inside RG_AMBIENT.draw skip fault/vault/crane/bot.

@@ -85,7 +85,9 @@ function drawFlag(cupData, surfaceYFn) {
 
   const cupW = cupData.cupRightX - cupData.cupLeftX;
   const poleWorldX = cupData.cupLeftX + cupW + 2;
-  const sy = surfaceYFn ? surfaceYFn(poleWorldX) : cupData.cupY;
+  let sy = surfaceYFn ? surfaceYFn(poleWorldX) : cupData.cupY;
+  // WORLD-CURVE (golf-orbit): bow the pole base onto the curved surface too (render-only). Inert by default.
+  if (typeof window !== 'undefined' && window.RG && window.RG._worldCurve && window.RG._curveWorldDY) sy += window.RG._curveWorldDY(poleWorldX);
 
   ctx.globalAlpha = opacity;
 
@@ -168,15 +170,25 @@ function drawObjects() {
 }
 
 function drawBall() {
-  // Draw ball in world coords (camera transform already applied)
+  // Draw ball in world coords (camera transform already applied).
+  // WORLD-CURVE (golf-orbit): add the SAME screen-bow offset the terrain uses so the ball stays glued
+  // to the curved surface (render-only — ball.x/ball.y physics are untouched). Inert in the base game.
+  const _by = ball.y + ((typeof window !== 'undefined' && window.RG && window.RG._worldCurve && window.RG._curveWorldDY) ? window.RG._curveWorldDY(ball.x) : 0);
+  // WORLD-CURVE (golf-orbit): when zoomed way OUT the ball would shrink to a sub-pixel speck. Grow its
+  // WORLD radius by ~1/zoom (capped) so it stays a visible dot on the planet (like the prototype's min
+  // radius). Render-only; gated on _worldCurve so the base game uses the plain BALL_RADIUS.
+  let _br = BALL_RADIUS;
+  if (typeof window !== 'undefined' && window.RG && window.RG._worldCurve && window.RG._zoom && window.RG._zoom < 1) {
+    _br = Math.min(BALL_RADIUS / window.RG._zoom, BALL_RADIUS * 3.4);   // keep ~visible, never balloon
+  }
   ctx.fillStyle = BALL_COLOR;
   ctx.beginPath();
-  ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
+  ctx.arc(ball.x, _by, _br, 0, Math.PI * 2);
   ctx.fill();
 
   // Draw 3 dots on the ball that rotate to show spin
   ctx.save();
-  ctx.translate(ball.x, ball.y);
+  ctx.translate(ball.x, _by);
   ctx.rotate(ball.rotation || 0);
   ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
   const dotR = 1;
