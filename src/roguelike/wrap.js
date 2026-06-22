@@ -240,6 +240,12 @@
       // terrain occludes it — was in drawHUD/_drawOverlays, which painted stars over high terrain
       // (a Descent mesa). Screen-space; identical on the surface where terrain is low. (run.js)
       if (window.RG && RG.active && RG._drawSkyStars) RG._drawSkyStars(ctx);
+      // PLANET-TRAVEL sky (the space crossing) draws BEHIND the world too — same fix as the stars above. It used
+      // to paint from _drawOverlays (after the world), so on take-off the stars covered the departing terrain.
+      if (window.RG && RG._travelSeq && RG._drawTravelSky) {
+        var _tp = (RG._descPhase === 'thold') ? 'hold' : (RG._descPhase === 'descend' ? 'descend' : 'rise');
+        RG._drawTravelSky(ctx, _tp, 0, true);
+      }
     },
     // During a secret pan, draw the surface band over the live (sunk) destination so their sand fills
     // meet into one continuous column — the "drilling through earth" reveal, no cover flash.

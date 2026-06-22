@@ -1598,7 +1598,11 @@
     // with a deep-space tint — so neither the sky colour nor the stars ever POP. Endpoints equal the
     // live game's _drawConstellations / _drawMoonSky exactly, so take-off and landing are seamless.
     // The tint is gated on `space` (0 at a planet's sky → 1 in the void) so it never covers terrain.
-    _drawTravelSky(ctx, phase, prog) {
+    _drawTravelSky(ctx, phase, prog, behind) {
+      // Draw ONLY from the sky layer (wrap.drawSky, behind the world). The legacy calls from _tickTravel (no
+      // `behind` arg) are now no-ops — they painted the stars OVER the departing terrain on take-off. The ball
+      // + HUD still draw foreground in _tickTravel; only the sky moved behind. (phase derived from _descPhase.)
+      if (!behind) return;
       if (!ctx) return;
       var T = this._travelSeq; if (!T) return;
       var cy = (typeof camera !== 'undefined') ? (camera.y || 0) : 0;
