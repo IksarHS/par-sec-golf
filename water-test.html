@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Height-field water test</title>
+  <style>html,body{margin:0;background:#11161c;overflow:hidden}</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+// ── HEIGHT-FIELD WATER PROTOTYPE ──────────────────────────────────────────────
+// The pond surface = a row of connected springs (heights h[] + velocities v[]). Each frame every column
+// is pulled toward rest and shares motion with its neighbours (the wave equation) → ripples propagate,
+// reflect off the banks, and settle. The ball splashes a dent into the surface + throws droplets, and the
+// droplets ripple again on landing. O(n)/frame, trivially 60fps. (vs our current flat fill + fake sine.)
+var cv = document.getElementById('c'), ctx = cv.getContext('2d'), W = 960, H = 540;
+var PX0 = 180, PX1 = 780, restY = 290, botY = 472;          // pond span + rest surface + floor
+var N = 170, dx = (PX1 - PX0) / (N - 1);
+var h = new Float32Array(N), v = new Float32Array(N);        // height offset from rest + velocity
+var ball, drops, frame;
+
+function reset() {
+  h.fill(0); v.fill(0);
+  ball = { x: 470, y: 150, vy: 6, r: 9, sunk: false, gone: false };
+  drops = []; frame = 0; draw();
+}
+
+function splash(cx, speed) {
+  speed = Math.min(speed, 16);
+  var idx = Math.round((cx - PX0) / dx);
+  for (var i = -5; i <= 5; i++) { var j = idx + i; if (j >= 1 && j < N - 1) v[j] -= speed * 0.55 * Math.exp(-i * i * 0.16); }
+  var n = Math.round(5 + speed * 0.9);
+  for (var d = 0; d < n; d++) {
+    var ang = -Math.PI / 2 + (Math.random() - 0.5) * 1.7;
+    var sp = 1.4 + Math.random() * speed * 0.55;
+    drops.push({ x: cx + (Math.random() - 0.5) * 18, y: restY - 3, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp * 1.3, life: 0, max: 22 + Math.random() * 16, sz: 1.5 + Math.random() * 2.2 });
+  }
+}
+
+function stepWater() {
+  var tension = 0.018, spread = 0.27, damping = 0.984;
+  for (var i = 0; i < N; i++) {
+    var l = i > 0 ? h[i - 1] : h[i], r = i < N - 1 ? h[i + 1] : h[i];
+    v[i] += (-tension * h[i]) + spread * ((l + r) * 0.5 - h[i]);
+    v[i] *= damping;
+  }
+  for (var i = 0; i < N; i++) h[i] += v[i];
+}
+
+function surfYAtX(x) { var idx = Math.max(0, Math.min(N - 1, Math.round((x - PX0) / dx))); return restY + h[idx]; }
+
+function step() {
+  frame++;
+  if (!ball.gone) {
+    if (!ball.sunk) {
+      ball.vy += 0.5; ball.y += ball.vy;
+      if (ball.y + ball.r >= restY) { splash(ball.x, ball.vy); ball.sunk = true; ball.vy *= 0.25; }
+    } else {
+      ball.vy = ball.vy * 0.8 + 0.35; ball.y += ball.vy;     // sink with drag
+      if (ball.y > botY - ball.r) { ball.y = botY - ball.r; ball.vy = 0; }
+      if (ball.y > restY + 40) ball.gone = true;             // out of sight under the surface
+    }
+  }
+  stepWater();
+  for (var i = drops.length - 1; i >= 0; i--) {
+    var p = drops[i]; p.life++; p.vy += 0.18; p.x += p.vx; p.y += p.vy;
+    if (p.vy > 0 && p.y >= surfYAtX(p.x)) {                  // landed → little ripple
+      var idx = Math.round((p.x - PX0) / dx); if (idx >= 1 && idx < N - 1) v[idx] -= 0.5;
+      drops.splice(i, 1); continue;
+    }
+    if (p.life > p.max) drops.splice(i, 1);
+  }
+  draw();
+}
+
+function draw() {
+  var g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#1a2230'); g.addColorStop(1, '#26303c');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#c9743f';                                 // sandy banks + floor
+  ctx.fillRect(0, restY, PX0, H); ctx.fillRect(PX1, restY, W - PX1, H); ctx.fillRect(0, botY, W, H - botY);
+  ctx.fillStyle = '#d88f55';                                 // bank top lip
+  ctx.fillRect(0, restY, PX0, 4); ctx.fillRect(PX1, restY, W - PX1, 4);
+  // water body — trace the rippling surface, then down to the floor
+  ctx.fillStyle = '#3a7ec8'; ctx.beginPath(); ctx.moveTo(PX0, restY + h[0]);
+  for (var i = 1; i < N; i++) ctx.lineTo(PX0 + i * dx, restY + h[i]);
+  ctx.lineTo(PX1, botY); ctx.lineTo(PX0, botY); ctx.closePath(); ctx.fill();
+  // a touch of depth shading toward the floor
+  var wg = ctx.createLinearGradient(0, restY, 0, botY); wg.addColorStop(0, 'rgba(90,148,216,0.0)'); wg.addColorStop(1, 'rgba(20,45,75,0.55)');
+  ctx.fillStyle = wg; ctx.beginPath(); ctx.moveTo(PX0, restY + h[0]);
+  for (var i = 1; i < N; i++) ctx.lineTo(PX0 + i * dx, restY + h[i]);
+  ctx.lineTo(PX1, botY); ctx.lineTo(PX0, botY); ctx.closePath(); ctx.fill();
+  // surface highlight line
+  ctx.strokeStyle = 'rgba(205,238,252,0.55)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(PX0, restY + h[0]);
+  for (var i = 1; i < N; i++) ctx.lineTo(PX0 + i * dx, restY + h[i]); ctx.stroke();
+  // droplets
+  for (var i = 0; i < drops.length; i++) { var p = drops[i]; ctx.globalAlpha = Math.max(0, 1 - p.life / p.max) * 0.92; ctx.fillStyle = '#9bd4f2'; ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
+  ctx.globalAlpha = 1;
+  // ball (white, 3 dimples) — only while above/at the surface
+  if (!ball.gone) {
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    for (var a = 0; a < 3; a++) { ctx.beginPath(); ctx.arc(ball.x + Math.cos(a * 2.094) * ball.r * 0.42, ball.y + Math.sin(a * 2.094) * ball.r * 0.42, ball.r * 0.22, 0, 6.2832); ctx.fill(); }
+  }
+}
+
+window.__step = step; window.__reset = reset; window.__frame = function () { return frame; };
+// live demo: auto-loop (drops a new ball every few seconds) + CLICK the water to splash it yourself.
+var auto = true; window.__setAuto = function (a) { auto = a; };
+var idle = 0;
+(function loop() {
+  if (auto) { step(); if (ball.gone) { if (++idle > 70) { ball = { x: 220 + Math.random() * 520, y: 110, vy: 6, r: 9, sunk: false, gone: false }; idle = 0; } } }
+  requestAnimationFrame(loop);
+})();
+cv.addEventListener('click', function (e) { var r = cv.getBoundingClientRect(); var x = (e.clientX - r.left) * (cv.width / r.width); if (x > PX0 && x < PX1) splash(x, 11); });
+reset();
+</script>
+</body>
+</html>
