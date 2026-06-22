@@ -22,14 +22,14 @@ var TARGET = 12000;          // yards to the pin (no hole drawn — just the rea
 var GRAV = 1500, DRAG = 0.16, REST = 0.50, ROLLF = 0.82;
 var LAUNCH_DEG = 26, VBASE = 1900, VPOW = 2700;
 var GY = H * 0.80;           // screen Y of the planet surface at screen-centre
-var GCURVE = 0.00034;        // earth curvature (screen-space)
+var GCURVE = 0.00060;        // planet curvature BASE — scaled by zoom so it's ~flat zoomed in (reads as a normal hole) and curved zoomed out (planet)
 
 var ball, state, pm, pmDir, sweetLo, sweetHi, view, trail, hills, coins, doneT, lastPerfect, frame;
 
 function reset() {
   ball = { x: 0, y: 0, vx: 0, vy: 0, moving: false, bounces: 0 };
   state = 'aim'; pm = 0; pmDir = 1; sweetLo = 0.74; sweetHi = 0.88;
-  view = { zoom: 0.27, ox: 0 }; trail = []; doneT = 0; lastPerfect = false; frame = 0;
+  view = { zoom: 0.9, ox: 0, curve: 0 }; trail = []; doneT = 0; lastPerfect = false; frame = 0;
   hills = []; for (var i = 0; i < 90; i++) hills.push({ x: i * 240 + (i * 137 % 110), w: 60 + (i * 53 % 80), h: 12 + (i * 31 % 22), t: (i % 3 === 0) });
   coins = []; for (var i = 1; i < 30; i++) coins.push({ x: i * 300, y: 700 + Math.sin(i * 0.7) * 520 });
   updateView(); draw();
@@ -51,8 +51,10 @@ function updateView() {
   var target = (state === 'aim') ? 0.92 : Math.max(0.14, Math.min(0.92, (GY - 46) / (ball.y + 430)));
   view.zoom += (target - view.zoom) * 0.09;          // smooth, both on the way out AND back in
   view.ox = BALLSX - ball.x * view.zoom;             // follow the ball horizontally
+  view.curve = GCURVE * Math.pow(Math.max(0, 1 - view.zoom), 1.4);   // ~flat zoomed in (normal hole), curved zoomed out (planet)
 }
-function groundScreenY(sx) { var dx = sx - W / 2; return GY + GCURVE * dx * dx; }
+function groundWorldY(wx) { return 34 * Math.sin(wx * 0.0075) + 17 * Math.sin(wx * 0.019 + 1.3) + 9 * Math.sin(wx * 0.043 + 0.7); }   // gentle rolling terrain (yds): reads as a normal hole up close, vanishes at planet scale
+function groundScreenY(sx) { var dx = sx - W / 2, wx = (sx - view.ox) / view.zoom; return GY + view.curve * dx * dx - groundWorldY(wx) * view.zoom; }
 function wToS(wx, wy) { var sx = view.ox + wx * view.zoom; return { x: sx, y: groundScreenY(sx) - wy * view.zoom }; }
 
 function step() {
@@ -80,7 +82,8 @@ function draw() {
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   for (var i = 0; i < 72; i++) { var sx = (i * 197) % W, sy = (i * 119) % H, b = (i % 7 === 0) ? 2 : 1; ctx.fillStyle = (i % 5 === 0) ? 'rgba(190,210,255,0.85)' : 'rgba(255,255,255,0.45)'; ctx.fillRect(sx, sy, b, b); }
   // atmosphere glow hugging the limb
-  var atmo = ctx.createLinearGradient(0, GY - 120, 0, GY); atmo.addColorStop(0, 'rgba(80,150,215,0)'); atmo.addColorStop(1, 'rgba(116,196,236,0.42)');
+  var aA = 0.42 * Math.max(0, 1 - z);                          // atmosphere only emerges as we zoom out (hidden at address)
+  var atmo = ctx.createLinearGradient(0, GY - 120, 0, GY); atmo.addColorStop(0, 'rgba(80,150,215,0)'); atmo.addColorStop(1, 'rgba(116,196,236,' + aA + ')');
   ctx.fillStyle = atmo; ctx.beginPath(); ctx.moveTo(0, groundScreenY(0)); for (var sx = 0; sx <= W; sx += 6) ctx.lineTo(sx, groundScreenY(sx)); for (var sx = W; sx >= 0; sx -= 6) ctx.lineTo(sx, groundScreenY(sx) - 120); ctx.closePath(); ctx.fill();
   // curved planet (our flat earth-green)
   function gpath(off) { ctx.beginPath(); ctx.moveTo(0, groundScreenY(0) + off); for (var sx = 0; sx <= W; sx += 6) ctx.lineTo(sx, groundScreenY(sx) + off); ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); }
@@ -93,8 +96,8 @@ function draw() {
     if (hl.t) { var th = (26 + hl.h) * z; if (th < 2) continue; ctx.fillStyle = '#2f7d34'; ctx.beginPath(); ctx.moveTo(s.x - 7 * z - 1, s.y); ctx.lineTo(s.x, s.y - th); ctx.lineTo(s.x + 7 * z + 1, s.y); ctx.closePath(); ctx.fill(); }
     else { ctx.fillStyle = '#4ea23f'; ctx.beginPath(); ctx.ellipse(s.x, s.y, Math.max(2, hl.w * z), Math.max(1.5, hl.h * z), 0, Math.PI, 0); ctx.fill(); }
   }
-  // coins along the arc
-  for (var i = 0; i < coins.length; i++) { var s = wToS(coins[i].x, coins[i].y); if (s.x < -10 || s.x > W + 10) continue; var cr = Math.max(2, 34 * z); ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.arc(s.x, s.y, cr, 0, 6.2832); ctx.fill(); }
+  // coins along the arc — hidden at address so a Golf Orbit hole reads as a normal hole until you launch
+  if (state === 'fly') for (var i = 0; i < coins.length; i++) { var s = wToS(coins[i].x, coins[i].y); if (s.x < -10 || s.x > W + 10) continue; var cr = Math.max(2, 34 * z); ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.arc(s.x, s.y, cr, 0, 6.2832); ctx.fill(); }
   // trail
   if (trail.length > 1) { ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 2.5; ctx.beginPath(); for (var i = 0; i < trail.length; i++) { var s = wToS(trail[i].x, trail[i].y); if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y); } ctx.stroke(); }
   // ball (min size so it stays a visible fast dot when zoomed way out)
