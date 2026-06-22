@@ -139,8 +139,11 @@
   function restore() { if (!ED.snap) return; if (typeof currentHole !== 'undefined') currentHole = ED.holeIdx; vertices = ED.snap.verts.map(function (v) { return Object.assign({}, v); }); var h = holes[ED.holeIdx], s = ED.snap.hole; for (var k in s) h[k] = s[k]; }   // NO sort → keep the free-form floor
 
   function setMode(m) {
-    if (m === 'play') { snapshot(); buildPlayable(); setTexture(true); window.aiEnabled = false; if (typeof currentHole !== 'undefined') currentHole = ED.holeIdx; parkBall(); }
-    else { restore(); setTexture(false); window.aiEnabled = false; parkBall(); }   // flat render in edit → folds render cleanly
+    // Play = a PREVIEW with the ball, NOT a transform. Do NOT sort/flatten (that scrambles a polygon-outline
+    // hole into spikes) and do NOT enable the strata texture (it tints the flat design orange). The ball plays
+    // best-effort on the design as-drawn; true caves/overhangs aren't roll-physics yet. Stays flat + correct.
+    if (m === 'play') { snapshot(); setTexture(false); window.aiEnabled = false; if (typeof currentHole !== 'undefined') currentHole = ED.holeIdx; parkBall(); }
+    else { restore(); setTexture(false); window.aiEnabled = false; parkBall(); }
     ED.mode = m; syncTool();
   }
 
