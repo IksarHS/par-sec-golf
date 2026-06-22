@@ -124,3 +124,48 @@ node tools/verify.cjs titan geom 103947                        # dump a seed's g
 `dc85104` ?course underscore fix · `2da20de` Barnard's Star system · `0304c08` TRAPPIST-1 system + 20 archetypes ·
 `3e1d7ea` Phase-A variance (wider pools, overhangs, Earth simple) · earlier: water modifier, cup-anywhere,
 set-pieces, the Earth→Pluto solar tour.
+
+---
+
+## SESSION 2 (2026-06-21) — rendering/transition fixes + a debug toolkit
+
+A long bug-fix/polish pass on how the game *looks and transitions* (the generator/completability from session 1
+is untouched — harness re-confirmed **40/40** on the affected courses after all of the below).
+
+**Bugs found + fixed (all committed):**
+1. **Terrain "pop" on hole transition (the big one).** `drawTexturedTerrain` anchored its rock-strata bands to
+   the *visible-window* min-y and recomputed it **every terrain regen** — and a hole-to-hole transition
+   regenerates terrain, so the surface↔deep colour boundary shifted and the world recoloured each transition
+   (e.g. earth's brown subsoil flashing to green). Fix: anchor **per-course** (`_strataTopY`/`_strataCourse` in
+   `src/modes/desert-golfing.js`), recomputed only on a planet change. Verified by autoplaying earth+mars with a
+   per-vertex mass-recolour watch → **0 mass recolours**.
+2. **Luna hole-2 "all sky".** The seamless planet-travel arrival (`_travelSwap`/`_tickTravel` in
+   `src/roguelike/run.js`) sank the destination world ~162px and parked the camera at `CEND` to match, never
+   undoing it; the next hole-to-hole reset of `camera.y→0` then orphaned the sunk world off-screen. Fix: the
+   descend now lands directly in the natural play frame (`CEND = natCY`, no world-sink) — seamless, no pop.
+3. **Water sat ON TOP of the terrain** instead of filling the basin (`src/water.js`): the pool filled from the
+   surface straight down past the screen. Now each wet run fills down to the **terrain floor** (conforms to the
+   basin). Also replaced the big settle-slosh-on-reveal with a **calm continuous ripple** + softened the entry
+   splash. (Tidewell water is intentionally copper — reads brown but is correct.)
+4. **Stars drew over terrain on take-off** — the travel space-sky painted from `_drawOverlays` (after the
+   world). `_drawTravelSky` now only draws from `wrap.drawSky` (behind the world); ball/HUD stay foreground.
+5. **Camera-move shimmer** — `applyCameraTransform` translated by a fractional `camera.x` under a fractional
+   `displayScale` → sub-pixel crawl of terrain + sand-grain. Now **pixel-snapped** to whole device pixels.
+
+**⚠️ NEEDS BROWSER VERIFICATION** (user was away from PC): #3 water-calm, #4 stars-behind, #5 camera-snap are
+visual and were validated only by logic/headless — confirm in a real browser. **#5 may need backing out** if a
+slow pan reads steppy instead of smoother.
+
+**Debug toolkit added (`src/cam-debug.js`, gated on `?dbg`):** top-right overlay — hole TYPE+complexity, FPS +
+frame-drop capture, a transition EVENT LOG, and a **mass-recolour watch** (persistent vertex ids; flags only a
+real strata pop, ignores lone grain/sky-edge flickers). Keys: **G** cycle modes (stats / +numbered vertices /
+off), **N** drop ball in cup (natural sink → real transition; fast way to reach a transition), **M** jump to next
+star system. Lab (`&full` → DEV CHEATS, `src/roguelike/lab.js`): hole-type **tour** (cycle all 70 archetypes via
+`setArchetypeOverride`/`ARCHETYPE_NAMES`), **"⛰ Terrain-pop test hole"** (the `strata_test` worst-case fixture),
+**"⟳ Stress: auto-cycle transitions"**. Autoplay now HOLDS the "TRAVEL TO X" screen ~1.1s then auto-clicks (so
+it conveys the planet-to-planet journey instead of skipping it).
+
+**Testing methodology that worked:** for a visual bug, build a fixture that exaggerates it (`strata_test`) and an
+automated watch (per-vertex colour by stable id; mass-recolour = the real-pop signature), then autoplay courses
+headlessly (`aiUpdate+update+draw` in a loop, sampling via `getImageData`) and inspect — rather than hunting in
+the wild. Open: **difficulty feedback** (user has notes to share).
