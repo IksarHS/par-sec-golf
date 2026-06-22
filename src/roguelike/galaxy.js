@@ -16,7 +16,7 @@
 // off and that planet is gone. Data planets live inline below. Hooks fire ONLY while their planet's
 // course is the live one, so they are self-isolating.
 (function () {
-  if (typeof location === 'undefined' || !/[?&](galaxy|atlas|course=)/i.test(location.search)) return;
+  if (typeof location === 'undefined' || !/[?&](galaxy|atlas|course=|watersim)/i.test(location.search)) return;
 
   // ── material helper: a physics identity layered on a base material (Moon-regolith pattern) ──
   function defMat(name, base, over) {
@@ -172,6 +172,9 @@
   // ?galaxy=N (1-based) or ?course=<id> pick the start planet (resolved at boot, after system files register).
   var aborted = false;
   function resolveStart() {
+    // ?watersim is its OWN flag (atlas-watersim.js autostarts the 'watersim' course); don't auto-boot a
+    // galaxy planet under it — RG_ATLAS is still defined (so its hooks work), we just don't pick a start.
+    if (/[?&]watersim\b/i.test(location.search) && !/[?&](galaxy|atlas|course=)/i.test(location.search)) { aborted = true; return; }
     var qN = /[?&]galaxy=(\d+)/i.exec(location.search);
     if (qN) idx = Math.max(0, Math.min(PLANETS.length - 1, (parseInt(qN[1], 10) || 1) - 1));
     var qC = /[?&]course=([a-z0-9-]+)/i.exec(location.search);
