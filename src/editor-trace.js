@@ -24,7 +24,7 @@
       mask[j] = (Math.abs(px[j * 4] - sr) + Math.abs(px[j * 4 + 1] - sg) + Math.abs(px[j * 4 + 2] - sb) > 60) ? 1 : 0;
     }
     keepLargest(mask, TW, TH);
-    var contour = mooreTrace(mask, TW, TH);
+    var contour = topEdgeTrace(mask, TW, TH);                           // the playable SURFACE (one height per x) — heightfield, not a polygon outline
     if (contour.length < 4) return null;
     var simp = douglasPeucker(contour, tol * pathLen(contour));
     var scx = 960 / TW, scy = 540 / TH;
@@ -53,24 +53,14 @@
     for (var i = 0; i < N; i++) mask[i] = (lab[i] === best) ? 1 : 0;
   }
 
-  // Moore-neighbor boundary tracing (clockwise) with a back-to-start stop.
-  function mooreTrace(mask, W, H) {
-    var start = -1; for (var i = 0; i < W * H; i++) if (mask[i]) { start = i; break; }
-    if (start < 0) return [];
-    var sx = start % W, sy = (start / W) | 0;
-    var D = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];   // CW from East
-    function solid(x, y) { return x >= 0 && x < W && y >= 0 && y < H && mask[y * W + x] === 1; }
-    var contour = [[sx, sy]], cx = sx, cy = sy, bx = sx - 1, by = sy;     // backtrack = west of start (bg)
-    var guard = 0, MAX = W * H * 8;
-    do {
-      var di = 0, ddx = bx - cx, ddy = by - cy;
-      for (var d = 0; d < 8; d++) if (D[d][0] === ddx && D[d][1] === ddy) { di = d; break; }
-      var nx = cx, ny = cy, got = false;
-      for (var s = 1; s <= 8; s++) { var ni = (di + s) % 8; nx = cx + D[ni][0]; ny = cy + D[ni][1]; if (solid(nx, ny)) { got = true; break; } bx = nx; by = ny; }
-      if (!got) break;
-      cx = nx; cy = ny; contour.push([cx, cy]); guard++;
-    } while ((cx !== sx || cy !== sy) && guard < MAX);
-    return contour;
+  // top-edge SURFACE trace: the topmost terrain pixel per column → a heightfield (one height per x). Gives a
+  // clean, PLAYABLE surface (the cup's sink physics needs this) instead of a folded polygon outline.
+  function topEdgeTrace(mask, W, H) {
+    var pts = [];
+    for (var x = 0; x < W; x++) {
+      for (var y = 0; y < H; y++) if (mask[y * W + x] === 1) { pts.push([x, y]); break; }
+    }
+    return pts;
   }
 
   function pathLen(c) { var L = 0; for (var i = 1; i < c.length; i++) L += Math.hypot(c[i][0] - c[i - 1][0], c[i][1] - c[i - 1][1]); return L; }

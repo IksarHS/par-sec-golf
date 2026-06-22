@@ -31,11 +31,9 @@
   }
   // EDIT mode: the cup is just a MARKER (no floor notch) — so it can never flatten the folds you make. The
   // real playable notch is carved only on "Play this hole" (notchCup, on a flattened floor).
-  function setCup(x, y) {
-    var h = holes[ED.holeIdx]; if (!h) return;
-    vertices = vertices.filter(function (v) { return !v._cup; });
-    ED.cupX = x; ED.cupY = (y != null ? y : (typeof terrainYAt === 'function' ? terrainYAt(x) : H_() * 0.5));
-    h.cupX = ED.cupX; h.cupY = ED.cupY; h.flagVisible = true; h.flagOpacity = 1;
+  function setCup(x) {
+    var cx = Math.round(x); notchCup(cx);               // place a REAL cup HOLE — carve the notch + set sink geometry (was a flag-only marker)
+    var h = holes[ED.holeIdx]; ED.cupX = cx; ED.cupY = h ? h.cupY : 0;
   }
   // PLAY: carve a real cup notch (placeCup-style) on the (already flattened) floor.
   function notchCup(cupX) {
@@ -45,8 +43,9 @@
     vertices = vertices.filter(function (v) { return !v._cup; });
     var rimY = (terrainYAt(leftX) + terrainYAt(rightX)) / 2, bottomY = rimY + depth, wallInset = 3;
     vertices = vertices.filter(function (v) { return v.x < leftX - flatMargin || v.x > rightX + flatMargin; });
+    var _cm = defMat();   // cup notch verts take the terrain material so the hole doesn't render as an off-colour column
     [[leftX - flatMargin, rimY], [leftX, rimY], [leftX + wallInset, bottomY], [rightX - wallInset, bottomY], [rightX, rimY], [rightX + flatMargin, rimY]]
-      .forEach(function (p) { vertices.push({ x: p[0], y: p[1], _cup: 1 }); });
+      .forEach(function (p) { vertices.push({ x: p[0], y: p[1], _cup: 1, mat: _cm }); });
     sortV();
     h.cupX = cupX; h.cupY = rimY; h.cupLeftX = leftX; h.cupLeftY = rimY; h.cupRightX = rightX; h.cupRightY = rimY;
     h.cupBottomY = bottomY; h.cupWallInset = wallInset; h.cupFilled = false; h.cupFillProgress = 0; h.flagVisible = true; h.flagOpacity = 1;
