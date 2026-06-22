@@ -156,11 +156,17 @@
      generated heightfield is pushed FAR BELOW (only an OOB floor); all real collision is the authored 2D
      geometry via the inert RG_ATLAS.collide / camera / isOOB / frame hooks. Peel the file + this tag → gone. -->
 <script src="src/roguelike/atlas-puzzle-mode.js"></script>
+<!-- ?showcase: GENERATOR SHOWCASE — a clean dev curation tool to browse the TYPES of holes the terrain
+     generator can build (complexity / terrain-type / hole-type + new-seed). Reuses the engine's generator
+     + render. Inert without ?showcase (the base game is byte-identical). Peel the file + this tag → gone. -->
+<script src="src/showcase.js"></script>
 <script src="src/main.js"></script>
 <!-- Dev shortcut: jump straight to a BASE course (the Moon tiers) for testing. ?course= is otherwise
-     intercepted by the atlas selector (galaxy.js), so this overrides it once RG is ready. -->
+     intercepted by the atlas selector (galaxy.js), so this overrides it once RG is ready.
+     SKIPPED under ?showcase — the showcase owns the course (its own dynamic 'showcase' course). -->
 <script>
 (function () {
+  if (/[?&]showcase\b/.test(location.search)) return;   // showcase mode drives its own course; don't autostart Earth
   var m = /[?&](?:course|gomoon)=([a-z0-9_-]+)/i.exec(location.search);
   var v = m ? m[1].toLowerCase() : 'earth';   // no ?course -> default to the 3-system tour start (Earth), not the engine's Front Nine
   var alias = { '1': 'moon', '2': 'moon2', '3': 'moon3' };
