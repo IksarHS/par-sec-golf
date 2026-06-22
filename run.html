@@ -144,6 +144,11 @@
      (circle-vs-AABB) for overhangs / floating platforms / gaps a heightfield can't do. Adds one inert
      hook (RG_ATLAS.collide, dispatched from wrap.js). Peel it off → the hook goes inert, base unchanged. -->
 <script src="src/roguelike/atlas-blocks.js"></script>
+<!-- Golf Orbit (?course=golf-orbit) — the MEGA-DRIVE: at address it reads as a normal hole (only tell is a
+     power bar); SLAM it and the ball screams thousands of yds on a flat arc, the camera zooms OUT to keep
+     the arc framed then back IN on descent, and the ball bounds forward before settling. Built on the inert
+     RG._meterFire / RG._zoom / RG._holeDistCap / RG._clampYBand hooks. Peel the file + this tag → gone. -->
+<script src="src/roguelike/atlas-golf-orbit.js"></script>
 <script src="src/roguelike/atlas-objects.js"></script>
 <script src="src/roguelike/atlas-setpieces.js"></script>
 <script src="src/main.js"></script>
