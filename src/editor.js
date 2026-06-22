@@ -21,21 +21,43 @@
   function editVerts() { var a = []; for (var i = 0; i < vertices.length; i++) { var v = vertices[i]; if (v && !v._cup) a.push(v); } return a; }
   function sortV() { vertices.sort(function (a, b) { return a.x - b.x; }); }
 
-  // (re)build the physical cup at cupX, updating holes[holeIdx] IN PLACE (placeCup PUSHES a hole; we can't).
-  // Mirrors placeCup: flat rim sampled from the current terrain + a vertical-walled notch, tagged _cup.
-  function setCup(cupX) {
+  function setTexture(on) { try { TERRAIN_TEXTURE_ON = on; } catch (e) {} }   // edit=flat(fold-safe), play=textured
+  // point-to-segment distance (canvas px) — for inserting a vertex on the nearest EDGE (no x-order needed).
+  function distToSeg(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+    if (l2 === 0) return Math.hypot(px - ax, py - ay);
+    var t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  }
+  // EDIT mode: the cup is just a MARKER (no floor notch) — so it can never flatten the folds you make. The
+  // real playable notch is carved only on "Play this hole" (notchCup, on a flattened floor).
+  function setCup(x, y) {
+    var h = holes[ED.holeIdx]; if (!h) return;
+    vertices = vertices.filter(function (v) { return !v._cup; });
+    ED.cupX = x; ED.cupY = (y != null ? y : (typeof terrainYAt === 'function' ? terrainYAt(x) : H_() * 0.5));
+    h.cupX = ED.cupX; h.cupY = ED.cupY; h.flagVisible = true; h.flagOpacity = 1;
+  }
+  // PLAY: carve a real cup notch (placeCup-style) on the (already flattened) floor.
+  function notchCup(cupX) {
     var h = holes[ED.holeIdx]; if (!h) return;
     var halfW = (typeof CUP_WIDTH !== 'undefined' ? CUP_WIDTH : 30) / 2, depth = (typeof CUP_DEPTH !== 'undefined' ? CUP_DEPTH : 28);
     var leftX = cupX - halfW, rightX = cupX + halfW, flatMargin = 20;
-    vertices = vertices.filter(function (v) { return !v._cup; });                       // drop the old notch first
-    var rimY = (terrainYAt(leftX) + terrainYAt(rightX)) / 2;                             // flat rim from current terrain
-    var bottomY = rimY + depth, wallInset = 3;
+    vertices = vertices.filter(function (v) { return !v._cup; });
+    var rimY = (terrainYAt(leftX) + terrainYAt(rightX)) / 2, bottomY = rimY + depth, wallInset = 3;
     vertices = vertices.filter(function (v) { return v.x < leftX - flatMargin || v.x > rightX + flatMargin; });
     [[leftX - flatMargin, rimY], [leftX, rimY], [leftX + wallInset, bottomY], [rightX - wallInset, bottomY], [rightX, rimY], [rightX + flatMargin, rimY]]
       .forEach(function (p) { vertices.push({ x: p[0], y: p[1], _cup: 1 }); });
     sortV();
     h.cupX = cupX; h.cupY = rimY; h.cupLeftX = leftX; h.cupLeftY = rimY; h.cupRightX = rightX; h.cupRightY = rimY;
     h.cupBottomY = bottomY; h.cupWallInset = wallInset; h.cupFilled = false; h.cupFillProgress = 0; h.flagVisible = true; h.flagOpacity = 1;
+  }
+  // PLAY: flatten the free-form (possibly folded) floor to a heightfield + carve the cup. Folds flatten here
+  // (best-effort) — the ball can't roll a true overhang yet; the DESIGN keeps its folds via the snapshot.
+  function buildPlayable() {
+    var fv = vertices.filter(function (v) { return !v._cup; }).map(function (v) { return { x: v.x, y: v.y, mat: v.mat }; });
+    fv.sort(function (a, b) { return a.x - b.x; });
+    vertices = fv;
+    notchCup(ED.cupX != null ? ED.cupX : (fv.length ? fv[fv.length - 1].x - 60 : 700));
   }
 
   function parkBall() {
@@ -82,15 +104,22 @@
     if (!ED.on || ED.mode !== 'edit') return;                         // play mode → the game gets the mouse
     var c = evCanvas(e), w = s2w(c.x, c.y);
     if (ED.tool === 'drag') { var v = hitVert(c.x, c.y); if (v) ED.drag = v; }
-    else if (ED.tool === 'add') { var nv = { x: Math.round(w.x), y: Math.round(w.y), mat: defMat() }; vertices.push(nv); sortV(); ED.drag = nv; ED.tool = 'drag'; syncTool(); }
+    else if (ED.tool === 'add') {                                     // insert on the nearest EDGE (vertex order; folds preserved, no x-sort)
+      var fl = []; for (var fi = 0; fi < vertices.length; fi++) if (!vertices[fi]._cup) fl.push(fi);
+      var bestK = -1, bd = 1e9;
+      for (var k = 0; k < fl.length - 1; k++) { var a = vertices[fl[k]], b = vertices[fl[k + 1]]; var d = distToSeg(c.x, c.y, w2sx(a.x), w2sy(a.y), w2sx(b.x), w2sy(b.y)); if (d < bd) { bd = d; bestK = k; } }
+      var nv = { x: Math.round(w.x), y: Math.round(w.y), mat: defMat() };
+      if (bestK >= 0) vertices.splice(fl[bestK] + 1, 0, nv); else vertices.push(nv);
+      ED.drag = nv; ED.tool = 'drag'; syncTool();
+    }
     else if (ED.tool === 'del') { var dv = hitVert(c.x, c.y); if (dv) { var ix = vertices.indexOf(dv); if (ix >= 0) vertices.splice(ix, 1); } }
-    else if (ED.tool === 'cup') { setCup(Math.round(w.x)); }
+    else if (ED.tool === 'cup') { setCup(Math.round(w.x), Math.round(w.y)); }
     e.stopPropagation(); e.preventDefault();
   }
   function onMove(e) {
     if (!ED.on || ED.mode !== 'edit' || !ED.drag) return;
     var c = evCanvas(e), w = s2w(c.x, c.y);
-    ED.drag.x = Math.round(w.x); ED.drag.y = Math.max(20, Math.min(H_() - 20, Math.round(w.y))); sortV();
+    ED.drag.x = Math.round(w.x); ED.drag.y = Math.max(20, Math.min(H_() - 20, Math.round(w.y)));   // NO sort → drag past a neighbour = fold
     e.stopPropagation();
   }
   function onUp(e) { if (ED.drag && ED.mode === 'edit') { ED.drag = null; e.stopPropagation(); } else { ED.drag = null; } }
@@ -106,11 +135,11 @@
   }
 
   function snapshot() { ED.snap = { verts: vertices.map(function (v) { return Object.assign({}, v); }), hole: Object.assign({}, holes[ED.holeIdx]) }; }
-  function restore() { if (!ED.snap) return; if (typeof currentHole !== 'undefined') currentHole = ED.holeIdx; vertices = ED.snap.verts.map(function (v) { return Object.assign({}, v); }); var h = holes[ED.holeIdx], s = ED.snap.hole; for (var k in s) h[k] = s[k]; sortV(); }
+  function restore() { if (!ED.snap) return; if (typeof currentHole !== 'undefined') currentHole = ED.holeIdx; vertices = ED.snap.verts.map(function (v) { return Object.assign({}, v); }); var h = holes[ED.holeIdx], s = ED.snap.hole; for (var k in s) h[k] = s[k]; }   // NO sort → keep the free-form floor
 
   function setMode(m) {
-    if (m === 'play') { snapshot(); window.aiEnabled = false; if (typeof currentHole !== 'undefined') currentHole = ED.holeIdx; parkBall(); }
-    else { restore(); window.aiEnabled = false; parkBall(); }
+    if (m === 'play') { snapshot(); buildPlayable(); setTexture(true); window.aiEnabled = false; if (typeof currentHole !== 'undefined') currentHole = ED.holeIdx; parkBall(); }
+    else { restore(); setTexture(false); window.aiEnabled = false; parkBall(); }   // flat render in edit → folds render cleanly
     ED.mode = m; syncTool();
   }
 
@@ -135,7 +164,7 @@
   function init() {
     if (!(window.RG && RG.active && typeof vertices !== 'undefined' && typeof holes !== 'undefined' && holes.length && typeof canvas !== 'undefined' && typeof draw !== 'undefined')) { return setTimeout(init, 120); }
     ED.on = true; ED.holeIdx = (typeof currentHole !== 'undefined') ? currentHole : 0;
-    window.aiEnabled = false;
+    window.aiEnabled = false; setTexture(false);   // edit mode = flat render (fold-safe)
     baseline(); buildToolbar(); patchDraw();
     // exposed API (programmatic build + v2 round-trip LOAD of an exported design)
     ED.setCup = setCup; ED.parkBall = parkBall; ED.baseline = baseline;
