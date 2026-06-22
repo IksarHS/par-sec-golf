@@ -97,22 +97,30 @@ function drawWater() {
     const tv = [{ x: w.x0, y: terrainYAt(w.x0) }];
     for (let k = 0; k < vertices.length; k++) { const v = vertices[k]; if (v.x > w.x0 && v.x < w.x1) tv.push({ x: v.x, y: v.y }); }
     tv.push({ x: w.x1, y: terrainYAt(w.x1) });
-    let a0 = null, b0 = null;
-    const fill = () => {
-      if (a0 == null) return;
-      ctx.beginPath(); ctx.moveTo(a0, topY(a0));
-      if (amp >= 0.05) for (let x = a0 + 4; x < b0; x += 4) ctx.lineTo(x, topY(x));   // rippling surface
-      ctx.lineTo(b0, topY(b0));
-      ctx.lineTo(b0, botY); ctx.lineTo(a0, botY);                                     // straight down → deep
-      ctx.closePath(); ctx.fill(); a0 = null;
+    // CONFORM TO THE BASIN: each wet run fills from the water surface (top) DOWN TO THE TERRAIN FLOOR (bottom),
+    // so the pool SETTLES into the basin instead of dropping straight past the screen and covering the walls
+    // (the old "deep-sea, no floor" look read as water sitting ON TOP of a V). A genuinely deep basin still reads
+    // deep — its floor is simply off-screen, so the fill (and the surface→deep gradient) still runs past the view.
+    let run = [];                                          // terrain points of the current submerged run (+ sY crossings)
+    const flush = () => {
+      if (run.length < 2) { run = []; return; }
+      const rx0 = run[0].x, rx1 = run[run.length - 1].x;
+      ctx.beginPath();
+      ctx.moveTo(rx0, topY(rx0));
+      if (amp >= 0.05) for (let x = rx0 + 4; x < rx1; x += 4) ctx.lineTo(x, topY(x));   // rippling surface (top)
+      ctx.lineTo(rx1, topY(rx1));
+      for (let k = run.length - 1; k >= 0; k--) ctx.lineTo(run[k].x, run[k].y);          // trace the terrain floor back (bottom)
+      ctx.closePath(); ctx.fill();
+      run = [];
     };
     for (let i = 0; i < tv.length - 1; i++) {
       const a = tv[i], b = tv[i + 1], aB = a.y > sY, bB = b.y > sY;
-      if (aB && bB) { if (a0 == null) a0 = a.x; b0 = b.x; }
-      else if (aB && !bB) { if (a0 == null) a0 = a.x; b0 = a.x + (b.x - a.x) * ((sY - a.y) / (b.y - a.y)); fill(); }
-      else if (!aB && bB) { a0 = a.x + (b.x - a.x) * ((sY - a.y) / (b.y - a.y)); b0 = b.x; }
+      const cross = () => a.x + (b.x - a.x) * ((sY - a.y) / (b.y - a.y));               // x where terrain meets the waterline
+      if (aB && bB) { if (!run.length) run.push({ x: a.x, y: a.y }); run.push({ x: b.x, y: b.y }); }
+      else if (aB && !bB) { if (!run.length) run.push({ x: a.x, y: a.y }); run.push({ x: cross(), y: sY }); flush(); }
+      else if (!aB && bB) { run = [{ x: cross(), y: sY }, { x: b.x, y: b.y }]; }
     }
-    fill();
+    flush();
     // surface highlight line
     ctx.strokeStyle = 'rgba(205,238,252,0.5)'; ctx.lineWidth = 2; ctx.beginPath();
     let pen = false;
