@@ -130,7 +130,8 @@
     var data = { course: (typeof RG !== 'undefined' && RG.course) || 'earth', tee: { x: Math.round(h.teeX), y: Math.round(terrainYAt(h.teeX)) }, cup: { x: Math.round(h.cupX), y: Math.round(h.cupY) }, verts: verts, floaters: [], water: [] };
     ED.lastExport = data; var s = JSON.stringify(data, null, 2);
     try { console.log('[editor] export:\n' + s); } catch (e) {}
-    var ta = document.getElementById('ed-export'); if (ta) { ta.value = s; ta.style.display = 'block'; }
+    var ta = document.getElementById('ed-export-box'); if (ta) { ta.value = s; ta.style.display = 'block'; ta.focus(); ta.select(); }
+    try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(s); } catch (e) {}   // auto-copy
     return data;
   }
 
@@ -158,7 +159,7 @@
     btn('ed-export', '⤓ Export', doExport);
     btn('ed-play', '▶ Play this hole', function () { setMode(ED.mode === 'edit' ? 'play' : 'edit'); });
     document.body.appendChild(bar);
-    var ta = document.createElement('textarea'); ta.id = 'ed-export'; ta.readOnly = true; ta.style.cssText = 'position:fixed;bottom:8px;right:8px;width:340px;height:176px;z-index:9999;display:none;font:10px monospace;background:rgba(10,12,18,0.92);color:#aded9d;border:1px solid #3a536e;border-radius:6px;padding:4px;'; document.body.appendChild(ta);
+    var ta = document.createElement('textarea'); ta.id = 'ed-export-box'; ta.readOnly = true; ta.style.cssText = 'position:fixed;bottom:10px;right:10px;width:440px;height:300px;z-index:99999;display:none;font:11px monospace;background:rgba(10,12,18,0.97);color:#aded9d;border:2px solid #5aa86e;border-radius:6px;padding:6px;'; document.body.appendChild(ta);
   }
 
   function init() {
