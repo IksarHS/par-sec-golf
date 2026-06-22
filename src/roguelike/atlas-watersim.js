@@ -66,14 +66,23 @@
     if (typeof ARCHETYPE_TABLE !== 'undefined') ARCHETYPE_TABLE.push(['watersim_basins', 0.0, 5.0, 1]);
   }
 
-  // ── HEIGHT-FIELD WATER (column model on terrainYAt) ───────────────────────────────────────────────
-  // Columns span the hole's world X. Each column has a terrain floor tY (from terrainYAt) and a water
-  // surface wy (== floor when dry). Pour raises wy; flowWater() moves volume between neighbours toward the
-  // lower level (fills/overflows); a wave-equation ripple field hh/hv perturbs the drawn surface.
+  // ── WATER SIM (column model drives the LEVEL; render is FLUSH to the real terrain) ────────────────
+  // The column model is a SOLVER, not the renderer. Columns span the hole's world X at fine resolution.
+  // Each column has a terrain floor tY (from terrainYAt) and a water surface wy (== floor when dry). Pour
+  // raises wy; flowWater() moves volume between neighbours toward the lower level (fills/overflows, settles
+  // each connected basin to a FLAT level, cascades a full basin into the next lower one). A wave-equation
+  // ripple field hh/hv perturbs the drawn surface line.
+  //
+  // The column grid only decides the water LEVEL per basin. The actual water is then drawn BEHIND the real
+  // terrain at full resolution (drawSkyBehind hook, inside the camera transform): a flat-topped fill from
+  // each basin's level L down past the terrain bottom. The opaque terrain, drawn ON TOP at its true vertex
+  // resolution, occludes the solid rock — leaving water visible only in the open space below L, FLUSH to
+  // every wall + floor edge, for ANY terrain shape (one notch or many). No coarse resample at the edges.
   var NC = 0, x0 = 0, x1 = 0, cw = 0;
   var tY = null, wy = null, hh = null, hv = null;
   var drops = [], pourStreams = [], frame = 0, hint = 360, built = false;
-  var FLOORDEPTH = 360;                                   // max water column depth (px) — a hard fill clamp
+  var FLOORDEPTH = 1200;                                  // max water column depth (px) — a hard fill clamp (deep, so tall walls fill)
+  var COLW = 2.0;                                         // target column width (px) — fine grid so narrow notches fill cleanly
 
   function colX(i) { return x0 + (i + 0.5) * cw; }
   function colAt(x) { var i = Math.floor((x - x0) / cw); return i < 0 ? 0 : (i > NC - 1 ? NC - 1 : i); }
@@ -83,7 +92,7 @@
     var h = (typeof holes !== 'undefined') ? holes[(typeof currentHole !== 'undefined') ? currentHole : 0] : null;
     if (!h || typeof terrainYAt !== 'function') { built = false; return; }
     x0 = h.teeX - 30; x1 = h.cupX + 30;
-    NC = Math.max(80, Math.min(420, Math.round((x1 - x0) / 5)));
+    NC = Math.max(200, Math.min(1400, Math.round((x1 - x0) / COLW)));
     cw = (x1 - x0) / NC;
     tY = new Float32Array(NC); wy = new Float32Array(NC); hh = new Float32Array(NC); hv = new Float32Array(NC);
     for (var i = 0; i < NC; i++) { tY[i] = terrainYAt(colX(i)); wy[i] = tY[i]; }
@@ -91,11 +100,20 @@
   }
   function clearWater() { if (!built) return; for (var i = 0; i < NC; i++) { wy[i] = tY[i]; hh[i] = 0; hv[i] = 0; } drops = []; pourStreams = []; }
 
-  // POUR: add a slug of water volume into the column under x (raise its surface), ripple, throw droplets.
+  // POUR: deposit a slug of water VOLUME under x (raise the surface), ripple, throw droplets. The slug is
+  // spread over a small band of columns so it deposits the same VOLUME regardless of grid resolution — at
+  // the fine grid a single column is tiny, so depositing into one column alone would barely move the level
+  // and a narrow notch would never fill. POUR_VOL is in (px·columns)-equivalent so it fills quickly.
+  var POUR_VOL = 16.0;                                     // surface-rise px spread across POUR_SPAN columns per slug
+  var POUR_SPAN = 7;                                       // columns the slug spreads across (kept narrow → pools, doesn't sheet)
   function pourInto(x) {
     var i = colAt(x);
-    wy[i] -= 2.6;                                          // raise (y smaller = higher)
-    if (wy[i] < tY[i] - FLOORDEPTH) wy[i] = tY[i] - FLOORDEPTH;
+    var half = (POUR_SPAN - 1) >> 1, rise = POUR_VOL / POUR_SPAN;
+    for (var o = -half; o <= half; o++) {
+      var j = i + o; if (j < 0 || j > NC - 1) continue;
+      wy[j] -= rise;                                       // raise (y smaller = higher)
+      if (wy[j] < tY[j] - FLOORDEPTH) wy[j] = tY[j] - FLOORDEPTH;
+    }
     hv[i] -= 0.5; if (i > 0) hv[i - 1] -= 0.25; if (i < NC - 1) hv[i + 1] -= 0.25;
     if (Math.random() < 0.5) {
       var sy = wy[i] - 2, a = -Math.PI / 2 + (Math.random() - 0.5) * 1.4, s = 1 + Math.random() * 2;
@@ -105,8 +123,11 @@
   function addPourStream(x, y) { if (!built) return; pourStreams.push({ x: x, y: Math.min(y, terrainYAt(x) - 4), t: 0 }); }
 
   // FLOW: per adjacent pair, move volume from the higher surface to the lower (settle / fill / overflow).
+  // More iterations than the old coarse grid so each connected basin settles to a FLAT level within a frame
+  // and a full basin cascades over its lowest rim into the next basin — at the fine grid the pressure wave
+  // has to travel many more columns, so the iteration count scales with resolution.
   function flowWater() {
-    var ITER = 4;
+    var ITER = 16;
     for (var k = 0; k < ITER; k++) {
       var fwd = (k % 2 === 0);
       for (var s = 0; s < NC - 1; s++) {
@@ -217,32 +238,67 @@
     return true;
   }
 
-  // ── world-space draw: the height-field water + pour streams + droplets ─────────────────────────────
-  function drawWaterWorld(ctx) {
-    if (!built) return;
+  // ── BEHIND-TERRAIN FLUSH RENDER (the water body) ──────────────────────────────────────────────────
+  // Drawn from the drawSkyBehind hook — SCREEN-space when called, so we apply the camera transform here so
+  // the water lives in WORLD coords, then it's drawn BEHIND the terrain. For each connected wet RUN we draw
+  // one FLAT-topped fill: a flat surface at the run's level L (perturbed by the ripple field for a gentle
+  // wave) across the run's full x-span, dropping straight down past the terrain bottom. The opaque terrain
+  // (drawn on top, full vertex resolution) then occludes the rock, so the water shows ONLY in the open
+  // space below L — flush to every wall/floor edge, with no coarse steps and no gap to the walls. Because
+  // the bottom is a single deep line (not the resampled floor), the fill conforms to ANY collision shape.
+  function basinLevel(s, e) {                              // the settled (flat) surface for a wet run = its highest surface
+    var m = 1e9; for (var j = s; j <= e; j++) if (wy[j] < m) m = wy[j];
+    return m;
+  }
+  function botY() { return (((typeof camera !== 'undefined') && camera.y) || 0) + H_() + 300; }
+  function drawWaterBehind(ctx) {
+    if (!built || !ctx) return;
+    ctx.save();
+    if (typeof MODE !== 'undefined' && MODE.applyCameraTransform) MODE.applyCameraTransform(ctx);
+    else ctx.translate(-((typeof camera !== 'undefined' && camera.x) || 0), -((typeof camera !== 'undefined' && camera.y) || 0));
+    var BY = botY();
     var i = 0;
     while (i < NC) {
       if (depth(i) <= 0.5) { i++; continue; }
       var s = i; while (i < NC && depth(i) > 0.5) i++;
       var e = i - 1;
-      function bodyPath() {
+      var L = basinLevel(s, e);                            // flat surface level for this basin
+      // x-span: extend a hair past the run edges so the flat top runs UNDER the rising walls (terrain trims
+      // it exactly) — no sliver of background between the water and the wall.
+      var xL = colX(s) - cw, xR = colX(e) + cw;
+      // The flat top, lightly rippled by the spring field (a gentle wave on the flat level). Sampled per
+      // column so the wave reads smooth; the body fills from that line down past the terrain bottom.
+      function topPath() {
         ctx.beginPath();
-        ctx.moveTo(colX(s), wy[s] + hh[s]);
-        for (var j = s; j <= e; j++) ctx.lineTo(colX(j), wy[j] + hh[j]);
-        for (var j2 = e; j2 >= s; j2--) ctx.lineTo(colX(j2), tY[j2]);
+        ctx.moveTo(xL, L + (hh[s] || 0));
+        ctx.lineTo(colX(s), L + (hh[s] || 0));
+        for (var j = s; j <= e; j++) ctx.lineTo(colX(j), L + (hh[j] || 0));
+        ctx.lineTo(xR, L + (hh[e] || 0));
+        ctx.lineTo(xR, BY);
+        ctx.lineTo(xL, BY);
         ctx.closePath();
       }
-      ctx.fillStyle = WATER; bodyPath(); ctx.fill();
-      var minWy = 1e9, maxT = -1e9;
-      for (var j = s; j <= e; j++) { if (wy[j] < minWy) minWy = wy[j]; if (tY[j] > maxT) maxT = tY[j]; }
-      var wg = ctx.createLinearGradient(0, minWy, 0, maxT); wg.addColorStop(0, 'rgba(0,0,0,0)'); wg.addColorStop(1, DEEP);
-      ctx.fillStyle = wg; bodyPath(); ctx.fill();
+      ctx.fillStyle = WATER; topPath(); ctx.fill();
+      // depth gradient: clearer at the surface, deepening down (the terrain occludes whatever it covers).
+      var wg = ctx.createLinearGradient(0, L, 0, L + 220);
+      wg.addColorStop(0, 'rgba(0,0,0,0)'); wg.addColorStop(1, DEEP);
+      ctx.fillStyle = wg; topPath(); ctx.fill();
+      // bright waterline highlight along the flat top (rippled)
       ctx.strokeStyle = HI; ctx.lineWidth = 2; ctx.beginPath();
-      ctx.moveTo(colX(s), wy[s] + hh[s]);
-      for (var j3 = s; j3 <= e; j3++) ctx.lineTo(colX(j3), wy[j3] + hh[j3]);
+      ctx.moveTo(xL, L + (hh[s] || 0));
+      for (var j3 = s; j3 <= e; j3++) ctx.lineTo(colX(j3), L + (hh[j3] || 0));
+      ctx.lineTo(xR, L + (hh[e] || 0));
       ctx.stroke();
     }
-    // pour streams (vertical wobbling sheet, terrain floor → surface)
+    ctx.restore();
+  }
+
+  // ── world-space draw (IN FRONT of terrain): pour streams + airborne droplets ───────────────────────
+  // These live ABOVE the ground in open air, so they draw in front of the terrain (the frame hook, after
+  // baseWorld). The water BODY is drawn behind the terrain (drawWaterBehind) for the flush look.
+  function drawWaterFront(ctx) {
+    if (!built) return;
+    // pour streams (vertical wobbling sheet, from the pour point down to the surface)
     ctx.fillStyle = POUR;
     for (var p = 0; p < pourStreams.length; p++) {
       var ps = pourStreams[p], by = surfYAt(ps.x) - 2;
@@ -257,12 +313,22 @@
     ctx.globalAlpha = 1;
   }
 
-  // the world-space frame hook: step the sim + draw water (inside the camera transform).
-  function frameHook(ctx) {
+  // drawSkyBehind hook: runs in the sky pass (SCREEN-space, BEFORE the terrain draws). We STEP the sim here
+  // (first water touch of the frame) and draw the water BODY behind the terrain so it renders FLUSH. The
+  // pour streams + droplets draw later in frameHook, IN FRONT of the terrain.
+  function skyBehindHook(ctx) {
     if (!isWS() || !ctx) return;
     if (!built) buildField();
     stepSim();
-    drawWaterWorld(ctx);
+    drawWaterBehind(ctx);
+  }
+
+  // the world-space frame hook (after baseWorld): draw the in-front layer only (pour streams + droplets),
+  // inside the camera transform. The sim was already stepped + the body drawn in skyBehindHook this frame.
+  function frameHook(ctx) {
+    if (!isWS() || !ctx) return;
+    if (!built) { buildField(); stepSim(); }   // safety: if the sky pass didn't run this frame, keep the sim alive
+    drawWaterFront(ctx);
   }
 
   // ── screen-space HUD: pour hint + CLEAR WATER button ──
@@ -315,7 +381,8 @@
       onStart: function () { built = false; setTimeout(function () { buildField(); }, 60); },
       camera: camHook,
       collide: function () { if (!isWS()) return false; ballWater(); return false; },   // side-effect only; base collide owns terrain/rest
-      frame: frameHook,
+      drawSkyBehind: skyBehindHook,   // the water BODY, drawn BEHIND the terrain (flush). Steps the sim too.
+      frame: frameHook,               // pour streams + droplets, IN FRONT of the terrain
       frameScreen: frameScreenHook,
     },
   });
