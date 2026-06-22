@@ -158,7 +158,11 @@
     TOOLS.forEach(function (t) { btn('ed-t-' + t, t, function () { ED.tool = t; if (ED.mode !== 'edit') setMode('edit'); syncTool(); }); });
     var sep = document.createElement('span'); sep.style.cssText = 'width:1px;height:18px;background:#3a536e;margin:0 3px;'; bar.appendChild(sep);
     btn('ed-reset', '⟲ baseline', function () { setMode('edit'); baseline(); syncTool(); });
-    btn('ed-trace', '⊹ Load traced', function () { setMode('edit'); fetch('traced.json?cb=' + Math.random()).then(function (r) { return r.json(); }).then(function (d) { ED.load(d); }).catch(function () {}); });
+    btn('ed-trace', '⊹ Load JSON', function () {                      // load a saved hole (an Export) via a file picker — no fetch, works on file://
+      var fi = document.createElement('input'); fi.type = 'file'; fi.accept = '.json,application/json';
+      fi.onchange = function () { var f = fi.files[0]; if (!f) return; var rd = new FileReader(); rd.onload = function () { try { setMode('edit'); ED.load(JSON.parse(rd.result)); } catch (e) {} }; rd.readAsText(f); };
+      fi.click();
+    });
     btn('ed-export', '⤓ Export', doExport);
     btn('ed-play', '▶ Play this hole', function () { setMode(ED.mode === 'edit' ? 'play' : 'edit'); });
     document.body.appendChild(bar);
