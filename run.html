@@ -154,6 +154,12 @@
      pour water anywhere (it pools in the dips, ripples + overflows), shoot the real ball → splash + sink.
      Registers its own course + archetype + atlas hooks; inert without ?watersim. Peel the file + this tag → gone. -->
 <script src="src/roguelike/atlas-watersim.js"></script>
+<!-- Particle Fluid (?course=particlefluid) — the HEAVY-DUTY fluid IN-ENGINE on a real hole: a 2D Position-
+     Based Fluids (PBF) particle sim — spatial-hash neighbours, density constraint, gravity, XSPH viscosity.
+     Particles settle FLUSH into a narrow notch + UNDER a floating overhang block (which a height-field can't
+     do), self-level, and the ball splashes/displaces them. Registers its own course via the normal ?course=
+     atlas path + the inert RG_ATLAS hooks; inert on any other course. Peel the file + this tag → gone. -->
+<script src="src/roguelike/atlas-particlefluid.js"></script>
 <script src="src/roguelike/atlas-setpieces.js"></script>
 <!-- Puzzle Mode (?course=puzzle) — a Super Stickman Golf-style 2D hand-designed hole: a big multi-screen
      level worked over several shots, with WALLS, BLOCKS and STICKY surfaces, in OUR flat faceted art. The
