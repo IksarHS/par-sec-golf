@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Stickman Planet — sticky-wall golf</title>
+<!-- Preload + @font-face Departure Mono (matches src/art.js / run.html). Prototype lives in
+     prototypes/, so the font path climbs one level to ../assets/fonts/. -->
+<link rel="preload" href="../assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  @font-face {
+    font-family: 'Departure Mono';
+    src: url('../assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+         url('../assets/fonts/DepartureMono-Regular.woff') format('woff');
+    font-weight: normal; font-style: normal; font-display: swap;
+  }
+  html,body{margin:0;background:#0c0e14;overflow:hidden}canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+// ── STICKMAN PLANET — puzzle-platforming golf with STICKY WALLS ───────────────
+// A scrolling level wider than the screen: solid platforms, gaps, and distinct
+// glowing-green STICKY surfaces the ball stops dead on (so you can putt off them).
+// Normal surfaces BOUNCE. The hook: bank off a wall, STICK to a sticky surface to
+// set up your next shot, cross gaps, reach a cup tucked in a tricky spot.
+// Camera follows the ball (horizontal scroll). Auto-demo plays the signature hook.
+
+var cv = document.getElementById('c'), ctx = cv.getContext('2d');
+var W = 960, H = 540;
+
+// ── Palette (matches faceted-golf: dark space sky + flat terrain) ─────────────
+var SKY0 = '#1a2230', SKY1 = '#26303c';
+var ROCK = '#46505e', ROCK_LIP = '#5d6a7a', ROCK_SIDE = '#3a424e';  // normal platform (+ darker side face)
+var STICK = '#2fae6a', STICK_LIP = '#6cf0a8', STICK_SIDE = '#268a55'; // sticky surface (+ darker side face)
+var STICK_GLOW = 'rgba(90,240,160,0.35)';
+var CUP_DARK = '#11161e';
+var BALL_COLOR = '#ffffff';
+
+// ── Physics ───────────────────────────────────────────────────────────────────
+var GRAVITY = 0.42;
+var RESTITUTION = 0.52;       // bounce on normal surfaces
+var ROLL_FRICTION = 0.985;
+var SURF_FRICTION = 0.06;
+var REST_SPEED = 0.16;
+var POWER_SCALE = 0.085;
+var MAX_POWER = 18;
+var BALL_R = 9;
+
+// ── Level geometry ──────────────────────────────────────────────────────────
+// Rectangular blocks. type 'rock' bounces, type 'sticky' grabs the ball.
+// Level is ~2400px wide; camera scrolls to follow.
+var LEVEL_W = 2400, LEVEL_H = 540;
+var blocks = [];
+var cup = null;
+var teeX = 0, teeY = 0;
+
+function buildLevel() {
+  blocks = [];
+  // Starting platform (left)
+  blocks.push({ x: 0,    y: 430, w: 300, h: 110, type: 'rock' });
+  // A ROCK overhang/ceiling — the ball banks DOWN off its underside, redirecting
+  // its rising arc forward-and-down toward the sticky wall.
+  blocks.push({ x: 430,  y: 150, w: 230, h: 46,  type: 'rock' });
+  // A tall STICKY wall (the setup surface) — the descending arc hits its LEFT
+  // face and STICKS mid-flight, over a gap, with nothing below.
+  blocks.push({ x: 820,  y: 250, w: 46,  h: 290, type: 'sticky' });
+  // small rock ledge to the right of the sticky wall (landing zone after the putt)
+  blocks.push({ x: 1080, y: 380, w: 150, h: 160, type: 'rock' });
+  // a TALL guarding rock wall before the cup pocket — the putt must lob over it
+  blocks.push({ x: 1470, y: 250, w: 56,  h: 290, type: 'rock' });
+  // cup platform floor of the pocket (just behind the guard wall)
+  blocks.push({ x: 1526, y: 430, w: 360, h: 110, type: 'rock' });
+  // backstop rock wall on the far side of the pocket — ball drops between the two
+  blocks.push({ x: 1750, y: 300, w: 56,  h: 240, type: 'rock' });
+
+  // Cup sits in the narrow pocket between the guard wall and the backstop
+  cup = { x: 1640, y: 430, r: 14 };  // y = top surface of cup platform
+
+  teeX = 140; teeY = 430 - BALL_R;
+}
+
+// ── Ball ────────────────────────────────────────────────────────────────────
+var ball = { x: 0, y: 0, vx: 0, vy: 0, onGround: false, atRest: true, stuck: false, rotation: 0, spin: 0, sunk: false };
+
+function resetBall() {
+  ball.x = teeX; ball.y = teeY; ball.vx = 0; ball.vy = 0;
+  ball.onGround = true; ball.atRest = true; ball.stuck = false; ball.rotation = 0; ball.spin = 0; ball.sunk = false;
+}
+
+// ── Camera (follows ball horizontally) ───────────────────────────────────────
+var cam = { x: 0, y: 0 };
+function updateCamera() {
+  var targetX = ball.x - W * 0.42;
+  targetX = Math.max(0, Math.min(LEVEL_W - W, targetX));
+  cam.x += (targetX - cam.x) * 0.12;
+  // gentle vertical follow, clamped
+  var targetY = ball.y - H * 0.55;
+  targetY = Math.max(-40, Math.min(LEVEL_H - H + 40, targetY));
+  cam.y += (targetY - cam.y) * 0.08;
+}
+function snapCamera() {
+  var targetX = ball.x - W * 0.42;
+  cam.x = Math.max(0, Math.min(LEVEL_W - W, targetX));
+  var targetY = ball.y - H * 0.55;
+  cam.y = Math.max(-40, Math.min(LEVEL_H - H + 40, targetY));
+}
+
+// ── Stars (parallax-light, fixed in sky space) ───────────────────────────────
+var stars = [];
+(function initStars(){ for (var i=0;i<70;i++){ stars.push({ x: Math.random()*LEVEL_W, y: Math.random()*H*0.8, r: Math.random()<0.85?1:1.6, a: 0.25+Math.random()*0.5 }); } })();
+
+// ── Collision: circle vs axis-aligned blocks ─────────────────────────────────
+// Returns and mutates ball velocity/position. Handles bounce (rock) and stick (sticky).
+function collide() {
+  ball.onGround = false;
+  for (var i = 0; i < blocks.length; i++) {
+    var b = blocks[i];
+    // closest point on rect to ball center
+    var cx = Math.max(b.x, Math.min(ball.x, b.x + b.w));
+    var cy = Math.max(b.y, Math.min(ball.y, b.y + b.h));
+    var dx = ball.x - cx, dy = ball.y - cy;
+    var d2 = dx*dx + dy*dy;
+    if (d2 > BALL_R*BALL_R) continue;
+
+    var d = Math.sqrt(d2) || 0.0001;
+    var nx, ny;
+    if (d2 < 0.0001) {
+      // center inside block — push out along smallest penetration axis
+      var toL = ball.x - b.x, toR = (b.x + b.w) - ball.x;
+      var toT = ball.y - b.y, toB = (b.y + b.h) - ball.y;
+      var m = Math.min(toL, toR, toT, toB);
+      if (m === toT) { nx = 0; ny = -1; }
+      else if (m === toB) { nx = 0; ny = 1; }
+      else if (m === toL) { nx = -1; ny = 0; }
+      else { nx = 1; ny = 0; }
+    } else {
+      nx = dx / d; ny = dy / d;
+    }
+
+    // push ball out of surface
+    var pen = BALL_R - d;
+    ball.x += nx * pen;
+    ball.y += ny * pen;
+
+    if (b.type === 'sticky') {
+      // STICK: stop dead, grab the surface
+      ball.vx = 0; ball.vy = 0;
+      ball.stuck = true;
+      ball.atRest = true;
+      ball.onGround = true;
+      ball.spin = 0;
+      ball._stickNX = nx; ball._stickNY = ny;
+      return 'sticky';
+    } else {
+      // BOUNCE off normal surface
+      var vdotn = ball.vx * nx + ball.vy * ny;
+      if (vdotn < 0) {
+        ball.vx -= (1 + RESTITUTION) * vdotn * nx;
+        ball.vy -= (1 + RESTITUTION) * vdotn * ny;
+      }
+      // mark grounded if landing on a top surface
+      if (ny < -0.6) {
+        ball.onGround = true;
+      }
+    }
+  }
+  return null;
+}
+
+// ── State machine ────────────────────────────────────────────────────────────
+var STATE_AIM = 0, STATE_FLIGHT = 1, STATE_SUNK = 2;
+var state = STATE_AIM;
+var sunkTimer = 0;
+
+function shoot(angleRad, power) {
+  ball.vx = Math.cos(angleRad) * power;
+  ball.vy = Math.sin(angleRad) * power;
+  ball.atRest = false; ball.onGround = false; ball.stuck = false;
+  ball.slowFrames = 0;
+  state = STATE_FLIGHT;
+}
+
+// public headless shoot: angle in degrees (screen convention: 0=right, up is negative y handled by sign)
+window.__shoot = function(angleDeg, power01) {
+  if (state !== STATE_AIM) return;
+  var a = angleDeg * Math.PI / 180;
+  var power = Math.max(0, Math.min(1, power01)) * MAX_POWER;
+  shoot(a, power);
+};
+
+function updatePhysics() {
+  if (ball.atRest || ball.stuck) return;
+  var sub = 3;
+  for (var s = 0; s < sub; s++) {
+    ball.vy += GRAVITY / sub;
+    ball.x += ball.vx / sub;
+    ball.y += ball.vy / sub;
+    var hit = collide();
+    if (hit === 'sticky') break;
+  }
+
+  if (ball.stuck) return;
+
+  if (ball.onGround) {
+    ball.vx *= ROLL_FRICTION;
+    var sp = Math.abs(ball.vx);
+    if (sp > SURF_FRICTION) ball.vx -= (ball.vx / sp) * SURF_FRICTION; else ball.vx = 0;
+    ball.spin = ball.vx / BALL_R;
+    ball.rotation += ball.spin;
+    var speed = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+    if (speed < REST_SPEED) {
+      ball.slowFrames = (ball.slowFrames||0)+1;
+      if (ball.slowFrames > 6) { ball.vx = 0; ball.vy = 0; ball.atRest = true; }
+    } else ball.slowFrames = 0;
+  } else {
+    ball.rotation += ball.spin || 0;
+  }
+
+  // fell off the world
+  if (ball.y > LEVEL_H + 80) {
+    resetBall(); state = STATE_AIM;
+  }
+}
+
+function checkCup() {
+  if (ball.sunk) return;
+  var dx = ball.x - cup.x, dy = ball.y - cup.y;
+  // ball near cup mouth and moving slowly enough to drop
+  if (Math.abs(dx) < cup.r * 0.8 && dy > -BALL_R - 2 && dy < cup.r) {
+    var speed = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+    if (speed < 9) {
+      ball.sunk = true; ball.x = cup.x; ball.y = cup.y + 4;
+      ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.stuck = false;
+      state = STATE_SUNK; sunkTimer = 0;
+    }
+  }
+}
+
+// ── Aim input (drag BACK from ball) ──────────────────────────────────────────
+var aiming = false, aimStart = {x:0,y:0}, aimCur = {x:0,y:0};
+function screenToWorld(sx, sy){ return { x: sx + cam.x, y: sy + cam.y }; }
+function evtPos(e){ var r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left)*(W/r.width), y: (e.clientY - r.top)*(H/r.height) }; }
+
+cv.addEventListener('mousedown', function(e){
+  if (state !== STATE_AIM) return;
+  auto = false; // manual takes over
+  var p = evtPos(e); aiming = true; aimStart = p; aimCur = p;
+});
+window.addEventListener('mousemove', function(e){ if(!aiming) return; aimCur = evtPos(e); });
+window.addEventListener('mouseup', function(e){
+  if (!aiming) return; aiming = false;
+  var dx = aimStart.x - aimCur.x, dy = aimStart.y - aimCur.y;
+  var dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist < 6) return;
+  var power = Math.min(dist * POWER_SCALE, MAX_POWER);
+  var a = Math.atan2(dy, dx);
+  shoot(a, power);
+});
+
+// ── Drawing ──────────────────────────────────────────────────────────────────
+function drawSky() {
+  var g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0, SKY0); g.addColorStop(1, SKY1);
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  // stars (parallax: slower than camera)
+  for (var i=0;i<stars.length;i++){
+    var s = stars[i];
+    var sx = s.x - cam.x*0.4;
+    if (sx < -5 || sx > W+5) continue;
+    ctx.globalAlpha = s.a;
+    ctx.fillStyle = '#cfe0f0';
+    ctx.fillRect(sx, s.y - cam.y*0.2, s.r, s.r);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawBlock(b) {
+  var x = b.x - cam.x, y = b.y - cam.y;
+  if (x > W || x + b.w < 0) return;
+  // Side-face shade band: a single darker tone on the lower/side portion of the block so
+  // it reads as a solid 3D form, not a flat swatch. Still flat-color (one extra tone).
+  var sideBand = Math.min(14, b.w * 0.35); // width of the shaded right face
+  if (b.type === 'sticky') {
+    // glow halo
+    ctx.fillStyle = STICK_GLOW;
+    ctx.fillRect(x-4, y-4, b.w+8, b.h+8);
+    // base fill
+    ctx.fillStyle = STICK;
+    ctx.fillRect(x, y, b.w, b.h);
+    // darker right side face (depth tone)
+    ctx.fillStyle = STICK_SIDE;
+    ctx.fillRect(x + b.w - sideBand, y + 4, sideBand, b.h - 4);
+    // lip lines on all exposed edges (top + sides) to read as "sticky everywhere"
+    ctx.fillStyle = STICK_LIP;
+    ctx.fillRect(x, y, b.w, 4);            // top
+    ctx.fillRect(x, y, 4, b.h);            // left
+    ctx.fillRect(x + b.w - 4, y, 4, b.h);  // right
+  } else {
+    // base fill
+    ctx.fillStyle = ROCK;
+    ctx.fillRect(x, y, b.w, b.h);
+    // darker right side face (depth tone) — leaves the top lip + left face brighter
+    ctx.fillStyle = ROCK_SIDE;
+    ctx.fillRect(x + b.w - sideBand, y + 4, sideBand, b.h - 4);
+    // top lip line (brightest edge)
+    ctx.fillStyle = ROCK_LIP;
+    ctx.fillRect(x, y, b.w, 4);
+  }
+}
+
+function drawCup() {
+  // Cup + flag rendered to match src/art.js drawFlag(): a notch cup, a #7888a0 pole,
+  // and a pentagon pennant (rect body + right point) in #e8c840 with a hole number.
+  var x = cup.x - cam.x, y = cup.y - cam.y;
+
+  // Cup notch carved into the platform — vertical side walls + a slightly lighter
+  // inner back wall so it reads as a recessed hole rather than a flat black bar.
+  var cupLeftX = x - cup.r * 0.7;
+  var cupRightX = x + cup.r * 0.7;
+  var cupW = cupRightX - cupLeftX;
+  var cupDepth = 22;
+  ctx.fillStyle = CUP_DARK;
+  ctx.fillRect(cupLeftX, y, cupW, cupDepth);
+  // inner highlight on the far (right) wall — one tone of depth
+  ctx.fillStyle = 'rgba(120,140,170,0.18)';
+  ctx.fillRect(cupRightX - 3, y, 3, cupDepth);
+  // dark rim lip across the mouth
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(cupLeftX, y, cupW, 2);
+
+  // Pole (art.js: poleWorldX = cup right edge + 2, height 55, stroke #7888a0)
+  var poleX = cupRightX + 2;
+  var sy = y;
+  var poleH = 55;
+  ctx.strokeStyle = '#7888a0';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(poleX, sy);
+  ctx.lineTo(poleX, sy - poleH);
+  ctx.stroke();
+
+  // Pennant — pentagon: rectangle body + triangular point to the right
+  var pTop = sy - poleH;
+  var pBot = sy - poleH + 16;
+  var pMid = (pTop + pBot) / 2;
+  var bodyW = 22;
+  var pointW = 10;
+  ctx.fillStyle = '#e8c840';
+  ctx.beginPath();
+  ctx.moveTo(poleX, pTop);
+  ctx.lineTo(poleX + bodyW, pTop);
+  ctx.lineTo(poleX + bodyW + pointW, pMid);
+  ctx.lineTo(poleX + bodyW, pBot);
+  ctx.lineTo(poleX, pBot);
+  ctx.closePath();
+  ctx.fill();
+
+  // Hole number on the pennant body
+  ctx.fillStyle = '#4a3520';
+  ctx.font = "10px 'Departure Mono', monospace";
+  ctx.textAlign = 'center';
+  ctx.fillText('1', poleX + bodyW / 2, pMid + 4);
+  ctx.textAlign = 'left';
+}
+
+function drawBall() {
+  var x = ball.x - cam.x, y = ball.y - cam.y;
+  ctx.fillStyle = BALL_COLOR;
+  ctx.beginPath(); ctx.arc(x, y, BALL_R, 0, 6.2832); ctx.fill();
+  // 3 dimples at 0/120/240, rotated by spin
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ball.rotation);
+  ctx.fillStyle = 'rgba(0,0,0,0.32)';
+  for (var i=0;i<3;i++){
+    var a = (i/3)*Math.PI*2;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a)*BALL_R*0.5, Math.sin(a)*BALL_R*0.5, 1.6, 0, 6.2832);
+    ctx.fill();
+  }
+  ctx.restore();
+  // stuck indicator: a tiny green ring when grabbed
+  if (ball.stuck) {
+    ctx.strokeStyle = STICK_LIP; ctx.lineWidth = 2; ctx.globalAlpha = 0.85;
+    ctx.beginPath(); ctx.arc(x, y, BALL_R+4, 0, 6.2832); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawAim() {
+  // Canonical 4-part aim UI from src/art.js drawAimUI() — screen space, power = line length.
+  if (!aiming || state !== STATE_AIM) return;
+
+  var dx = aimCur.x - aimStart.x, dy = aimCur.y - aimStart.y;
+  var dist = Math.sqrt(dx*dx + dy*dy);
+  if (dist < 5) return;
+
+  var nx = dx / dist, ny = dy / dist;
+
+  // 1. Faded circle at drag start point
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(aimStart.x, aimStart.y, 8, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 2. White line from drag start in LAUNCH direction (opposite of drag)
+  var launchEndX = aimStart.x - dx;
+  var launchEndY = aimStart.y - dy;
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(aimStart.x, aimStart.y);
+  ctx.lineTo(launchEndX, launchEndY);
+  ctx.stroke();
+
+  // 3. Arrowhead at launch end (pointing in launch direction)
+  var arrowLen = 10;
+  var arrowAngle = 0.45;
+  var launchAngle = Math.atan2(-dy, -dx);
+  ctx.beginPath();
+  ctx.moveTo(launchEndX, launchEndY);
+  ctx.lineTo(
+    launchEndX - arrowLen * Math.cos(launchAngle - arrowAngle),
+    launchEndY - arrowLen * Math.sin(launchAngle - arrowAngle)
+  );
+  ctx.moveTo(launchEndX, launchEndY);
+  ctx.lineTo(
+    launchEndX - arrowLen * Math.cos(launchAngle + arrowAngle),
+    launchEndY - arrowLen * Math.sin(launchAngle + arrowAngle)
+  );
+  ctx.stroke();
+
+  // 4. Dark brown dots extending in DRAG direction (toward cursor)
+  var dotSpacing = 10;
+  var numDots = Math.min(Math.floor(dist / dotSpacing), 15);
+  ctx.fillStyle = 'rgba(80, 70, 55, 0.5)';
+  for (var i = 1; i <= numDots; i++) {
+    var dotX = aimStart.x + nx * i * dotSpacing;
+    var dotY = aimStart.y + ny * i * dotSpacing;
+    ctx.beginPath();
+    ctx.arc(dotX, dotY, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawHUD() {
+  ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.font = "20px 'Departure Mono', monospace"; ctx.textAlign='left';
+  ctx.fillText('STICKMAN PLANET', 26, 34);
+  ctx.fillStyle = 'rgba(160,200,230,0.6)'; ctx.font = "12px 'Departure Mono', monospace";
+  ctx.fillText('drag back to aim · bounce off rock · STICK to green · reach the cup', 26, 54);
+  if (state === STATE_SUNK) {
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'; ctx.font = "34px 'Departure Mono', monospace"; ctx.textAlign='center';
+    ctx.fillText('IN THE CUP', W/2, H/2 - 10);
+    ctx.textAlign='left';
+  }
+  // auto-demo badge
+  if (auto) {
+    ctx.fillStyle = 'rgba(108,240,168,0.85)'; ctx.font = "12px 'Departure Mono', monospace"; ctx.textAlign='right';
+    ctx.fillText('AUTO-DEMO', W-26, 34);
+    ctx.textAlign='left';
+  }
+}
+
+function draw() {
+  drawSky();
+  for (var i=0;i<blocks.length;i++) drawBlock(blocks[i]);
+  drawCup();
+  drawBall();
+  drawAim();
+  drawHUD();
+}
+
+// ── Auto-demo: the signature hook ────────────────────────────────────────────
+// Shot 1: launch up-right, BANK off the rock wall, fly on and STICK to the green wall.
+// Shot 2: putt off the sticky wall, arc over the gap, land near and drop in the cup.
+// Then reset and loop.
+var auto = true;
+var demoStep = 0, demoTimer = 0;
+
+function resetDemo() {
+  buildLevel(); resetBall(); snapCamera();
+  state = STATE_AIM; demoStep = 0; demoTimer = 0; sunkTimer = 0;
+}
+
+function autoDemoTick() {
+  demoTimer++;
+  if (demoStep === 0) {
+    // wait a beat at tee, then fire SHOT 1: lob up-right, BANK off the rock
+    // overhang's underside, descend and STICK to the green wall mid-flight.
+    if (demoTimer > 45 && state === STATE_AIM) {
+      window.__shoot(-62, 1.0);
+      demoStep = 1; demoTimer = 0;
+    }
+  } else if (demoStep === 1) {
+    // wait until the ball grabs the sticky wall
+    if (ball.stuck) { demoStep = 2; demoTimer = 0; }
+    if (demoTimer > 200) { demoStep = 99; demoTimer = 0; } // safety: retry loop
+  } else if (demoStep === 2) {
+    // sitting on the sticky wall — hold a beat to show the grab, then putt off
+    // SHOT 2: lob over the guard wall and drop into the cup pocket.
+    if (demoTimer > 55) {
+      window.__shoot(-44, 0.98);
+      demoStep = 3; demoTimer = 0;
+    }
+  } else if (demoStep === 3) {
+    if (state === STATE_SUNK) { demoStep = 4; demoTimer = 0; }
+    if (demoTimer > 320) { demoStep = 99; demoTimer = 0; } // safety: retry loop
+  } else if (demoStep === 4) {
+    // hold on the "IN THE CUP" beat, then loop
+    if (demoTimer > 120) { demoStep = 99; demoTimer = 0; }
+  } else if (demoStep === 99) {
+    resetDemo();
+  }
+}
+
+// ── Main loop / headless API ─────────────────────────────────────────────────
+var frame = 0;
+function step() {
+  frame++;
+  if (auto) autoDemoTick();
+  if (state === STATE_FLIGHT) {
+    updatePhysics();
+    checkCup();
+    updateCamera();
+    // Ball settled on a normal surface OR grabbed a sticky surface -> ready to aim again.
+    if (ball.atRest && state === STATE_FLIGHT) state = STATE_AIM;
+  } else if (state === STATE_SUNK) {
+    sunkTimer++;
+    updateCamera();
+  } else {
+    updateCamera();
+  }
+  draw();
+}
+
+window.__step = function(){ step(); };
+window.__reset = function(){ resetDemo(); draw(); };
+window.__frame = function(){ return frame; };
+window.__setAuto = function(a){ auto = a; };
+window.__state = function(){ return { step: demoStep, state: state, stuck: ball.stuck, sunk: ball.sunk, x: Math.round(ball.x), y: Math.round(ball.y) }; };
+
+(function loop(){ step(); requestAnimationFrame(loop); })();
+resetDemo();
+draw();
+</script>
+</body>
+</html>

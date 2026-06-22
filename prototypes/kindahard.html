@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>KINDA HARD GOLF — The Ascent</title>
+<style>html,body{margin:0;background:#0c0e14;overflow:hidden}canvas{display:block;margin:0 auto}</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+// ── KINDA HARD GOLF · THE ASCENT ──────────────────────────────────────────────
+// Only-Up-for-golf. A TALL vertical tower of stacked ledges climbed UPWARD: hit the ball UP from
+// ledge to ledge with precise angle+power (deliberately hard). CHECKPOINT flags on some ledges:
+// reaching one SAVES it. FALLING off respawns you at your LAST checkpoint (never the bottom) —
+// that mercy mechanic is the core. Camera follows the ball UP (and gently sideways) so the active
+// ledge is always centered. Matches src/roguelike/atlas-climb.js intent: "each cup you sink is a
+// checkpoint; fall and you only drop to the last cup."
+//
+// Flat-color art (matches faceted-golf src/art.js): finite terrain slabs with a solid base + a
+// subtle second value band + a 4px lighter lip on the top edge (no infinite columns, no gradients
+// on the rock); dark-space sky gradient + faint stars; white ball (r=9) with 3 rotating dimples;
+// small mono HUD. Aim UI matches art.js drawAimUI: faded start circle + white launch line WITH an
+// arrowhead + a dark dot trail toward the cursor. Self-contained, vanilla, no imports/fetch.
+// Exposes __reset / __step / __shoot for headless drive.
+var cv = document.getElementById('c'), ctx = cv.getContext('2d'), W = 960, H = 540;
+
+// ── palette (faceted-golf space sky + ascent flat-color stone) ─────────────────
+var SKY0 = '#1a2230', SKY1 = '#26303c';
+// flat-color terrain language: a warm-dark base + a darker under-band + a clearly lighter top lip.
+// (atlas-climb's ascentstone was a single flat #3a3a44 grey — that read as a UI panel; here the rock
+//  gets a silhouette: base value, a second darker band beneath it, and the bright lip on top.)
+var STONE_BASE = '#4a4350';   // warm slate base (the lit face of the slab)
+var STONE_DARK = '#352f3a';   // darker value band lower on the slab (depth / shadow side)
+var STONE_LIP  = '#6a6276';   // bright top lip (4px) — the catch surface
+var BALL_COLOR = '#ffffff';
+
+// ── physics (matches shared.js feel; gravity turned UP like The Ascent's heavy world) ──
+var GRAVITY = 0.34;          // heavy planet: shorter, punchier hops
+var RESTITUTION = 0.38;      // ascentstone restitution
+var ROLL_FRICTION = 0.94;
+var SURF_FRICTION = 0.05;
+var BALL_R = 9;
+var SLAB_H = 52;             // finite slab height (a real platform, not an infinite pillar)
+
+// ── the TOWER: a stack of ledges going UP, ZIG-ZAGGING across the FULL width ────────────────────
+// Each ledge is a horizontal platform {x,w,y}. Gaps between them (in x and y) you must loft across.
+// Some ledges carry a CHECKPOINT flag. y decreases (smaller = higher on screen) as you climb.
+// The plan deliberately alternates LEFT and RIGHT across x=60..900 so the whole 960px frame is used
+// (fix for round-1's "dead right half"). Camera also follows the ball sideways for balance.
+var ledges = [], checkpoints = [];
+var TOWER_BOTTOM_Y = 480;    // world y of the ground/first ledge
+function buildTower() {
+  ledges = []; checkpoints = [];
+  // ground ledge (start) — centered low, the staging tee.
+  var g = { x: 360, w: 240, y: TOWER_BOTTOM_Y, cp: true, start: true };
+  ledges.push(g);
+  checkpoints.push({ x: g.x + g.w / 2, y: TOWER_BOTTOM_Y, ledgeIdx: 0 });
+
+  // hand-authored climb. Absolute ledge CENTER x's chosen to sweep the FULL 60..900 range so the
+  // frame never collapses to one side — but each consecutive hop stays within reach of the heavy-world
+  // physics (verified: every hop has a solver solution). [centerX, dy up from prev, width, isCheckpoint]
+  var plan = [
+    [300, 90, 150, false],
+    [520, 92, 150, true],   // checkpoint 1 (right of center)
+    [320, 96, 150, false],
+    [560, 92, 150, false],
+    [760, 96, 130, true],   // checkpoint 2 (far right, high)
+    [560, 96, 150, false],
+    [340, 92, 150, false],
+    [520, 96, 150, true],   // checkpoint 3 (top)
+  ];
+  var prev = g;
+  for (var i = 0; i < plan.length; i++) {
+    var p = plan[i];
+    var cx = p[0];
+    var w = p[2];
+    var x = cx - w / 2;
+    var y = prev.y - p[1];
+    x = Math.max(40, Math.min(W - 40 - w, x));   // keep on screen horizontally
+    var L = { x: x, y: y, w: w, cp: p[3] };
+    ledges.push(L);
+    if (p[3]) checkpoints.push({ x: x + w / 2, y: y, ledgeIdx: ledges.length - 1 });
+    prev = L;
+  }
+}
+
+// ── ball + camera + state ───────────────────────────────────────────────────────
+var ball, camY, camX, state, lastCpIdx, reachedCpIdx, frame;
+// state: 'aim' | 'flight' | 'fall'
+var STAR = [];
+function buildStars() { STAR = []; for (var i = 0; i < 80; i++) STAR.push({ x: Math.random() * W, y: Math.random() * (H * 2), r: Math.random() < 0.2 ? 1.4 : 0.8, a: 0.2 + Math.random() * 0.5 }); }
+
+function respawnAtCheckpoint(idx) {
+  var cp = checkpoints[idx];
+  ball.x = cp.x;
+  ball.y = cp.y - BALL_R;
+  ball.vx = 0; ball.vy = 0;
+  ball.onGround = true; ball.atRest = true; ball.rotation = 0; ball.spinRate = 0;
+  lastCpIdx = idx;
+  state = 'aim';
+}
+
+function reset() {
+  buildTower(); buildStars();
+  ball = { x: 0, y: 0, vx: 0, vy: 0, onGround: true, atRest: true, rotation: 0, spinRate: 0, r: BALL_R };
+  lastCpIdx = 0; reachedCpIdx = 0; frame = 0; flashTimer = 0; banner = '';
+  camY = 0; camX = 0;
+  respawnAtCheckpoint(0);
+  // snap camera to ball immediately
+  camY = ball.y - H * 0.62;
+  camX = ball.x - W / 2;
+  draw();
+}
+
+// ── shoot: angleDeg measured from +x axis, CCW positive (so 90 = straight up). power01 in [0,1] ──
+var MAX_SPEED = 15;
+function shoot(angleDeg, power01) {
+  if (state !== 'aim') return;
+  power01 = Math.max(0, Math.min(1, power01));
+  var rad = angleDeg * Math.PI / 180;
+  var sp = power01 * MAX_SPEED;
+  ball.vx = Math.cos(rad) * sp;
+  ball.vy = -Math.sin(rad) * sp;     // screen y is down, so up = negative
+  ball.atRest = false; ball.onGround = false; ball.slowFrames = 0;
+  state = 'flight';
+}
+
+// ── ledge collision: ball lands on top of a platform if descending through it ──
+function ledgeAt(x, yTop, yBot) {
+  for (var i = 0; i < ledges.length; i++) {
+    var L = ledges[i];
+    if (x >= L.x && x <= L.x + L.w) {
+      if (yBot >= L.y && yTop <= L.y + 14) return L;   // within the top surface band
+    }
+  }
+  return null;
+}
+
+var flashTimer = 0, banner = '';
+
+function stepPhysics() {
+  if (ball.atRest) return;
+  var sub = 2;
+  for (var s = 0; s < sub; s++) {
+    ball.vy += GRAVITY / sub;
+    var py = ball.y;
+    ball.x += ball.vx / sub;
+    ball.y += ball.vy / sub;
+
+    // land on a ledge (only when descending)
+    if (ball.vy > 0) {
+      var L = ledgeAt(ball.x, py + BALL_R, ball.y + BALL_R);
+      if (L) {
+        ball.y = L.y - BALL_R;
+        if (Math.abs(ball.vy) > 1.2) {
+          ball.vy = -ball.vy * RESTITUTION;   // bounce
+          ball.onGround = false;
+        } else {
+          ball.vy = 0; ball.onGround = true;
+        }
+      } else {
+        ball.onGround = false;
+      }
+    }
+    // side walls of the slab (so an edge can catch / block a glancing approach)
+    for (var i = 0; i < ledges.length; i++) {
+      var Lw = ledges[i];
+      if (ball.y + BALL_R > Lw.y + 2 && ball.y - BALL_R < Lw.y + SLAB_H) {
+        if (ball.x + BALL_R > Lw.x && ball.x - BALL_R < Lw.x && ball.vx > 0) { ball.x = Lw.x - BALL_R; ball.vx = -ball.vx * 0.3; }
+        else if (ball.x - BALL_R < Lw.x + Lw.w && ball.x + BALL_R > Lw.x + Lw.w && ball.vx < 0) { ball.x = Lw.x + Lw.w + BALL_R; ball.vx = -ball.vx * 0.3; }
+      }
+    }
+  }
+
+  if (ball.onGround) {
+    ball.vx *= ROLL_FRICTION;
+    var sp = Math.abs(ball.vx);
+    if (sp > SURF_FRICTION) ball.vx -= (ball.vx / sp) * SURF_FRICTION; else ball.vx = 0;
+    ball.spinRate = ball.vx / BALL_R;
+    ball.rotation += ball.spinRate;
+    if (Math.abs(ball.vx) < 0.05) { ball.vx = 0; ball.vy = 0; ball.atRest = true; }
+  } else {
+    ball.rotation += ball.spinRate || 0;
+  }
+}
+
+// did we reach a NEW (higher) checkpoint?
+function checkCheckpointReach() {
+  if (!ball.atRest) return;
+  for (var i = checkpoints.length - 1; i > lastCpIdx; i--) {
+    var cp = checkpoints[i];
+    var onLedge = ledgeAt(ball.x, ball.y + BALL_R - 2, ball.y + BALL_R + 4);
+    if (onLedge && onLedge === ledges[cp.ledgeIdx]) {
+      lastCpIdx = i; reachedCpIdx = i;
+      flashTimer = 50; banner = 'CHECKPOINT ' + i + ' SAVED';
+      return;
+    }
+  }
+}
+
+// ── trajectory solver (so the auto-demo reliably climbs regardless of geometry) ───────────────
+// Simulates a flight from the ball's current rest position with a given (angle,power) using the SAME
+// physics as the real ball, and reports the ledge it settles on. Used to pick demo shots live.
+function simulateShot(angleDeg, power01) {
+  var rad = angleDeg * Math.PI / 180, sp = Math.max(0, Math.min(1, power01)) * MAX_SPEED;
+  var b = { x: ball.x, y: ball.y, vx: Math.cos(rad) * sp, vy: -Math.sin(rad) * sp, onGround: false, atRest: false };
+  for (var f = 0; f < 360; f++) {
+    var subN = 2;
+    for (var s = 0; s < subN; s++) {
+      b.vy += GRAVITY / subN; var py = b.y;
+      b.x += b.vx / subN; b.y += b.vy / subN;
+      if (b.vy > 0) {
+        var L = ledgeAt(b.x, py + BALL_R, b.y + BALL_R);
+        if (L) { b.y = L.y - BALL_R; if (Math.abs(b.vy) > 1.2) { b.vy = -b.vy * RESTITUTION; b.onGround = false; } else { b.vy = 0; b.onGround = true; } }
+        else b.onGround = false;
+      }
+      // slab side walls (so the sim matches the real wall behaviour)
+      for (var wi = 0; wi < ledges.length; wi++) {
+        var Lw = ledges[wi];
+        if (b.y + BALL_R > Lw.y + 2 && b.y - BALL_R < Lw.y + SLAB_H) {
+          if (b.x + BALL_R > Lw.x && b.x - BALL_R < Lw.x && b.vx > 0) { b.x = Lw.x - BALL_R; b.vx = -b.vx * 0.3; }
+          else if (b.x - BALL_R < Lw.x + Lw.w && b.x + BALL_R > Lw.x + Lw.w && b.vx < 0) { b.x = Lw.x + Lw.w + BALL_R; b.vx = -b.vx * 0.3; }
+        }
+      }
+    }
+    if (b.onGround) { b.vx *= ROLL_FRICTION; var ax = Math.abs(b.vx); if (ax > SURF_FRICTION) b.vx -= (b.vx / ax) * SURF_FRICTION; else b.vx = 0; if (Math.abs(b.vx) < 0.05) { b.vx = 0; b.atRest = true; } }
+    if (b.atRest) { var li = -1; for (var k = 0; k < ledges.length; k++) { var Lk = ledges[k]; if (b.x >= Lk.x && b.x <= Lk.x + Lk.w && Math.abs((b.y + BALL_R) - Lk.y) < 6) { li = k; break; } } return { x: b.x, y: b.y, ledge: li, frames: f }; }
+    if (b.y > TOWER_BOTTOM_Y + 200) return { x: b.x, y: b.y, ledge: -1, frames: f };  // fell off
+  }
+  return { x: b.x, y: b.y, ledge: -1, frames: 360 };
+}
+// Find a shot that lands the ball on the ledge with index `targetLedge` (brute-force over angle/power).
+function solveShotTo(targetLedge) {
+  var best = null;
+  var tgt = ledges[targetLedge];
+  var cx = tgt.x + tgt.w / 2;
+  for (var a = 35; a <= 145; a += 1) {
+    for (var p = 0.40; p <= 0.99; p += 0.012) {
+      var r = simulateShot(a, p);
+      if (r.ledge === targetLedge) {
+        var sc = Math.abs(r.x - cx);                 // prefer landing near ledge center
+        if (!best || sc < best.score) best = { ang: a, pow: p, score: sc };
+      }
+    }
+  }
+  return best;
+}
+
+// ── auto-demo: climb several ledges + reach a checkpoint, then intentionally MISS and FALL,
+//    proving respawn at the LAST checkpoint (never the bottom), then loops. ──────────────────────
+// The demo PRE-AIMS visibly (sets the aim UI from the ball toward the launch direction for a beat)
+// BEFORE each shot, so the "drag BACK from ball" affordance is shown — not just instant power shots.
+var demo = true, demoTimer = 0, demoPhase = 'climb', demoWait = 70, demoPendingReset = false;
+var demoAim = null;     // {ang, pow} currently being telegraphed
+var demoAimT = 0;       // frames the aim has been shown
+var AIM_SHOW = 34;      // frames to telegraph an aim before releasing
+function currentLedgeIdx() {
+  for (var k = 0; k < ledges.length; k++) { var L = ledges[k]; if (ball.x >= L.x && ball.x <= L.x + L.w && Math.abs((ball.y + BALL_R) - L.y) < 6) return k; }
+  return 0;
+}
+function runDemo() {
+  if (!demo) return;
+  if (state !== 'aim') { demoTimer = 0; return; }
+
+  // If we have a telegraphed aim queued, count it down and then release.
+  if (demoAim) {
+    demoAimT++;
+    if (demoAimT >= AIM_SHOW) {
+      var a = demoAim; demoAim = null; demoAimT = 0; demoTimer = 0;
+      shoot(a.ang, a.pow);
+    }
+    return;
+  }
+
+  demoTimer++;
+  if (demoTimer < demoWait) return;
+  demoTimer = 0;
+
+  var here = currentLedgeIdx();
+
+  if (demoPhase === 'climb') {
+    // climb until we've banked at least two checkpoints, then deliberately fall.
+    if (lastCpIdx >= 2) { demoPhase = 'fall'; return; }
+    var target = Math.min(here + 1, ledges.length - 1);
+    var sol = solveShotTo(target);
+    if (!sol && target + 1 < ledges.length) { target = target + 1; sol = solveShotTo(target); }
+    if (sol) {
+      banner = 'hop → ledge ' + target + (ledges[target] && ledges[target].cp ? '  (CHECKPOINT)' : '');
+      flashTimer = AIM_SHOW + 30;
+      demoAim = { ang: sol.ang, pow: sol.pow }; demoAimT = 0;   // telegraph, then release
+    } else {
+      banner = 're-center';
+      demoAim = { ang: 90, pow: 0.42 }; demoAimT = 0;
+    }
+  } else if (demoPhase === 'fall') {
+    // INTENTIONAL MISS: a weak, steep shot that drops into the gap -> ball falls below the
+    // last checkpoint -> respawn lands you back AT the checkpoint (the mercy mechanic).
+    banner = 'MISS → FALL';
+    flashTimer = AIM_SHOW + 30;
+    demoAim = { ang: 62, pow: 0.40 }; demoAimT = 0;
+    demoPhase = 'wait_respawn';
+  } else if (demoPhase === 'wait_respawn') {
+    demoPendingReset = true;
+    demoPhase = 'climb';
+  }
+}
+
+// ── camera follows ball UP (vertical) and gently sideways (horizontal) so the frame is balanced ──
+function updateCamera() {
+  var targetY = ball.y - H * 0.62;    // keep ball in lower-middle, sky above
+  camY += (targetY - camY) * 0.10;
+  var targetX = ball.x - W / 2;       // center the active ledge horizontally
+  camX += (targetX - camX) * 0.06;    // gentle so the tower's zig-zag still reads as movement
+}
+
+// ── fall detection (the core mercy mechanic) ──────────────────────────────────────
+// A FALL = the ball drops well below the last checkpoint, or sails off the side of the tower.
+// Mirrors atlas-climb.js isOOB: settle/fly below this segment's tee (= last cup) -> reshoot from it.
+function isFalling() {
+  var cp = checkpoints[lastCpIdx];
+  if (ball.y > cp.y + H * 0.55) return true;            // dropped far below the checkpoint -> lost
+  if (ball.x < camX - 60 || ball.x > camX + W + 60) return true;   // flew off the side of the frame
+  return false;
+}
+var fallTimer = 0;
+
+function step() {
+  frame++;
+  runDemo();
+  if (state === 'flight') {
+    stepPhysics();
+    if (isFalling()) {                          // dropped below the checkpoint / off the tower
+      state = 'fall'; fallTimer = 0;
+      flashTimer = 70; banner = 'FELL! respawning at CP ' + lastCpIdx;
+    } else if (ball.atRest) {
+      checkCheckpointReach();
+      state = 'aim';                            // landed safely on a ledge
+    }
+    updateCamera();
+  } else if (state === 'fall') {
+    stepPhysics();                              // keep tumbling so the fall is SEEN
+    if (ball.atRest) ball.atRest = false;       // never settle mid-fall
+    fallTimer++;
+    if (fallTimer > 42) {
+      respawnAtCheckpoint(lastCpIdx);           // BACK to last checkpoint, NOT the bottom
+      camX = ball.x - W / 2;                     // snap camera onto the checkpoint
+    }
+    updateCamera();
+  } else {
+    updateCamera();
+  }
+  if (flashTimer > 0) flashTimer--;
+  if (demoPendingReset && state === 'aim') {
+    demoPendingReset = false;
+    reset();
+    demo = true; demoTimer = 0; demoPhase = 'climb'; demoAim = null; demoAimT = 0;
+  }
+  draw();
+}
+
+// ── DRAW ────────────────────────────────────────────────────────────────────────
+function worldToScreenX(wx) { return wx - camX; }
+function worldToScreenY(wy) { return wy - camY; }
+
+function drawBall() {
+  var sx = worldToScreenX(ball.x), sy = worldToScreenY(ball.y);
+  ctx.fillStyle = BALL_COLOR;
+  ctx.beginPath(); ctx.arc(sx, sy, BALL_R, 0, 6.2832); ctx.fill();
+  ctx.save();
+  ctx.translate(sx, sy); ctx.rotate(ball.rotation || 0);
+  ctx.fillStyle = 'rgba(0,0,0,0.28)';
+  for (var i = 0; i < 3; i++) {
+    var a = (i / 3) * 6.2832, d = BALL_R * 0.55;
+    ctx.beginPath(); ctx.arc(Math.cos(a) * d, Math.sin(a) * d, 1.6, 0, 6.2832); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawFlag(cp, idx) {
+  var lx = worldToScreenX(cp.x), sy = worldToScreenY(cp.y);
+  var saved = idx <= lastCpIdx;
+  var poleH = 46;
+  ctx.strokeStyle = '#7888a0'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(lx, sy); ctx.lineTo(lx, sy - poleH); ctx.stroke();
+  // pennant (gold when saved, slate when not yet) — matches src/art.js drawFlag pentagon
+  var pTop = sy - poleH, pBot = sy - poleH + 14, pMid = (pTop + pBot) / 2;
+  var bodyW = 20, pointW = 9;
+  ctx.fillStyle = saved ? '#e8c840' : '#5a5a64';
+  ctx.beginPath();
+  ctx.moveTo(lx, pTop); ctx.lineTo(lx + bodyW, pTop);
+  ctx.lineTo(lx + bodyW + pointW, pMid); ctx.lineTo(lx + bodyW, pBot); ctx.lineTo(lx, pBot);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = saved ? '#4a3520' : '#9aa0ac';
+  ctx.font = "10px monospace"; ctx.textAlign = 'center';
+  ctx.fillText(String(idx), lx + bodyW / 2, pMid + 4);
+  ctx.textAlign = 'left';
+}
+
+function drawSlab(L) {
+  var sx = worldToScreenX(L.x), top = worldToScreenY(L.y);
+  if (sx > W + 80 || sx + L.w < -80) return;            // cull offscreen horizontally
+  if (top > H + 80 || top + SLAB_H < -80) return;       // cull offscreen vertically
+  // finite slab: solid warm base, a darker value band on the lower portion (depth), bright top lip.
+  ctx.fillStyle = STONE_BASE;
+  ctx.fillRect(sx, top, L.w, SLAB_H);
+  ctx.fillStyle = STONE_DARK;                            // second value band (lower third) reads as terrain
+  ctx.fillRect(sx, top + Math.round(SLAB_H * 0.62), L.w, SLAB_H - Math.round(SLAB_H * 0.62));
+  ctx.fillStyle = STONE_LIP;                             // 4px lighter lip on the top edge (the catch surface)
+  ctx.fillRect(sx, top, L.w, 4);
+}
+
+function draw() {
+  // sky
+  var g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, SKY0); g.addColorStop(1, SKY1);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // stars (slow parallax with camera, both axes)
+  for (var i = 0; i < STAR.length; i++) {
+    var s = STAR[i];
+    var ssx = (s.x - camX * 0.10) % W; if (ssx < 0) ssx += W;
+    var ssy = (s.y - camY * 0.15) % H; if (ssy < 0) ssy += H;
+    ctx.globalAlpha = s.a; ctx.fillStyle = '#cfe0f0';
+    ctx.beginPath(); ctx.arc(ssx, ssy, s.r, 0, 6.2832); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // ledges — finite flat-color slabs (fixes round-1's stranded-lip / infinite-pillar bug)
+  for (var i = 0; i < ledges.length; i++) drawSlab(ledges[i]);
+
+  // checkpoint flags
+  for (var i = 0; i < checkpoints.length; i++) drawFlag(checkpoints[i], i);
+
+  // ball
+  drawBall();
+
+  // aim UI — manual drag, demo telegraph, OR a persistent resting hint
+  drawAimUI();
+
+  // ── HUD (small monospace, top-left) ──
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffffff'; ctx.font = "16px monospace";
+  ctx.fillText('KINDA HARD GOLF · THE ASCENT', 14, 26);
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = "11px monospace";
+  ctx.fillText('drag BACK from ball to aim + power · climb UP · fall = respawn at last checkpoint', 14, 44);
+  ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = "12px monospace";
+  ctx.fillText('checkpoint: ' + lastCpIdx + ' / ' + (checkpoints.length - 1), 14, 64);
+
+  // banner (checkpoint saved / fell / hop) — nudged DOWN to y~120 so it never overlaps the HUD lines
+  if (flashTimer > 0 && banner) {
+    ctx.globalAlpha = Math.min(1, flashTimer / 20);
+    ctx.fillStyle = banner.indexOf('FELL') >= 0 ? '#ff6b5a'
+                  : (banner.indexOf('CHECKPOINT') >= 0 && banner.indexOf('hop') < 0) ? '#e8c840'
+                  : 'rgba(255,255,255,0.9)';
+    ctx.font = "20px monospace"; ctx.textAlign = 'center';
+    ctx.fillText(banner, W / 2, 120);
+    ctx.globalAlpha = 1; ctx.textAlign = 'left';
+  }
+}
+
+// ── aim UI (matches src/art.js drawAimUI): faded start circle + white launch line + arrowhead +
+//    dark dot trail toward the cursor. Renders for: manual drag, demo telegraph, and a resting hint. ──
+function drawAimArrow(startX, startY, launchX, launchY, dragX, dragY, alpha) {
+  var dx = launchX - startX, dy = launchY - startY;
+  var len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 4) return;
+  var nx = dx / len, ny = dy / len;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  // 1. faded circle at the start point (the ball / drag origin)
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(startX, startY, 8, 0, 6.2832); ctx.stroke();
+  // 2. white launch line in the LAUNCH direction
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(launchX, launchY); ctx.stroke();
+  // 3. arrowhead at the launch end
+  var arrowLen = 10, arrowAng = 0.45, la = Math.atan2(ny, nx);
+  ctx.beginPath();
+  ctx.moveTo(launchX, launchY);
+  ctx.lineTo(launchX - arrowLen * Math.cos(la - arrowAng), launchY - arrowLen * Math.sin(la - arrowAng));
+  ctx.moveTo(launchX, launchY);
+  ctx.lineTo(launchX - arrowLen * Math.cos(la + arrowAng), launchY - arrowLen * Math.sin(la + arrowAng));
+  ctx.stroke();
+  // 4. dark dot trail in the DRAG direction (toward cursor / opposite the launch)
+  if (dragX !== undefined) {
+    var ddx = dragX - startX, ddy = dragY - startY, dl = Math.sqrt(ddx * ddx + ddy * ddy);
+    if (dl > 4) {
+      var dnx = ddx / dl, dny = ddy / dl, spacing = 10, n = Math.min(Math.floor(dl / spacing), 15);
+      ctx.fillStyle = 'rgba(60,55,70,0.55)';
+      for (var k = 1; k <= n; k++) {
+        ctx.beginPath(); ctx.arc(startX + dnx * k * spacing, startY + dny * k * spacing, 2.5, 0, 6.2832); ctx.fill();
+      }
+    }
+  }
+  ctx.restore();
+}
+
+var aiming = false, aimSX = 0, aimSY = 0, aimCX = 0, aimCY = 0;
+function drawAimUI() {
+  var bsx = worldToScreenX(ball.x), bsy = worldToScreenY(ball.y);
+
+  // (a) manual drag — aim origin is the drag-start point (the ball), launch = opposite of drag
+  if (state === 'aim' && aiming) {
+    var dx = aimCX - aimSX, dy = aimCY - aimSY;
+    if (Math.sqrt(dx * dx + dy * dy) >= 5) {
+      drawAimArrow(aimSX, aimSY, aimSX - dx, aimSY - dy, aimCX, aimCY, 1);
+      // power bar under the ball
+      var pw = Math.min(Math.sqrt(dx * dx + dy * dy) / 200, 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(bsx - 30, bsy + 18, 60, 6);
+      ctx.fillStyle = pw > 0.8 ? '#ff6b5a' : '#e8c840'; ctx.fillRect(bsx - 30, bsy + 18, 60 * pw, 6);
+    }
+    return;
+  }
+
+  // (b) demo telegraph — show the exact shot the bot is about to take (launch line + dot trail)
+  if (state === 'aim' && demo && demoAim) {
+    var rad = demoAim.ang * Math.PI / 180, sp = demoAim.pow * 90;   // visual length scaled to power
+    var lx = bsx + Math.cos(rad) * sp, ly = bsy - Math.sin(rad) * sp;
+    var dragX = bsx - Math.cos(rad) * sp, dragY = bsy + Math.sin(rad) * sp;  // drag = opposite of launch
+    var a = Math.min(1, demoAimT / 8);
+    drawAimArrow(bsx, bsy, lx, ly, dragX, dragY, a);
+    var pw = demoAim.pow;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(bsx - 30, bsy + 18, 60, 6);
+    ctx.fillStyle = pw > 0.8 ? '#ff6b5a' : '#e8c840'; ctx.fillRect(bsx - 30, bsy + 18, 60 * pw, 6);
+    ctx.globalAlpha = 1;
+    return;
+  }
+
+  // (c) persistent resting hint — a short default arrow up the intended hop direction, so the player
+  //     always knows they can shoot (faint, breathing). Points toward the next-higher ledge if any.
+  if (state === 'aim' && ball.atRest) {
+    var hintAng = 78;   // default: up and slightly toward the next ledge
+    var here = currentLedgeIdx();
+    if (here + 1 < ledges.length) {
+      var nxt = ledges[here + 1], nc = nxt.x + nxt.w / 2;
+      hintAng = nc > ball.x ? 62 : 118;     // lean toward the next ledge's side
+    }
+    var rad = hintAng * Math.PI / 180, sp = 46;
+    var lx = bsx + Math.cos(rad) * sp, ly = bsy - Math.sin(rad) * sp;
+    var pulse = 0.35 + 0.18 * Math.sin(frame * 0.08);
+    drawAimArrow(bsx, bsy, lx, ly, undefined, undefined, pulse);
+  }
+}
+
+function toGame(e) {
+  var r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
+}
+cv.addEventListener('mousedown', function (e) {
+  if (state !== 'aim') return;
+  demo = false; demoAim = null;       // manual play takes over
+  var p = toGame(e); aiming = true; aimSX = p.x; aimSY = p.y; aimCX = p.x; aimCY = p.y;
+});
+window.addEventListener('mousemove', function (e) { if (!aiming) return; var p = toGame(e); aimCX = p.x; aimCY = p.y; });
+window.addEventListener('mouseup', function (e) {
+  if (!aiming) return; aiming = false;
+  var dx = aimSX - aimCX, dy = aimSY - aimCY;
+  var dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 5) return;
+  var ang = Math.atan2(-dy, dx) * 180 / Math.PI;    // launch dir = opposite of drag; -dy because screen y down
+  var pow = Math.min(dist / 200, 1);
+  shoot(ang, pow);
+});
+
+// ── headless API ────────────────────────────────────────────────────────────────
+window.__reset = function () { reset(); demo = true; demoTimer = 0; demoPhase = 'climb'; demoAim = null; demoAimT = 0; demoPendingReset = false; };
+window.__step = function () { step(); };
+window.__shoot = function (angleDeg, power01) { demo = false; demoAim = null; shoot(angleDeg, power01); };
+window.__state = function () { return { state: state, lastCp: lastCpIdx, ballX: Math.round(ball.x), ballY: Math.round(ball.y), camX: Math.round(camX), camY: Math.round(camY) }; };
+
+// ── main loop: auto-plays the scripted demo, supports manual click/drag ──────────
+reset();
+var auto = true; window.__setAuto = function (a) { auto = a; };
+(function loop() { if (auto && ball) step(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
