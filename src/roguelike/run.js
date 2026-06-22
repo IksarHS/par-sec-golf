@@ -2312,7 +2312,10 @@
     if (RG.loadCollection) RG.loadCollection();
     // The space arc boots on Earth. ?mars boots the original Mars nine directly (the
     // old line stays playable while Mars awaits its place as a destination).
+    const _cm = (typeof location !== 'undefined') && /[?&](?:course|gomoon)=([a-z0-9_-]+)/i.exec(location.search);
     const mars = (typeof location !== 'undefined') && /[?&]mars\b/.test(location.search);
-    RG.startRun({ course: mars ? 'run-course' : 'earth-course' });
+    const _al = { '1': 'moon', '2': 'moon2', '3': 'moon3' };
+    const _boot = _cm ? (_al[_cm[1].toLowerCase()] || _cm[1].toLowerCase()) : (mars ? 'run-course' : 'earth');
+    RG.startRun({ course: _boot });   // boot straight into the requested course (or the Earth tour) — no Front-Nine / earth-course flash before the override
   };
 })();

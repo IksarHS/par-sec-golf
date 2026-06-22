@@ -159,7 +159,7 @@
   (function go() {
     if (window.RG && RG.startRun && typeof holes !== 'undefined' && holes.length > 0
         && WORLDS['run-world'] && WORLDS['run-world'].courses[course]) {   // only override for a REAL base course
-      setTimeout(function () { try { RG.startRun({ course: course, seed: (RG.rollSeed ? RG.rollSeed() : 12345) }); } catch (e) {} }, 150);
+      if (RG.course !== course) setTimeout(function () { try { RG.startRun({ course: course, seed: (RG.rollSeed ? RG.rollSeed() : 12345) }); } catch (e) {} }, 150);   // only switch if the boot didn't already land us here (no double-load flicker)
     } else if (n++ < 240) setTimeout(go, 50);
   })();
 })();
