@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <link rel="icon" href="data:,">
   <meta charset="utf-8">
   <title>Golf Orbit — mega-drive prototype</title>
   <style>html,body{margin:0;background:#0c0e14;overflow:hidden}</style>
@@ -125,9 +126,9 @@ function draw() {
 
 window.__reset = reset; window.__step = step; window.__frame = function () { return frame; };
 var auto = true; window.__setAuto = function (a) { auto = a; };
-(function loop() { if (auto) step(); requestAnimationFrame(loop); })();
 cv.addEventListener('click', function () { if (state === 'aim') shoot(pm); });
-reset();
+reset();                                                       // init state BEFORE the loop starts (else the first step() reads undefined)
+(function loop() { if (auto) step(); requestAnimationFrame(loop); })();
 </script>
 </body>
 </html>

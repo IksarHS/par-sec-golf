@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <link rel="icon" href="data:,">
   <meta charset="utf-8">
   <title>Height-field water — showcase</title>
   <style>html,body{margin:0;background:#0c0e14;overflow:hidden}</style>
@@ -89,9 +90,9 @@ function draw() {
 
 window.__step = step; window.__reset = reset; window.__frame = function () { return frame; };
 var auto = true; window.__setAuto = function (a) { auto = a; };
-(function loop() { if (auto) step(); requestAnimationFrame(loop); })();
 cv.addEventListener('click', function (e) { var r = cv.getBoundingClientRect(); var x = (e.clientX - r.left) * (cv.width / r.width); if (x > PX0 && x < PX1) splash(x, 11); });
-reset();
+reset();                                                       // init BEFORE the loop starts
+(function loop() { if (auto) step(); requestAnimationFrame(loop); })();
 </script>
 </body>
 </html>
