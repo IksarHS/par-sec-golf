@@ -142,16 +142,19 @@
           var _cc = (window.RG && RG.course) || '';
           if (_cc !== _vidCourse) { vidCol = {}; _vidCourse = _cc; }   // new course = new terrain → reset colour memory (no false pop)
           if (frame % 12 === 0 && frame > 50) {                        // skip startup churn (default course → real course swap)
+            var chg = 0, ex = '';
             for (var qi = 0; qi < vertices.length; qi++) {
               var qv = vertices[qi]; if (!qv || qv._dbgId == null) continue;
               var qx = qv.x - camera.x, qy = (qv.y + 22) - camY;
               if (qx < 6 || qx > W - 6 || qy < 6 || qy > H - 6) continue;
               var qc = sampleAt(qx, qy); if (!qc) continue;
               var qp = vidCol[qv._dbgId];
-              if (qp && (Math.abs(qc[0] - qp[0]) + Math.abs(qc[1] - qp[1]) + Math.abs(qc[2] - qp[2])) > 50)
-                push('vtx #' + qv._dbgId + ' RECOLOUR ' + cs(qp) + '→' + cs(qc) + ' *** POP');
+              if (qp && (Math.abs(qc[0] - qp[0]) + Math.abs(qc[1] - qp[1]) + Math.abs(qc[2] - qp[2])) > 60) { chg++; if (!ex) ex = '#' + qv._dbgId + ' ' + cs(qp) + '→' + cs(qc); }
               vidCol[qv._dbgId] = qc;
             }
+            // MASS recolour = the strata-pop signature (many vertices recolour together). A lone flicker is grain
+            // texture or the sample clipping the sky at a cliff edge — noise, not flagged.
+            if (chg >= 4) push('MASS RECOLOUR ' + chg + ' vtx (' + ex + ') *** STRATA POP');
           }
         }
 
