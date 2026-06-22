@@ -2061,6 +2061,38 @@ archetypes.strata_test = function (sx, sy, dist, cupY, diff) {
   ];
 };
 
+// ── CURVY / HILLY archetypes (REVIEW SET, 2026-06-21) ────────────────────────────────────────────────────
+// The pools read very angular; these build SMOOTH terrain from dense vertices (~12px) sampling smooth
+// functions, so the straight-segment heightfield reads as curves. In the lab hole-type tour for review;
+// deliberately NOT in ARCHETYPE_TABLE / any course pool yet — add them there once you approve the look.
+// Cups sit in gathering valleys or on flat greens so they stay sinkable.
+archetypes.smooth_bowl = function (sx, sy, dist, cupY, diff) {            // smooth parabolic gathering bowl
+  const v = [], rim = clampY(H * 0.40), depth = 90 + (diff || 0) * 70, cx = dist * 0.5;
+  for (let x = 0; x <= dist; x += 12) { const t = (x - cx) / (dist * 0.5); v.push({ x: sx + x, y: clampY(rim + depth * (1 - t * t)) }); }
+  let ci = 2, my = -1; for (let i = 2; i < v.length - 2; i++) if (v[i].y > my) { my = v[i].y; ci = i; }
+  v[ci].cup = true; v[ci - 1].y = v[ci].y; v[ci + 1].y = v[ci].y;          // tiny flat at the bottom
+  return v;
+};
+archetypes.rolling_dunes = function (sx, sy, dist, cupY, diff) {          // 2–3 smooth dunes, cup in a valley
+  const v = [], base = clampY(H * 0.60), amp = 42 + (diff || 0) * 38, n = 2 + Math.round(random() * 1.5);
+  for (let x = 0; x <= dist; x += 14) { const t = x / dist, env = Math.pow(Math.sin(t * Math.PI), 0.55); v.push({ x: sx + x, y: clampY(base - amp * env * Math.cos(t * Math.PI * 2 * n)) }); }
+  let ci = -1, my = -1; for (let i = Math.floor(v.length * 0.55); i < v.length - 2; i++) if (v[i].y > my) { my = v[i].y; ci = i; }
+  if (ci > 0) { v[ci].cup = true; v[ci - 1].y = v[ci].y; v[ci + 1].y = v[ci].y; }
+  return v;
+};
+archetypes.ocean_swells = function (sx, sy, dist, cupY, diff) {           // smooth low swells → flat green + cup
+  const v = [], base = clampY(H * 0.56), amp = 26 + (diff || 0) * 24, green = clampY(H * 0.58);
+  for (let x = 0; x <= dist * 0.72; x += 12) { const t = x / dist; v.push({ x: sx + x, y: clampY(base - amp * Math.sin(t * Math.PI * 6)) }); }
+  v.push({ x: sx + dist * 0.80, y: green }); v.push({ x: sx + dist * 0.90, y: green, cup: true }); v.push({ x: sx + dist, y: green });
+  return v;
+};
+archetypes.gentle_knoll = function (sx, sy, dist, cupY, diff) {           // one smooth gaussian hill → flat green behind
+  const v = [], flat = clampY(H * 0.64), rise = 90 + (diff || 0) * 55, kc = dist * 0.42;
+  for (let x = 0; x <= dist * 0.7; x += 12) { const t = (x - kc) / (dist * 0.30); v.push({ x: sx + x, y: clampY(flat - rise * Math.exp(-t * t * 1.6)) }); }
+  v.push({ x: sx + dist * 0.80, y: flat }); v.push({ x: sx + dist * 0.90, y: flat, cup: true }); v.push({ x: sx + dist, y: flat });
+  return v;
+};
+
 // LAB TOUR: expose every hole-type name + an override setter so the lab can step through them one by one.
 if (typeof window !== 'undefined') {
   window.ARCHETYPE_NAMES = Object.keys(archetypes);                 // all polygon hole-types (incl. the new ones)
