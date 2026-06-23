@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Par Sec — Ball Agent (talk to your ball)</title>
+<!-- Favicon = the in-game ball (echoes src/art.js drawBall) -->
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'&gt;&lt;circle cx='8' cy='8' r='6' fill='%23ffffff'/&gt;&lt;circle cx='11.3' cy='8' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='10.86' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='5.14' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;/svg&gt;">
+<link rel="preload" href="../assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  @font-face {
+    font-family: 'Departure Mono';
+    src: url('../assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+         url('../assets/fonts/DepartureMono-Regular.woff') format('woff');
+    font-weight: normal; font-style: normal; font-display: swap;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #0c0e14; }
+  body { font-family: 'Departure Mono', monospace; color: #f2ecff; }
+  canvas { display: block; position: fixed; inset: 0; z-index: 1; }
+
+  /* ── ALWAYS-VISIBLE agent UI: a small TALK button (corner) ── */
+  #agent-ui { position: fixed; right: 18px; bottom: 18px; z-index: 30;
+    display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  #talk { font: 13px 'Departure Mono', monospace; letter-spacing: 1px; color: #0c1410;
+    background: #2ff07a; border: 0; border-radius: 22px; padding: 11px 18px; cursor: pointer;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.45); user-select: none; -webkit-user-select: none; }
+  #talk:hover { background: #46f78c; }
+  #talk.rec { background: #ff6a5a; color: #fff; }
+  #talk .mic { display: inline-block; width: 7px; height: 10px; border-radius: 4px 4px 4px 4px;
+    background: currentColor; margin-right: 7px; vertical-align: -1px; position: relative; }
+  #talk .mic::after { content: ''; position: absolute; left: 1px; bottom: -4px; width: 5px; height: 3px;
+    border: 1.5px solid currentColor; border-top: 0; border-radius: 0 0 4px 4px; }
+  #talk-row { display: flex; gap: 8px; align-items: center; }
+  #tin { display: none; font: 12px 'Departure Mono', monospace; color: #e8f0fa; background: rgba(12,16,22,0.82);
+    border: 1px solid rgba(184,140,255,0.32); border-radius: 18px; padding: 9px 13px; outline: none; width: 240px; }
+  #tin::placeholder { color: #6f6694; }
+  #hint { position: fixed; left: 14px; bottom: 12px; z-index: 30; font: 11px 'Departure Mono', monospace;
+    color: rgba(232,236,255,0.5); text-shadow: 0 1px 4px #000, 0 0 6px #000; pointer-events: none; }
+
+  /* ── DEBUG MENU (backtick toggles) — hidden by default ── */
+  #dbg { position: fixed; top: 0; left: 0; height: 100vh; width: 330px; z-index: 40;
+    background: rgba(8,10,16,0.94); border-right: 1px solid rgba(184,140,255,0.28);
+    color: #e8e2ff; font: 12px 'Departure Mono', monospace; overflow-y: auto; padding: 14px 16px 28px;
+    backdrop-filter: blur(3px); display: none; }
+  #dbg h1 { font-size: 14px; letter-spacing: 3px; color: #fff; margin: 0 0 2px; font-weight: normal; }
+  #dbg .sub { font-size: 10px; color: #8f86b8; margin-bottom: 12px; letter-spacing: 1px; }
+  #dbg .grp { font-size: 10px; letter-spacing: 2px; color: #b88cff; margin: 14px 0 6px;
+    border-bottom: 1px solid rgba(184,140,255,0.18); padding-bottom: 3px; }
+  #dbg select { font: 11px 'Departure Mono', monospace; color: #e8e2ff; background: #1a2230;
+    border: 1px solid rgba(184,140,255,0.32); border-radius: 5px; padding: 7px; width: 100%; cursor: pointer; }
+  #dbg button { font: 11px 'Departure Mono', monospace; background: rgba(184,140,255,0.12);
+    color: #e8e2ff; border: 1px solid rgba(184,140,255,0.32); border-radius: 5px; padding: 7px 11px;
+    cursor: pointer; margin: 8px 0; width: 100%; }
+  #dbg button:hover { background: rgba(184,140,255,0.24); }
+  #dbg button:disabled { opacity: .4; cursor: default; }
+  #dbg .stat { font-size: 11px; line-height: 1.6; color: #9fb4cc; white-space: pre-wrap; }
+  #dbg .last { color: #ffe08a; }
+  #dbg .acts { font-size: 10px; line-height: 1.7; color: #9fb4cc; }
+  #dbg .acts b { color: #2ff07a; }
+  #dbg .bar { width: 100%; height: 7px; background: #1a2230; border: 1px solid #2a3848; border-radius: 5px;
+    margin: 8px 0 4px; overflow: hidden; }
+  #dbg .bar > i { display: block; height: 100%; width: 0%; background: #2ff07a; transition: width .2s; }
+  #dbg a { color: #7fb0ff; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- ── REAL ENGINE CORE (same physics/render files run.html loads; NO roguelike/firebase layer) ──
+     Modeled on physlab.html: drive the REAL gameplay.js ball; the agent only sets up a clean
+     test hole + overlays a face + performs scripted manipulations of the real ball/cup. -->
+<script src="../src/shared.js"></script>
+<script src="../src/level-design.js"></script>
+<script src="../src/modes/desert-golfing.js"></script>
+<script src="../src/art.js"></script>
+<script src="../src/gameplay.js"></script>
+
+<!-- ── ALWAYS-VISIBLE agent UI ── -->
+<div id="agent-ui">
+  <div id="talk-row">
+    <input id="tin" placeholder="…or type to your ball + Enter">
+    <button id="talk"><span class="mic"></span>TALK</button>
+  </div>
+</div>
+<div id="hint">` = debug · hold TALK to speak</div>
+
+<!-- ── DEBUG MENU (hidden; backtick toggles) ── -->
+<div id="dbg">
+  <h1>BALL · DEBUG</h1>
+  <div class="sub">PAR SEC · local LLM agent</div>
+
+  <div class="grp">LOCAL BRAIN</div>
+  <select id="modelSel" title="local model — pick, then LOAD"></select>
+  <div class="bar" id="bootbarWrap" style="display:none"><i id="bootbar"></i></div>
+  <button id="btnLoad">LOAD LOCAL BRAIN</button>
+
+  <div class="grp">STATUS</div>
+  <div class="stat" id="statTxt"></div>
+
+  <div class="grp">KNOWN ACTIONS</div>
+  <div class="acts" id="actList"></div>
+
+  <div class="grp">SECURE CONTEXT</div>
+  <div class="stat" id="secTxt"></div>
+</div>
+
+<script>
+/* ───────────────────────────────────────────────────────────────────────────────────────────────
+   PAR SEC — BALL AGENT
+   A talking golf ball that is an AGENT, running on a REAL ENGINE HOLE. The game looks completely
+   NORMAL (real faceted terrain, the real ball, the gold flag). The only always-visible agent UI is a
+   small "🎤 TALK" button. ALL the LLM machinery (model picker, LOAD, WebGPU status, diagnostics) lives
+   in a DEBUG MENU toggled by the backtick (`) key — hidden by default.
+
+   You talk to your ball; it performs HIDDEN IN-GAME ACTIONS on the REAL engine ball.
+   Signature: "put yourself in the hole" → the real ball lifts off, glides over the real cup, drops in.
+
+   Pipeline:  mic/STT (or text) → LLM tool-call (JSON {action, say}) → validate → run on REAL ball → TTS.
+   Fallbacks: (1) keyword-intent matcher on the user's text; (2) no WebGPU → keyword matcher + rule line.
+   Reuses golfball-llm.html's LLM/voice/face machinery (convo[], __lastBrain, console logging, secure-ctx).
+   Engine boot modeled on physlab.html. The FACE is overlaid on the real engine ball each frame.
+
+   Headless API (no mic/model needed):
+     window.__step(n) / __frame() / __reset() / __setAuto(b)
+     window.__say(text)   – route text through LLM/keyword pipeline → performs the action
+     window.__do(name)    – directly run an action on the real ball
+     window.__lastAction  – name of the last action performed
+     window.__debug(bool) – force the debug menu open/closed (for screenshots)
+   ─────────────────────────────────────────────────────────────────────────────────────────────── */
+'use strict';
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+//  PART 1 — REAL ENGINE: boot a clean, NORMAL-looking Earth hole (modeled on physlab.js)
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+
+// We don't load main.js, so the engine's init()/Firebase boot never runs — the agent owns the loop.
+window.HOLE_OVERRIDES_ENABLED = false;
+
+// The engine's cup-fill (drawCupFill) heals a sunk cup with GROUND (rust/orange) by default — jarring on
+// our Earth-green grass. art.js exposes an inert hook RG._cupFillColorFor; we provide ONLY that one hook
+// so the cup heals with grass green instead of an orange block. (No other RG behaviour is enabled.)
+window.RG = window.RG || {};
+window.RG._cupFillColorFor = function () { return (MATERIALS && MATERIALS.grass && MATERIALS.grass.color) || '#5a9e4b'; };
+
+// Earth-green world (flat faceted, per _PROTO-SPEC palette). The mode reads currentWorld.sky.
+const EARTH_SKY = '#0f1a26';
+currentWorld  = { name: 'EARTH', sky: EARTH_SKY, system: 'sol', courses: {} };
+currentCourse = { name: 'Meadow', holeCount: 1, materials: ['grass'] };
+currentWorld.courses.agent = currentCourse;
+WORLDS['agent-world'] = currentWorld;
+
+// Flat-faceted terrain (legible facets, no sand texture) — matches the spec's "flat color only".
+if (typeof TERRAIN_TEXTURE_ON !== 'undefined') TERRAIN_TEXTURE_ON = false;
+
+// Deep-space sky: dark vertical gradient + a fixed starfield, with an Earth-green horizon glow so the
+// grass hole reads as a friendly Earth meadow under the stars (still in OUR deep-space art).
+const _stars = [];
+(function () {
+  let s = 20260623;
+  const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+  for (let i = 0; i < 76; i++) {
+    _stars.push({ x: rnd(), y: rnd() * 0.66, r: rnd() < 0.2 ? 1.6 : 1,
+      c: rnd() < 0.25 ? 'rgba(190,210,255,0.85)' : 'rgba(255,255,255,0.45)', tw: rnd() * 6.283, ts: 0.4 + rnd() * 0.9 });
+  }
+})();
+let _skyFrame = 0;
+MODE.drawSky = function () {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#070b10'); g.addColorStop(0.5, '#0d1622'); g.addColorStop(1, '#16241a');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (const st of _stars) {
+    const tw = 0.6 + 0.4 * Math.sin(_skyFrame * 0.03 * st.ts + st.tw);
+    ctx.globalAlpha = tw; ctx.fillStyle = st.c;
+    ctx.fillRect((st.x * W) | 0, (st.y * H) | 0, st.r, st.r);
+  }
+  ctx.globalAlpha = 1;
+};
+
+// ── A GENTLE test hole — a flat-ish grass Earth green (cup to the right of the tee) ──
+const GROUND_Y = 372;
+const TEE_X    = 210;
+const CUP_X    = 700;
+function buildEarthHole() {
+  // Soft rolling grass: a near-flat run tee→cup with one gentle swale, so it reads as a normal,
+  // calm Earth hole (not a tuning rig). All 'grass'.
+  const v = [];
+  v.push({ x: 40,  y: GROUND_Y,      mat: 'grass' });
+  v.push({ x: 160, y: GROUND_Y - 4,  mat: 'grass' });
+  v.push({ x: 240, y: GROUND_Y,      mat: 'grass' });
+  v.push({ x: 340, y: GROUND_Y + 10, mat: 'grass' });
+  v.push({ x: 440, y: GROUND_Y + 16, mat: 'grass' });   // gentle swale
+  v.push({ x: 540, y: GROUND_Y + 8,  mat: 'grass' });
+  v.push({ x: 640, y: GROUND_Y,      mat: 'grass' });
+  v.push({ x: 760, y: GROUND_Y - 2,  mat: 'grass' });
+  v.push({ x: 900, y: GROUND_Y,      mat: 'grass' });
+  return { verts: v, teeX: TEE_X, teeY: GROUND_Y, cupX: CUP_X };
+}
+
+// ── Cup carving (mirrors level-design.js placeCup / physlab.js carveCup, on OUR verts) ──
+let _matAtVerts = [];
+function _matAt(x) { let m = 'grass'; for (const v of _matAtVerts) { if (v.x <= x) m = v.mat || 'grass'; else break; } return m; }
+function carveCup(cupX) {
+  const halfW = CUP_WIDTH / 2;
+  const leftX = cupX - halfW, rightX = cupX + halfW;
+  const rimY = (terrainYAt(leftX) + terrainYAt(rightX)) / 2;
+  const flatMargin = 20, wallInset = 3;
+  const bottomY = rimY + CUP_DEPTH;
+  vertices = vertices.filter(v => v.x < leftX - flatMargin || v.x > rightX + flatMargin);
+  const cupVerts = [
+    { x: leftX - flatMargin, y: rimY, mat: _matAt(leftX) },
+    { x: leftX, y: rimY, mat: _matAt(leftX) },
+    { x: leftX + wallInset, y: bottomY, mat: _matAt(leftX) },
+    { x: rightX - wallInset, y: bottomY, mat: _matAt(rightX) },
+    { x: rightX, y: rimY, mat: _matAt(rightX) },
+    { x: rightX + flatMargin, y: rimY, mat: _matAt(rightX) },
+  ];
+  let insertIdx = vertices.findIndex(v => v.x >= leftX - flatMargin);
+  if (insertIdx === -1) insertIdx = vertices.length;
+  vertices.splice(insertIdx, 0, ...cupVerts);
+  holes.length = 0;
+  holes.push({
+    cupX, cupY: rimY,
+    cupLeftX: leftX, cupLeftY: rimY,
+    cupRightX: rightX, cupRightY: rimY,
+    cupBottomY: bottomY, cupWallInset: wallInset,
+    cupFilled: false, cupFillProgress: 0,
+    flagHole: 1, flagVisible: true, flagOpacity: 1,
+    teeX: TEE_X, teeY: GROUND_Y,
+  });
+}
+
+function loadHole() {
+  const def = buildEarthHole();
+  vertices = def.verts.map(v => ({ x: v.x, y: v.y, mat: v.mat || 'grass' }));
+  _matAtVerts = vertices.map(v => ({ x: v.x, mat: v.mat }));
+  holes.length = 0; objects.length = 0; currentHole = 0;
+  carveCup(def.cupX);
+  const h = holes[0];
+  h.teeX = def.teeX; h.teeY = def.teeY;
+  reTee();
+  state = STATE_AIM;
+  showTitle = false;
+  flagWiggle = 0;
+  setHoleCamera(h);
+  camera.x = 0; camera.y = 0;
+}
+
+function reTee() {
+  const h = holes[0];
+  ball.x = h.teeX;
+  ball.y = terrainYAt(h.teeX) - BALL_RADIUS;
+  ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = false;
+  ball.spinRate = 0; ball.rotation = 0; ball.lastCollidedMat = null;
+  ball.slowFrames = 0; ball.flightFrames = 0;
+  state = STATE_AIM; strokes = 0;
+  agentAnim = null;     // cancel any in-flight scripted action
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+//  PART 2 — THE BALL'S FACE (from golfball-llm.html), overlaid on the REAL engine ball each frame
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+
+let face = { bob: 0, sx: 1, sy: 1, blinkT: 40, blinkDur: 0, mouthT: 0 };
+let mood = 'happy';          // happy | proud | sad | think
+let speaking = false;
+let curLine = '';
+let bubble = { text: '', t: 0, full: 0, timer: 0, speakFrames: 1 };
+let thinking = false;
+
+// The face is drawn in SCREEN space at the real ball's live screen position (world→screen via the
+// engine's camera + displayScale). It scales with BALL_RADIUS so it reads at the real ball's size,
+// but with a comfortable minimum so the face is always legible (the real ball is only ~4px).
+function ballScreen() {
+  const sc = (typeof displayScale === 'number' && displayScale) ? displayScale : 1;
+  // Face is rendered larger than the ~4px engine ball so the CHARACTER reads (eyes ≥2px, clearly
+  // separated). It grows a touch more while the agent is performing (the "it came alive" pop).
+  const base = Math.max(BALL_RADIUS * sc, 34);
+  const live = (agentAnim || !ball.atRest) ? 1.18 : 1;
+  return {
+    x: (ball.x - camera.x) * sc,
+    y: (ball.y - camera.y + (face.bob || 0)) * sc,
+    r: base * live * (agentAnim && agentAnim.faceScale ? agentAnim.faceScale : 1),
+    sc,
+  };
+}
+
+function drawFaceOverlay() {
+  const p = ballScreen();
+  const R = p.r;
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  if (agentAnim && agentAnim.faceRot) ctx.rotate(agentAnim.faceRot);
+  ctx.scale(face.sx, face.sy);
+  drawFace(R);
+  ctx.restore();
+  drawBubble(p, R);
+}
+
+function drawFace(R) {
+  // eyes
+  const eyeX = R * 0.30, eyeY = -R * 0.16, eyeR = R * 0.135;
+  const blink = face.blinkDur > 0 ? 1 : 0;
+  const brow = (mood === 'sad') ? R * 0.05 : (mood === 'proud') ? -R * 0.03 : 0;
+  for (let s = -1; s <= 1; s += 2) {
+    ctx.save(); ctx.translate(s * eyeX, eyeY + brow);
+    if (blink) {
+      ctx.strokeStyle = '#16202c'; ctx.lineWidth = R * 0.05; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-eyeR, 0); ctx.lineTo(eyeR, 0); ctx.stroke();
+    } else {
+      ctx.fillStyle = '#1b2530'; ctx.beginPath(); ctx.arc(0, 0, eyeR, 0, 6.2832); ctx.fill();
+      const px = (mood === 'think') ? -s * eyeR * 0.4 : 0, py = (mood === 'sad') ? eyeR * 0.3 : -eyeR * 0.1;
+      ctx.fillStyle = '#0c0e14'; ctx.beginPath(); ctx.arc(px, py, eyeR * 0.55, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.beginPath(); ctx.arc(px - eyeR * 0.25, py - eyeR * 0.28, eyeR * 0.2, 0, 6.2832); ctx.fill();
+    }
+    ctx.restore();
+  }
+  // brows (mood)
+  ctx.strokeStyle = '#16202c'; ctx.lineWidth = R * 0.05; ctx.lineCap = 'round';
+  for (let s2 = -1; s2 <= 1; s2 += 2) {
+    ctx.beginPath();
+    const bxL = s2 * eyeX - eyeR, bxR = s2 * eyeX + eyeR, byTop = eyeY - R * 0.30 + brow;
+    if (mood === 'proud') { ctx.moveTo(bxL, byTop + R * 0.02); ctx.lineTo(bxR, byTop - R * 0.02); }
+    else if (mood === 'sad') { ctx.moveTo(bxL, byTop - R * 0.04); ctx.lineTo(bxR, byTop + R * 0.05); }
+    else if (mood === 'think' && s2 < 0) { ctx.moveTo(bxL, byTop + R * 0.04); ctx.lineTo(bxR, byTop - R * 0.05); }
+    else { ctx.moveTo(bxL, byTop); ctx.lineTo(bxR, byTop); }
+    ctx.stroke();
+  }
+  // mouth — flaps while speaking
+  const my = R * 0.34, mw = R * 0.34;
+  let open = 0;
+  if (speaking) open = (0.5 + 0.5 * Math.sin(face.mouthT * 0.55)) * R * 0.20 + R * 0.05;
+  ctx.fillStyle = '#16202c'; ctx.strokeStyle = '#16202c'; ctx.lineWidth = R * 0.05; ctx.lineCap = 'round';
+  if (open > R * 0.06) {
+    ctx.beginPath(); ctx.ellipse(0, my, mw * 0.8, open, 0, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = '#ff7a8a'; ctx.beginPath(); ctx.ellipse(0, my + open * 0.35, mw * 0.4, open * 0.42, 0, 0, 6.2832); ctx.fill();
+  } else {
+    ctx.beginPath();
+    if (mood === 'sad') { ctx.moveTo(-mw, my + R * 0.06); ctx.quadraticCurveTo(0, my - R * 0.06, mw, my + R * 0.06); }
+    else if (mood === 'think') { ctx.moveTo(-mw * 0.6, my); ctx.lineTo(mw * 0.5, my - R * 0.02); }
+    else { ctx.moveTo(-mw, my - R * 0.02); ctx.quadraticCurveTo(0, my + R * 0.12, mw, my - R * 0.02); }
+    ctx.stroke();
+  }
+  if (mood === 'proud' || mood === 'happy') {
+    ctx.globalAlpha = 0.5; ctx.fillStyle = '#ff9aa8';
+    ctx.beginPath(); ctx.arc(-R * 0.50, R * 0.18, R * 0.10, 0, 6.2832); ctx.fill();
+    ctx.beginPath(); ctx.arc(R * 0.50, R * 0.18, R * 0.10, 0, 6.2832); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function wrapText(t, max) {
+  const words = t.split(' '), lines = []; let cur = '';
+  for (let i = 0; i < words.length; i++) { const test = cur ? cur + ' ' + words[i] : words[i];
+    if (test.length > max) { if (cur) lines.push(cur); cur = words[i]; } else cur = test; }
+  if (cur) lines.push(cur); return lines;
+}
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function drawBubble(p, R) {
+  if (thinking) {
+    const bx = p.x + R * 1.05, by = p.y - R - 30;
+    ctx.font = "16px 'Departure Mono', monospace"; ctx.fillStyle = '#f3f7fc';
+    roundRect(bx, by, 56, 30, 11); ctx.fill(); ctx.strokeStyle = '#26303c'; ctx.lineWidth = 2; ctx.stroke();
+    const n = (_skyFrame >> 3) % 4;
+    ctx.fillStyle = '#16202c'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    ctx.fillText('.'.repeat(n + 1), bx + 14, by + 16);
+    return;
+  }
+  if (!bubble.text || bubble.t <= 0) return;
+  const shown = bubble.text.slice(0, Math.min(bubble.text.length, Math.ceil(bubble.t)));
+  const lines = wrapText(shown, 30);
+  ctx.font = "14px 'Departure Mono', monospace"; ctx.textAlign = 'left';
+  const pad = 12, lh = 19; let tw = 0;
+  for (let i = 0; i < lines.length; i++) tw = Math.max(tw, ctx.measureText(lines[i]).width);
+  const bw = tw + pad * 2, bh = lines.length * lh + pad * 2 - 4;
+  // Prefer the RIGHT of the ball, but flip LEFT if it would run off-screen OR overlap the flag/cup area
+  // (when the ball is in the right third of the view the flag is right there). Pin above the ball.
+  let bx = p.x + R * 1.05, by = p.y - R - bh - 6;
+  const nearRight = p.x > canvas.width * 0.6;
+  if (nearRight || bx + bw > canvas.width - 16) bx = p.x - R * 1.05 - bw;
+  if (bx < 8) bx = 8;
+  if (by < 8) by = 8;
+  roundRect(bx, by, bw, bh, 11); ctx.fillStyle = '#f3f7fc'; ctx.fill();
+  ctx.strokeStyle = '#26303c'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.beginPath();
+  const tailX = (bx > p.x) ? bx : bx + bw;
+  ctx.moveTo(tailX, by + bh * 0.6); ctx.lineTo(p.x + (bx > p.x ? R * 0.6 : -R * 0.6), p.y - R * 0.2);
+  ctx.lineTo(tailX, by + bh * 0.6 + 14); ctx.closePath(); ctx.fillStyle = '#f3f7fc'; ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#16202c'; ctx.textBaseline = 'top';
+  for (let j = 0; j < lines.length; j++) ctx.fillText(lines[j], bx + pad, by + pad + j * lh);
+}
+
+// tick the face every rendered frame
+function tickFace() {
+  _skyFrame++;
+  // idle bob + breathing squash (only when at rest / not scripted-moving, so flight reads natural)
+  const idle = ball.atRest && !agentAnim;
+  face.bob = idle ? Math.sin(_skyFrame * 0.045) * 3 : 0;
+  const br = 1 + (idle ? Math.sin(_skyFrame * 0.045) * 0.012 : 0);
+  face.sx = br; face.sy = 2 - br;
+  if (face.blinkDur > 0) face.blinkDur--;
+  else { face.blinkT--; if (face.blinkT <= 0) { face.blinkDur = 6; face.blinkT = 90 + ((Math.random() * 120) | 0); } }
+  if (speaking) {
+    face.mouthT++;
+    face.sx *= 1 + 0.02 * Math.sin(face.mouthT * 0.55);
+    face.sy *= 1 - 0.02 * Math.sin(face.mouthT * 0.55);
+    bubble.timer--;
+    if (bubble.t < bubble.full) bubble.t += Math.max(1, bubble.full / Math.max(1, bubble.speakFrames * 0.6));
+    if (bubble.timer <= 0) { speaking = false; if (mood === 'think') mood = 'happy'; }
+  } else if (bubble.t < bubble.full) bubble.t = bubble.full;
+  if (flagWiggle > 0) flagWiggle--;
+}
+
+function speakLine(text, m) {
+  mood = m || 'happy';
+  curLine = text;
+  bubble = { text: text, t: 0, full: text.length };
+  speaking = true; face.mouthT = 0;
+  bubble.speakFrames = Math.max(48, Math.min(280, text.length * 2.0));
+  bubble.timer = bubble.speakFrames;
+}
+function pushBubble(text, m) { thinking = false; speakLine(text, m); speakTTS(text); }
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+//  PART 3 — ACTIONS on the REAL engine ball/cup (suspend normal physics while animating, then release)
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+// agentAnim = a per-frame scripted controller. While set, the agent owns the ball (state forced to a
+// neutral non-physics value); on completion it RELEASES the ball back to the real engine.
+let agentAnim = null;
+let flagWiggle = 0;
+let sparkles = [];   // [{x,y,vx,vy,life}]  drawn in WORLD space over the real hole
+
+function cupRef() { return holes[currentHole]; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+function easeInOut(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+
+// Start a scripted anim. We park the engine in STATE_AIM and freeze ball velocity; the anim's step(t)
+// fully drives ball.x/ball.y until done(), which releases control.
+function startAnim(a) {
+  ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = false;
+  state = STATE_AIM;
+  a.t0 = _skyFrame; a.faceScale = a.faceScale || 1; a.faceRot = 0;
+  agentAnim = a;
+}
+function stepAnim() {
+  if (!agentAnim) return;
+  const a = agentAnim;
+  const t = Math.min(1, (_skyFrame - a.t0) / a.dur);
+  a.step(t);
+  if (t >= 1) {
+    const done = a.done; agentAnim = null;
+    if (done) done();
+  }
+}
+function emitSparkles(wx, wy, n) {
+  for (let i = 0; i < (n || 8); i++) {
+    const ang = Math.random() * 6.283, sp = 0.6 + Math.random() * 1.4;
+    sparkles.push({ x: wx, y: wy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 0.8, life: 28 + (Math.random() * 16 | 0) });
+  }
+}
+function stepSparkles() {
+  for (let i = sparkles.length - 1; i >= 0; i--) {
+    const s = sparkles[i]; s.x += s.vx; s.y += s.vy; s.vy += 0.05; s.life--;
+    if (s.life <= 0) sparkles.splice(i, 1);
+  }
+}
+function drawSparkles() {  // WORLD space (camera transform already applied by caller)
+  for (const s of sparkles) {
+    ctx.globalAlpha = Math.max(0, s.life / 40);
+    ctx.fillStyle = '#ffe08a';
+    ctx.fillRect(s.x - 1.2, s.y - 1.2, 2.4, 2.4);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Place the ball INTO the cup using the engine's real sink (cup fill + flag fade), then re-tee.
+// Re-tee is driven by the ENGINE finishing its transition (cupFilled), NOT a wall-clock timer — so it
+// works identically under the auto loop and under headless manual stepping (clean GIFs, deterministic).
+let _awaitSinkFinish = false;
+function realSink() {
+  const h = cupRef();
+  ball.x = h.cupX;
+  ball.y = h.cupBottomY - BALL_RADIUS;
+  ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true;
+  agentAnim = null;
+  // Hand to the engine's own in-cup → transition flow (fills cup, fades flag), like a real sunk putt.
+  state = STATE_PAUSE; transitionTimer = 0;
+  _awaitSinkFinish = true;      // tick() watches for the fill to complete, then re-tees a fresh hole.
+  _sinkSettleFrames = 0;
+}
+let _sinkSettleFrames = 0;
+function pollSinkFinish() {
+  if (!_awaitSinkFinish) return;
+  const h = holes[0];
+  // The engine fills the previous cup + flips state back toward AIM after the pan. Wait for the cup to
+  // read filled (or the engine to settle back to AIM), then linger a beat so the fill is visible.
+  const filled = h && (h.cupFilled || (h.cupFillProgress || 0) >= 1);
+  if (filled || state === STATE_AIM) {
+    _sinkSettleFrames++;
+    if (_sinkSettleFrames > 40) { _awaitSinkFinish = false; try { loadHole(); } catch (e) {} }
+  }
+}
+
+// ── ACTION TABLE ──────────────────────────────────────────────────────────────────────────────
+const ACTION_INFO = [
+  ['sink_in_hole', '★ lift up, glide over the cup, drop in'],
+  ['to_tee',       'return to the tee'],
+  ['hop',          'a single upward hop (real gravity)'],
+  ['spin',         'barrel-roll in place'],
+  ['putt_to_hole', 'roll toward the cup with real physics'],
+  ['bounce',       'a few bouncy hops'],
+  ['celebrate',    'happy wiggle + sparkles'],
+  ['come_here',    'float toward screen-center'],
+  ['hide',         'fade out, pop back at the tee'],
+  ['say_distance', 'speak distance to the cup'],
+  ['none',         'plain chat'],
+];
+const ACTION_NAMES = ACTION_INFO.map(a => a[0]);
+
+const ACTIONS = {
+  // ★ SIGNATURE: lift the real ball WAY up, glide it over the cup in a clear arc, drop it in.
+  sink_in_hole(say) {
+    const h = cupRef();
+    const sx = ball.x, sy = ball.y;
+    const apexY = Math.min(sy, h.cupY) - 150;    // a real, readable apex high above the surface
+    let _liftPopped = false, _dropEmitted = false;
+    startAnim({
+      dur: 108,
+      step(t) {
+        // phase 1 (0..0.40): lift straight up off the surface (ease-out → quick then float)
+        // phase 2 (0.40..0.72): glide across to over the cup, holding the apex (the "levitation")
+        // phase 3 (0.72..1): drop straight DOWN into the cup, vanishing below the rim
+        if (t < 0.40) {
+          const u = easeOut(t / 0.40);
+          ball.x = sx;
+          ball.y = lerp(sy, apexY, u);
+          this.faceScale = lerp(1, 1.15, u);
+          if (!_liftPopped && u > 0.25) { _liftPopped = true; emitSparkles(sx, sy - 6, 7); }   // liftoff pop
+        } else if (t < 0.72) {
+          const u = easeInOut((t - 0.40) / 0.32);
+          ball.x = lerp(sx, h.cupX, u);
+          ball.y = apexY - Math.sin(u * Math.PI) * 22;   // gentle hover crest over the cup
+          this.faceScale = 1.15;
+        } else {
+          const u = easeOut((t - 0.72) / 0.28);
+          ball.x = h.cupX;
+          // drop BELOW the rim so it disappears into the dark cup, like a real sunk ball
+          ball.y = lerp(apexY, h.cupBottomY - BALL_RADIUS, u);
+          this.faceScale = lerp(1.15, 0.7, u);          // shrink as it sinks out of view
+          if (u > 0.6 && !_dropEmitted) { _dropEmitted = true; emitSparkles(h.cupX, h.cupY, 8); flagWiggle = 20; }
+        }
+        ball.atRest = true; ball.vx = 0; ball.vy = 0;
+      },
+      done() { realSink(); },
+    });
+    pushBubble(say || 'There you go, boss.', 'proud');
+  },
+
+  to_tee(say) {
+    const h = cupRef();
+    const sx = ball.x, sy = ball.y, tx = h.teeX, ty = terrainYAt(h.teeX) - BALL_RADIUS;
+    startAnim({
+      dur: 54,
+      step(t) {
+        const u = easeInOut(t);
+        ball.x = lerp(sx, tx, u);
+        ball.y = lerp(sy, ty, u) - Math.sin(u * Math.PI) * 48;   // float across in an arc
+        ball.atRest = true; ball.vx = 0; ball.vy = 0;
+      },
+      done() { reTee(); },
+    });
+    pushBubble(say || 'Back to the tee. Fresh start, partner.', 'happy');
+  },
+
+  hop(say) {
+    // hand the ball a real upward impulse and let the engine's gravity bring it down
+    agentAnim = null;
+    ball.atRest = false; ball.onGround = false;
+    ball.vx = 0; ball.vy = -7; ball.flightFrames = 0; ball.slowFrames = 0;
+    state = STATE_FLIGHT;
+    pushBubble(say || 'Hup!', 'happy');
+  },
+
+  spin(say) {
+    startAnim({
+      dur: 42, faceScale: 1,
+      step(t) {
+        this.faceRot = t * Math.PI * 2;        // one full barrel-roll
+        ball.atRest = true; ball.vx = 0; ball.vy = 0;
+        ball.rotation = (ball.rotation || 0) + 0.5;   // real ball dimples spin too
+      },
+      done() {},
+    });
+    pushBubble(say || 'Wheee — round and round.', 'happy');
+  },
+
+  putt_to_hole(say) {
+    // give the ball a real velocity toward the cup; the real physics rolls it (and may sink it)
+    agentAnim = null;
+    const h = cupRef();
+    const dx = h.cupX - ball.x;
+    const dir = dx >= 0 ? 1 : -1;
+    const dist = Math.abs(dx);
+    // tuned so a flat grass roll arrives near the cup
+    ball.vx = dir * Math.min(MAX_POWER, Math.max(2.4, dist * 0.013));
+    ball.vy = -0.4;
+    ball.atRest = false; ball.onGround = false; ball.flightFrames = 0; ball.slowFrames = 0; ball.spinRate = 0;
+    state = STATE_FLIGHT;
+    pushBubble(say || 'Rolling it up… get in there.', 'think');
+  },
+
+  bounce(say) {
+    agentAnim = null;
+    ball.atRest = false; ball.onGround = false;
+    ball.vx = 0.6; ball.vy = -5.4; ball.flightFrames = 0; ball.slowFrames = 0;
+    state = STATE_FLIGHT;
+    pushBubble(say || 'Boing boing boing!', 'happy');
+  },
+
+  celebrate(say) {
+    const sx = ball.x, sy = ball.y;
+    startAnim({
+      dur: 60,
+      step(t) {
+        ball.x = sx + Math.sin(t * Math.PI * 6) * 8;   // happy wiggle in place
+        ball.y = sy - Math.abs(Math.sin(t * Math.PI * 4)) * 10;
+        ball.atRest = true; ball.vx = 0; ball.vy = 0;
+        if ((_skyFrame % 8) === 0) emitSparkles(sx, sy - 12, 3);
+      },
+      done() {},
+    });
+    pushBubble(say || 'Yeah! We did it!', 'proud');
+  },
+
+  come_here(say) {
+    const sc = (typeof displayScale === 'number' && displayScale) ? displayScale : 1;
+    const targetWX = camera.x + (canvas.width / sc) / 2;
+    const targetWY = camera.y + (canvas.height / sc) / 2;
+    const sx = ball.x, sy = ball.y;
+    startAnim({
+      dur: 50,
+      step(t) {
+        const u = easeInOut(t);
+        ball.x = lerp(sx, targetWX, u);
+        ball.y = lerp(sy, targetWY, u);
+        this.faceScale = lerp(1, 1.18, u);
+        ball.atRest = true; ball.vx = 0; ball.vy = 0;
+      },
+      done() {},     // stays floating in the middle until next command / re-tee
+    });
+    pushBubble(say || 'Coming over, boss.', 'happy');
+  },
+
+  hide(say) {
+    const h = cupRef();
+    startAnim({
+      dur: 64,
+      step(t) {
+        if (t < 0.45) { this.faceScale = lerp(1, 0.02, easeOut(t / 0.45)); }      // shrink out
+        else if (t < 0.6) { this.faceScale = 0.02; ball.x = h.teeX; ball.y = terrainYAt(h.teeX) - BALL_RADIUS; }
+        else { this.faceScale = lerp(0.02, 1, easeOut((t - 0.6) / 0.4)); }        // pop back at tee
+        ball.atRest = true; ball.vx = 0; ball.vy = 0;
+      },
+      done() { reTee(); },
+    });
+    pushBubble(say || 'Now you see me… ', 'think');
+  },
+
+  say_distance(say) {
+    agentAnim = null;
+    const h = cupRef();
+    const d = Math.max(1, Math.round(Math.abs(h.cupX - ball.x) / 5));   // px → rough "paces"
+    pushBubble(say || ("About " + d + " paces to the pin, boss."), 'think');
+  },
+
+  none(say) { agentAnim = null; pushBubble(say || "I'm all ears, partner.", 'happy'); },
+};
+
+function runAction(name, say) {
+  if (!ACTIONS[name]) name = 'none';
+  window.__lastAction = name;
+  console.log('[ball-agent] ACTION →', name, say ? ('· "' + say + '"') : '');
+  ACTIONS[name](say);
+  updateStatus();
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+//  PART 4 — BRAIN: LLM tool-calling (JSON) + keyword-intent fallback  (machinery from golfball-llm.html)
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+
+const SYSTEM_PROMPT =
+  "You are a talking golf ball — the player's loyal, sassy-but-warm caddie ball in a flat-faceted " +
+  "space-golf game called Par Sec. You run FULLY LOCAL on the player's device. You can perform PHYSICAL " +
+  "ACTIONS on yourself (the real ball) in the game. " +
+  "When the player talks to you, reply with ONLY a JSON object: " +
+  '{"action":"<one action name or none>","say":"<a short, in-character spoken line, 1-2 sentences>"}. ' +
+  "Valid actions: " + ACTION_NAMES.join(", ") + ". " +
+  "Pick the SINGLE best action for what they asked (e.g. 'put yourself in the hole' / 'sink it' → sink_in_hole; " +
+  "'go back' → to_tee; 'jump' → hop; 'spin' → spin; 'putt it' → putt_to_hole; 'bounce' → bounce; " +
+  "'we won' / 'celebrate' → celebrate; 'come here' → come_here; 'hide' → hide; 'how far' → say_distance). " +
+  "If they're just chatting, use \"none\". Never use markdown, lists, or emoji. Output ONLY the JSON object.";
+
+// Keyword-intent matcher (fallback #1 and the no-WebGPU path). Maps the user's raw text → an action +
+// a canned in-character line. This is also what the headless verify exercises (no WebGPU in headless).
+function keywordAction(textRaw) {
+  const t = (textRaw || '').toLowerCase();
+  const has = (...ws) => ws.some(w => t.indexOf(w) >= 0);
+  // ★ signature first
+  if (has('in the hole', 'in the cup', 'sink', 'sink it', 'put yourself', 'get in there', 'hole in one', 'just win', 'win it for me', 'finish it'))
+    return { action: 'sink_in_hole', say: 'There you go, boss.' };
+  if (has('tee', 'go back', 'start over', 'reset', 'beginning', 'back to start'))
+    return { action: 'to_tee', say: 'Back to the tee. Watch this.' };
+  if (has('putt', 'roll it', 'roll to', 'toward the hole', 'nudge it'))
+    return { action: 'putt_to_hole', say: 'Rolling it up… get in there.' };
+  if (has('hop', 'jump'))
+    return { action: 'hop', say: 'Hup!' };
+  if (has('spin', 'twirl', 'roll over', 'flip'))
+    return { action: 'spin', say: 'Wheee — round and round.' };
+  if (has('bounce', 'boing', 'springy'))
+    return { action: 'bounce', say: 'Boing boing boing!' };
+  if (has('celebrate', 'we won', 'we did it', 'party', 'yay', 'nice shot', 'great shot', 'birdie', 'eagle'))
+    return { action: 'celebrate', say: 'Yeah! We did it!' };
+  if (has('come here', 'come to me', 'come over', 'closer', 'show yourself'))
+    return { action: 'come_here', say: 'Coming over, boss.' };
+  if (has('hide', 'disappear', 'vanish', 'peekaboo'))
+    return { action: 'hide', say: 'Now you see me…' };
+  if (has('how far', 'distance', 'how close', 'how long', 'yardage', 'far is'))
+    return { action: 'say_distance', say: null };
+  // plain chat
+  const chat = [
+    "I'm your caddie ball — point me at the pin and try not to embarrass us.",
+    "Local brain, zero cost, all heart. What do you need, partner?",
+    "Mm-hm. Now line it up — talk is cheap, distance is forever.",
+    "Bold words for someone talking to a golf ball. I love it. What's the play?",
+  ];
+  return { action: 'none', say: chat[(Math.random() * chat.length) | 0] };
+}
+
+// ── WebLLM (local on-disk LLM) — model menu + loader from golfball-llm.html ──
+const MODELS = [
+  { id: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 0.5B (phone floor ~0.5GB)" },
+  { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 1.5B (weak-GPU ~1.2GB)" },
+  { id: "gemma-2-2b-it-q4f16_1-MLC",          label: "Gemma-2 2B (charming ★ ~1.5GB)" },
+  { id: "Llama-3.2-3B-Instruct-q4f16_1-MLC",  label: "Llama 3.2 3B (natural chat ~2.2GB)" },
+  { id: "Hermes-3-Llama-3.2-3B-q4f16_1-MLC",  label: "Hermes-3 3B (roleplay-tuned ★ ~2.2GB)" },
+  { id: "Phi-3.5-mini-instruct-q4f16_1-MLC",  label: "Phi-3.5 mini 3.8B (~2.4GB)" },
+  { id: "Hermes-3-Llama-3.1-8B-q4f16_1-MLC",  label: "Hermes-3 8B (best, strong GPU ~4.7GB)" },
+];
+let SELECTED_MODEL = MODELS[4];   // default: Hermes-3 3B (character/tool-following). ?model=hermes / =gemma / =8b
+(function () { const m = /[?&]model=([^&]+)/.exec(location.search); if (m) { const q = decodeURIComponent(m[1]).toLowerCase();
+  const hit = MODELS.filter(x => x.id.toLowerCase().indexOf(q) >= 0)[0]; if (hit) SELECTED_MODEL = hit; } })();
+
+let engine = null, llmReady = false, llmBusy = false, convo = [], brainMode = 'rule', loadPct = 0;
+
+async function loadLLM() {
+  if (brainMode === 'llm-loading' || brainMode === 'llm') return;
+  if (!('gpu' in navigator)) {
+    const why = window.isSecureContext
+      ? "No WebGPU in this browser, partner — sticking with my keyword brain. Still 100% local, still free."
+      : "Heads up — this page is on plain HTTP, so the browser's hiding WebGPU. Open me at http://localhost and I'll boot the real brain. Keyword brain for now.";
+    pushBubble(why, 'think'); updateStatus(); return;
+  }
+  brainMode = 'llm-loading';
+  setBoot('connecting to WebGPU…', 2);
+  document.getElementById('btnLoad').disabled = true;
+  try {
+    const mod = await import('https://esm.run/@mlc-ai/web-llm');
+    engine = await mod.CreateMLCEngine(SELECTED_MODEL.id, {
+      initProgressCallback: (p) => {
+        loadPct = p.progress != null ? Math.round(p.progress * 100) : loadPct;
+        setBoot((p.text || 'loading model…').slice(0, 46), loadPct);
+      }
+    });
+    llmReady = true; brainMode = 'llm';
+    setBoot('LOCAL BRAIN ONLINE', 100);
+    pushBubble("Local brain online. Now tell me what to do, boss.", 'proud');
+  } catch (e) {
+    console.warn('WebLLM load failed, using keyword brain:', e && e.message);
+    brainMode = 'rule'; setBoot('load failed — keyword brain', 0);
+    document.getElementById('btnLoad').disabled = false;
+    pushBubble("Couldn't load the big brain — no sweat, my keyword brain's got you.", 'happy');
+  }
+  updateStatus();
+}
+
+// Ask the LLM for a tool call (strict JSON). Returns {action, say} or null on failure → caller falls back.
+async function llmDecide(userText) {
+  convo.push({ role: 'user', content: userText });
+  if (convo.length > 10) convo = convo.slice(-10);
+  const msgs = [{ role: 'system', content: SYSTEM_PROMPT }].concat(convo);
+  let out;
+  try {
+    out = await engine.chat.completions.create({
+      messages: msgs, temperature: 0.7, max_tokens: 160,
+      response_format: { type: 'json_object' },   // WebLLM JSON mode (grammar-constrained when available)
+    });
+  } catch (e) {
+    // some builds reject response_format → retry plain
+    out = await engine.chat.completions.create({ messages: msgs, temperature: 0.7, max_tokens: 160 });
+  }
+  const txt = (out.choices && out.choices[0] && out.choices[0].message.content || '').trim();
+  console.log('[ball-agent] raw LLM output:', JSON.stringify(txt));
+  let parsed = null;
+  try { parsed = JSON.parse(txt); }
+  catch (e) { const m = txt.match(/\{[\s\S]*\}/); if (m) { try { parsed = JSON.parse(m[0]); } catch (e2) {} } }
+  if (!parsed || typeof parsed !== 'object') return null;
+  let action = String(parsed.action || 'none').trim();
+  if (ACTION_NAMES.indexOf(action) < 0) action = 'none';   // validate against the real table
+  const say = (parsed.say != null) ? String(parsed.say).slice(0, 220) : null;
+  convo.push({ role: 'assistant', content: JSON.stringify({ action, say }) });
+  return { action, say };
+}
+
+// ── route(): the core. user text → decision (LLM or keyword) → run the action on the real ball → TTS ──
+let routing = false;
+async function route(userText) {
+  if (!userText) return;
+  if (routing) return;
+  routing = true;
+  thinking = true; mood = 'think';
+  let decision = null, src;
+  if (brainMode === 'llm' && llmReady && !llmBusy) {
+    llmBusy = true;
+    try {
+      decision = await llmDecide(userText);
+      if (decision) src = 'LLM · ' + SELECTED_MODEL.id.replace(/-q4f16_1-MLC/, '');
+    } catch (e) { console.warn('[ball-agent] LLM decide FAILED → keyword:', e); src = 'keyword (LLM error: ' + (e && e.message || e) + ')'; }
+    llmBusy = false;
+  }
+  if (!decision) {
+    decision = keywordAction(userText);
+    src = src || ((brainMode === 'llm' && llmReady) ? 'keyword (LLM empty/invalid)' : 'keyword — LLM not loaded (brainMode=' + brainMode + ')');
+  }
+  window.__lastBrain = src;
+  console.log('[ball-agent] decided via', src, '→', JSON.stringify(decision));
+  thinking = false;
+  runAction(decision.action, decision.say);
+  routing = false;
+  return decision;
+}
+
+// ── Web Speech: STT (hold-to-talk) + TTS (from golfball-llm.html) ──
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null, recording = false; const ttsOK = ('speechSynthesis' in window);
+let statusMic = 'init…';
+function initMic() {
+  if (!SR) { statusMic = 'off (no SpeechRecognition — type instead)'; return false; }
+  recog = new SR(); recog.lang = 'en-US'; recog.interimResults = false; recog.maxAlternatives = 1;
+  recog.onresult = (ev) => { const t = ev.results[0][0].transcript; setTin(t); route(t); };
+  recog.onerror = (ev) => { statusMic = 'mic error: ' + ev.error + ' (type instead)'; updateStatus(); stopRec(); };
+  recog.onend = () => stopRec();
+  statusMic = 'ready (hold to talk)';
+  return true;
+}
+function startRec() { if (!recog) return; try { recog.start(); recording = true;
+  const b = document.getElementById('talk'); b.classList.add('rec'); b.innerHTML = '<span class="mic"></span>LISTENING'; mood = 'think'; } catch (e) {} }
+function stopRec() { recording = false; const b = document.getElementById('talk'); if (b) { b.classList.remove('rec'); b.innerHTML = '<span class="mic"></span>TALK'; }
+  try { recog && recog.stop(); } catch (e) {} }
+
+let voicePicked = null;
+function pickVoice() { if (!ttsOK) return; const vs = speechSynthesis.getVoices();
+  voicePicked = vs.find(v => /en/i.test(v.lang) && /google|samantha|daniel|zira/i.test(v.name)) || vs.find(v => /en/i.test(v.lang)) || vs[0] || null; }
+function speakTTS(text) {
+  if (!ttsOK) return;
+  try { speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(text);
+    if (voicePicked) u.voice = voicePicked; u.rate = 1.06; u.pitch = 1.2; speechSynthesis.speak(u); } catch (e) {}
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+//  PART 5 — DEBUG MENU + status (backtick toggles)
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+let dbgOpen = false;
+function setDebug(v) { dbgOpen = !!v; document.getElementById('dbg').style.display = dbgOpen ? 'block' : 'none'; if (dbgOpen) updateStatus(); }
+function setBoot(msg, pct) {
+  if (pct != null) {
+    document.getElementById('bootbarWrap').style.display = 'block';   // reveal only while loading
+    document.getElementById('bootbar').style.width = pct + '%';
+  }
+  updateStatus(msg);
+}
+function updateStatus(bootMsg) {
+  const gpu = ('gpu' in navigator) ? 'available'
+    : (window.isSecureContext ? 'OFF (no WebGPU in this browser)' : 'OFF — open via http://localhost');
+  const brain = brainMode === 'llm' ? ('LOCAL: ' + SELECTED_MODEL.id.replace(/-q4f16_1-MLC/, '') + ' (cached)')
+    : brainMode === 'llm-loading' ? ('loading ' + (loadPct || 0) + '%' + (bootMsg ? ' · ' + bootMsg : ''))
+    : 'keyword brain (rule-based)';
+  const st = document.getElementById('statTxt');
+  if (st) st.innerHTML =
+    'BRAIN : ' + brain + '\n' +
+    'WebGPU: ' + gpu + '\n' +
+    'MIC   : ' + (statusMic || '…') + '\n' +
+    'TTS   : ' + (ttsOK ? 'on (speechSynthesis)' : 'off') + '\n' +
+    'STATE : ' + ['AIM', 'FLIGHT', 'PAUSE', 'TRANS', 'OOB', 'COMPLETE'][state] + (agentAnim ? ' (agent)' : '') + '\n' +
+    (window.__lastAction ? 'ACTION: ' + window.__lastAction + '\n' : '') +
+    (window.__lastBrain ? '<span class="last">LAST  : ' + window.__lastBrain + '</span>' : '');
+  const sec = document.getElementById('secTxt');
+  if (sec) sec.textContent = window.isSecureContext
+    ? 'secure context OK. WebGPU usable if the browser supports it. Load the model, pick Hermes-3, then talk.'
+    : 'NOT a secure context. WebGPU is hidden over plain http. Open via http://localhost (or https) to load the real LLM.';
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+//  PART 6 — RENDER LOOP (own boot, like physlab.js): real update + real draw + face/flag/sparkle overlay
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+let auto = true;
+
+function renderFrame() {
+  // 1) the REAL engine render (sky, terrain, the real ball, the flag, HUD) — looks like a normal hole.
+  draw();
+  // 2) world-space overlays (sparkles + flag wiggle) — under the same camera transform the engine uses.
+  const sc = (typeof displayScale === 'number' && displayScale) ? displayScale : 1;
+  ctx.save();
+  ctx.scale(sc, sc);
+  ctx.translate(-Math.round(camera.x * sc) / sc, -camera.y);
+  if (flagWiggle > 0) {
+    const h = cupRef();
+    if (h && h.flagVisible) {
+      ctx.save();
+      const poleX = h.cupRightX + 2, sy = terrainYAt(poleX);
+      ctx.translate(poleX, sy - 55);
+      ctx.rotate(Math.sin(flagWiggle * 0.9) * 0.12 * (flagWiggle / 18));
+      ctx.translate(-poleX, -(sy - 55));
+      drawFlag(h, terrainYAt);   // redraw a wiggling copy on top
+      ctx.restore();
+    }
+  }
+  drawSparkles();
+  ctx.restore();
+  // 3) the FACE — screen space, on top of the real ball at its live position.
+  drawFaceOverlay();
+}
+
+function tick() {
+  if (auto) {
+    if (agentAnim) { stepAnim(); }     // scripted action owns the ball this frame
+    else { update(); }                 // real engine physics
+    pollSinkFinish();
+  }
+  stepSparkles();
+  tickFace();
+  renderFrame();
+  if (dbgOpen && (_skyFrame % 12 === 0)) updateStatus();
+  window._agentRAF = requestAnimationFrame(tick);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+//  PART 7 — WIRING + HEADLESS API
+// ──────────────────────────────────────────────────────────────────────────────────────────────
+// model picker
+(function () {
+  const sel = document.getElementById('modelSel'); if (!sel) return;
+  MODELS.forEach((m, i) => { const o = document.createElement('option'); o.value = String(i); o.textContent = m.label; sel.appendChild(o); });
+  sel.value = String(Math.max(0, MODELS.indexOf(SELECTED_MODEL)));
+  sel.onchange = () => {
+    SELECTED_MODEL = MODELS[+sel.value] || SELECTED_MODEL;
+    if (brainMode === 'llm' || brainMode === 'llm-loading') { brainMode = 'rule'; llmReady = false; engine = null;
+      document.getElementById('btnLoad').disabled = false;
+      pushBubble('Swapped to ' + SELECTED_MODEL.label.split(' (')[0] + '. Hit LOAD and I\'ll boot it.', 'think'); }
+    updateStatus();
+  };
+})();
+document.getElementById('btnLoad').onclick = loadLLM;
+// action list in debug menu
+(function () {
+  const el = document.getElementById('actList'); if (!el) return;
+  el.innerHTML = ACTION_INFO.map(a => '<b>' + a[0] + '</b> — ' + a[1]).join('<br>');
+})();
+
+// TALK button (hold-to-talk; if no mic, focus the text input)
+const talkBtn = document.getElementById('talk');
+talkBtn.onmousedown = () => { if (SR) startRec(); else { const i = document.getElementById('tin'); i.style.display = 'block'; i.focus(); } };
+talkBtn.onmouseup   = () => { if (recording) stopRec(); };
+talkBtn.onmouseleave = () => { if (recording) stopRec(); };
+talkBtn.ontouchstart = (e) => { e.preventDefault(); if (SR) startRec(); else { const i = document.getElementById('tin'); i.style.display = 'block'; i.focus(); } };
+talkBtn.ontouchend   = (e) => { e.preventDefault(); if (recording) stopRec(); };
+// text input (also reveal it on focus; Enter sends)
+const tin = document.getElementById('tin');
+tin.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const v = tin.value.trim(); if (v) { tin.value = ''; route(v); } } });
+// make the text input reachable: a right-click / long-press alt — and always show it once the user types.
+talkBtn.oncontextmenu = (e) => { e.preventDefault(); tin.style.display = (tin.style.display === 'block') ? 'none' : 'block'; if (tin.style.display === 'block') tin.focus(); };
+
+// backtick toggles the debug menu (the ONLY way it appears)
+window.addEventListener('keydown', (e) => {
+  const tag = e.target && e.target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (e.key === '`' || e.code === 'Backquote') { e.preventDefault(); setDebug(!dbgOpen); }
+});
+
+// headless API
+window.__step    = function (n) { n = n || 1; for (let i = 0; i < n; i++) { if (agentAnim) stepAnim(); else update(); pollSinkFinish(); stepSparkles(); tickFace(); } renderFrame(); return _skyFrame; };
+window.__frame   = function () { return _skyFrame; };
+window.__reset   = function () { convo = []; loadHole(); mood = 'happy'; thinking = false; speaking = false; bubble = { text: '', t: 0, full: 0 }; window.__lastAction = null; updateStatus(); return true; };
+window.__setAuto = function (b) { auto = !!b; return auto; };
+window.__say     = function (t) { route(t); return true; };          // full pipeline (LLM → keyword fallback)
+window.__do      = function (name) { runAction(name); return window.__lastAction; };   // direct action
+window.__debug   = function (b) { setDebug(b); return dbgOpen; };
+window.__lastAction = null;
+window.__state   = function () { return { state: state, atRest: ball.atRest, agent: !!agentAnim,
+  ball: { x: Math.round(ball.x), y: Math.round(ball.y) }, cup: cupRef() ? { x: cupRef().cupX, y: Math.round(cupRef().cupY), filled: cupRef().cupFilled } : null,
+  lastAction: window.__lastAction, lastBrain: window.__lastBrain, brain: brainMode }; };
+
+// ── boot ──
+function boot() {
+  loadHole();
+  initMic();
+  if (ttsOK) { pickVoice(); if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = pickVoice; }
+  updateStatus();
+  setTimeout(() => pushBubble("Hey boss. Talk to me — say 'put yourself in the hole' and watch.", 'happy'), 500);
+  tick();
+}
+boot();
+</script>
+</body>
+</html>

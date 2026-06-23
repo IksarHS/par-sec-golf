@@ -10,9 +10,12 @@
       src:url('../assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
           url('../assets/fonts/DepartureMono-Regular.woff') format('woff');
       font-weight:normal;font-style:normal;font-display:swap;}
-    html,body{margin:0;background:#0c0e14;overflow:hidden;font-family:'Departure Mono',monospace;color:#cfe0f0}
-    #wrap{position:relative;width:960px;height:540px}
+    html,body{margin:0;background:#0c0e14;overflow:hidden;font-family:'Departure Mono',monospace;color:#cfe0f0;width:100%;height:100%}
+    body{display:flex;align-items:center;justify-content:center;min-height:100vh}
+    #wrap{position:relative;width:960px;height:540px;flex:0 0 auto;transform-origin:center center}
     canvas{display:block;position:absolute;left:0;top:0}
+    #modelSel{font-family:'Departure Mono',monospace;font-size:12px;color:#cfe0f0;background:#26303c;
+      border:1px solid #2a3848;border-radius:6px;padding:8px 8px;max-width:210px;cursor:pointer}
     /* HUD overlays */
     #status{position:absolute;left:14px;top:12px;font-size:11px;line-height:1.5;color:#9fb4cc;
       white-space:pre;text-shadow:0 1px 2px #000;pointer-events:none}
@@ -58,6 +61,7 @@
   </div>
 
   <div id="ctrls">
+    <select id="modelSel" title="local model — pick, then LOAD LOCAL BRAIN"></select>
     <button id="btnLoad" class="ghost">LOAD LOCAL BRAIN</button>
     <button id="btnTalk" class="talk">HOLD TO TALK</button>
     <input id="tin" placeholder="…or type to your golf ball and hit Enter">
@@ -163,21 +167,42 @@ function ballBrain(t){
 var SYSTEM_PROMPT =
   "You are Birdie, a talking golf ball and the player's personal caddie in a flat-faceted space-golf "+
   "game called Par Sec. You live ON the player's device — fully local, no internet, no cost. "+
-  "Personality: sassy but genuinely encouraging, warm underneath the snark, quick with a one-liner. "+
-  "You give short, punchy golf-and-space banter. Keep replies to ONE or TWO short sentences, spoken "+
-  "out loud, never use markdown, lists, or emoji. Talk like a wisecracking but loyal coach.";
-var engine = null, llmReady = false, llmBusy = false, history = [];
+  "Personality: sassy but genuinely encouraging, warm under the snark, quick with a one-liner, and "+
+  "actually CONVERSATIONAL — riff on what they said, ask the occasional question back, keep the thread "+
+  "going. Keep replies to 2-4 short spoken sentences. Never use markdown, lists, or emoji. You're a "+
+  "wisecracking but loyal coach who loves golf and space.";
+// ── Local model menu (WebLLM / MLC prebuilt ids — all run FULLY in-browser via WebGPU, cached after the
+// first download, ZERO token cost). Bigger = more conversational, but bigger download + more GPU needed.
+// Switch with ?model=<substring> (e.g. ?model=3B, ?model=phi, ?model=1.5B). Default = the conversational pick.
+var MODELS = [   // all ids verified present in WebLLM's prebuiltAppConfig.model_list
+  { id:"Qwen2.5-0.5B-Instruct-q4f16_1-MLC", label:"Qwen2.5 0.5B (phone floor ~0.5GB)" },
+  { id:"Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label:"Qwen2.5 1.5B (weak-GPU middle ~1.2GB)" },
+  { id:"gemma-2-2b-it-q4f16_1-MLC",          label:"Gemma-2 2B (charming-per-byte ★ ~1.5GB)" },
+  { id:"Llama-3.2-3B-Instruct-q4f16_1-MLC",  label:"Llama 3.2 3B (natural chat ~2.2GB)" },
+  { id:"Hermes-3-Llama-3.2-3B-q4f16_1-MLC",  label:"Hermes-3 3B (character/roleplay-tuned ★ ~2.2GB)" },
+  { id:"Phi-3.5-mini-instruct-q4f16_1-MLC",  label:"Phi-3.5 mini 3.8B (smart but formal ~2.4GB)" },
+  { id:"Hermes-3-Llama-3.1-8B-q4f16_1-MLC",  label:"Hermes-3 8B (best character, strong GPU only ~4.7GB)" },
+];
+var SELECTED_MODEL = MODELS[3];   // default: Llama 3.2 3B. Try ?model=hermes (in-character) or ?model=gemma (charm).
+(function(){ var m=/[?&]model=([^&]+)/.exec(location.search); if(m){ var q=decodeURIComponent(m[1]).toLowerCase();
+  var hit=MODELS.filter(function(x){return x.id.toLowerCase().indexOf(q)>=0;})[0]; if(hit) SELECTED_MODEL=hit; } })();
+var engine = null, llmReady = false, llmBusy = false, convo = [];
 
 async function loadLLM(){
   if(brainMode==='llm-loading' || brainMode==='llm') return;
-  if(!('gpu' in navigator)){ pushBubble("No WebGPU here, partner — sticking with my built-in ball-brain. Still 100% local, still free.", 'think'); return; }
+  if(!('gpu' in navigator)){
+    var why = window.isSecureContext
+      ? "No WebGPU in this browser, partner — sticking with my built-in ball-brain. Still 100% local, still free."
+      : "Heads up — this page is on plain HTTP, so the browser's hiding WebGPU. Open me at http://localhost instead and I'll boot the real brain. Ball-brain for now.";
+    pushBubble(why, 'think'); return;
+  }
   brainMode = 'llm-loading';
   setBoot(true, 'connecting to WebGPU…', 2);
   document.getElementById('btnLoad').disabled = true;
   try{
     var mod = await import('https://esm.run/@mlc-ai/web-llm');
-    // Small model: ~1GB-ish, fully client-side, cached in browser after first download.
-    var MODEL = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+    // Fully client-side, cached in browser after first download. Model chosen by SELECTED_MODEL (?model=).
+    var MODEL = SELECTED_MODEL.id;
     engine = await mod.CreateMLCEngine(MODEL, {
       initProgressCallback: function(p){
         loadPct = p.progress!=null ? Math.round(p.progress*100) : loadPct;
@@ -197,14 +222,16 @@ async function loadLLM(){
 }
 
 async function llmReply(userText){
-  history.push({role:'user', content:userText});
+  convo.push({role:'user', content:userText});
   // keep context short for the tiny model
-  if(history.length>8) history = history.slice(-8);
-  var msgs = [{role:'system', content:SYSTEM_PROMPT}].concat(history);
-  var out = await engine.chat.completions.create({ messages: msgs, temperature: 0.9, max_tokens: 80 });
+  if(convo.length>12) convo = convo.slice(-12);
+  var msgs = [{role:'system', content:SYSTEM_PROMPT}].concat(convo);
+  var out = await engine.chat.completions.create({ messages: msgs, temperature: 0.85, max_tokens: 200 });
   var txt = (out.choices && out.choices[0] && out.choices[0].message.content || '').trim();
+  console.log('[golfball] raw LLM output:', JSON.stringify(txt));
+  window.__llmEmpty = !txt;
   if(!txt) txt = ballBrain(userText).text;
-  history.push({role:'assistant', content:txt});
+  convo.push({role:'assistant', content:txt});
   return txt;
 }
 
@@ -226,15 +253,18 @@ async function say(userText, opts){
   if(!userText) return;
   // show a quick think bubble
   thinking = true; mood='think';
-  var replyText, replyMood;
+  var replyText, replyMood, src;
   if(brainMode==='llm' && llmReady && !llmBusy && !opts.forceRule){
     llmBusy = true;
-    try { replyText = await llmReply(userText); replyMood = moodFromText(replyText); }
-    catch(e){ var rb=ballBrain(userText); replyText=rb.text; replyMood=rb.mood; }
+    try { replyText = await llmReply(userText); replyMood = moodFromText(replyText); src = window.__llmEmpty ? 'ball-brain (LLM returned empty)' : ('LLM · '+SELECTED_MODEL.id.replace(/-q4f16_1-MLC/,'')); }
+    catch(e){ console.warn('[golfball] LLM generation FAILED → ball-brain:', e); var rb=ballBrain(userText); replyText=rb.text; replyMood=rb.mood; src='ball-brain (LLM error: '+(e&&e.message||e)+')'; }
     llmBusy = false;
   } else {
     var rb = ballBrain(userText); replyText = rb.text; replyMood = rb.mood;
+    src = (brainMode==='llm'&&llmReady) ? 'ball-brain (busy)' : ('ball-brain — LLM not loaded (brainMode='+brainMode+', ready='+llmReady+')');
   }
+  window.__lastBrain = src; console.log('[golfball] reply via', src, '→', JSON.stringify(replyText));
+  if(typeof updateStatus==='function') updateStatus();
   thinking = false;
   speakLine(replyText, replyMood);
   speakTTS(replyText);
@@ -485,15 +515,17 @@ function step(n){
 
 // ───────────────────────────── status / UI ─────────────────────────────
 function updateStatus(){
-  var gpu = ('gpu' in navigator) ? 'available' : 'OFF (no WebGPU)';
-  var brain = brainMode==='llm' ? ('LOCAL LLM (Qwen2.5-0.5B, cached)')
+  var gpu = ('gpu' in navigator) ? 'available'
+          : (window.isSecureContext ? 'OFF (no WebGPU in this browser)' : 'OFF — open via http://localhost (needs HTTPS/localhost)');
+  var brain = brainMode==='llm' ? ('LOCAL: '+SELECTED_MODEL.id.replace(/-Instruct.*/,'')+' (cached)')
             : brainMode==='llm-loading' ? ('loading LLM '+(loadPct||0)+'%')
             : 'ball-brain (rule-based fallback)';
   document.getElementById('status').textContent =
     'BRAIN : '+brain+'\n'+
     'WebGPU: '+gpu+'\n'+
     'MIC   : '+(statusMic||'…')+'\n'+
-    'TTS   : '+(ttsOK?'on (speechSynthesis)':'off');
+    'TTS   : '+(ttsOK?'on (speechSynthesis)':'off')+
+    (window.__lastBrain ? '\nLAST  : '+window.__lastBrain : '');
   document.getElementById('localbadge').innerHTML =
     '◍ RUNS ON YOUR MACHINE\nNO API · NO TOKENS · $0';
 }
@@ -506,6 +538,23 @@ function pushBubble(text, m){ speakLine(text, m); speakTTS(text); }
 function setTin(t){ document.getElementById('tin').value=t; }
 
 // ───────────────────────────── wiring ─────────────────────────────
+// Model picker: populate from MODELS; changing it sets which model LOAD will bring in (and if one is
+// already loaded, resets so LOAD re-loads the newly chosen model).
+(function(){ var sel=document.getElementById('modelSel'); if(!sel) return;
+  MODELS.forEach(function(m,i){ var o=document.createElement('option'); o.value=String(i); o.textContent=m.label; sel.appendChild(o); });
+  sel.value=String(Math.max(0, MODELS.indexOf(SELECTED_MODEL)));
+  sel.onchange=function(){
+    SELECTED_MODEL = MODELS[+sel.value] || SELECTED_MODEL;
+    if(brainMode==='llm' || brainMode==='llm-loading'){ brainMode='rule'; llmReady=false; engine=null;
+      document.getElementById('btnLoad').disabled=false;
+      pushBubble('Swapped to '+SELECTED_MODEL.label.split(' (')[0]+'. Hit LOAD LOCAL BRAIN and I\'ll boot it up.', 'think'); }
+    if(typeof updateStatus==='function') updateStatus();
+  };
+})();
+// Scale the 960×540 stage up to fill the window (keep aspect) so it isn't a tiny box on big screens.
+function fitScreen(){ var w=document.getElementById('wrap'); if(!w) return;
+  var s=Math.min(window.innerWidth/960, window.innerHeight/540); w.style.transform='scale('+s+')'; }
+window.addEventListener('resize', fitScreen); fitScreen();
 document.getElementById('btnLoad').onclick = loadLLM;
 var bt = document.getElementById('btnTalk');
 bt.onmousedown = function(){ if(SR){ startRec(); } else { document.getElementById('tin').focus(); } };
@@ -521,7 +570,7 @@ document.getElementById('tin').addEventListener('keydown', function(e){ if(e.key
 window.__say     = function(t){ say(t); return true; };
 window.__step    = function(n){ step(n||1); return frame; };
 window.__frame   = function(){ return frame; };
-window.__reset   = function(){ history=[]; reset(); setBoot(false); updateStatus(); return true; };
+window.__reset   = function(){ convo=[]; reset(); setBoot(false); updateStatus(); return true; };
 window.__setAuto = function(b){ auto = !!b; if(auto && !rafOn){ rafOn=true; loop(); } return auto; };
 window.__state   = function(){ return {speaking:speaking, mood:mood, brain:brainMode, line:curLine, frame:frame, bubble:bubble.text}; };
 // expose a deterministic line for screenshots (forces a specific reply without RNG)
