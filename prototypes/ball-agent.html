@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Par Sec — Ball Agent (talk to your ball)</title>
 <!-- Favicon = the in-game ball (echoes src/art.js drawBall) -->
 <link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'&gt;&lt;circle cx='8' cy='8' r='6' fill='%23ffffff'/&gt;&lt;circle cx='11.3' cy='8' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='10.86' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='5.14' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;/svg&gt;">
@@ -15,12 +16,22 @@
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100vw; height: 100vh; overflow: hidden; background: #0c0e14; }
-  body { font-family: 'Departure Mono', monospace; color: #f2ecff; }
-  canvas { display: block; position: fixed; inset: 0; z-index: 1; }
+  body { display: flex; align-items: center; justify-content: center;
+    font-family: 'Departure Mono', monospace; color: #f2ecff; }
+  canvas { display: block; cursor: crosshair; position: relative; z-index: 1; max-width: 100vw; max-height: 100vh; }
 
-  /* ── ALWAYS-VISIBLE agent UI: a small TALK button (corner) ── */
-  #agent-ui { position: fixed; right: 18px; bottom: 18px; z-index: 30;
-    display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  /* in-run HUD (the engine's hole readout — top-left) */
+  #rg-hud { position: fixed; top: 16px; left: 22px; z-index: 50; display: none;
+    flex-direction: column; align-items: flex-start; gap: 2px; pointer-events: none; }
+  .rg-hud-hole { font-size: 19px; font-weight: normal; color: rgba(242,236,255,0.82); letter-spacing: 2px;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+  .rg-hud-shards { font-size: 13px; color: #b88cff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+
+  /* ── HIDDEN agent UI ── the talking ball is a SECRET feature discovered by just talking to it.
+     The TALK button + text-input bar are kept in the DOM (for logic) but display:none'd so the screen
+     reads as a normal game: just the ball on the hole. Push-to-talk is on the T key; debug is backtick. ── */
+  #agent-ui { display: none !important; }
+  #hint { display: none !important; }
   #talk { font: 13px 'Departure Mono', monospace; letter-spacing: 1px; color: #0c1410;
     background: #2ff07a; border: 0; border-radius: 22px; padding: 11px 18px; cursor: pointer;
     box-shadow: 0 3px 10px rgba(0,0,0,0.45); user-select: none; -webkit-user-select: none; }
@@ -64,16 +75,67 @@
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
+<canvas id="c" style="visibility:hidden;"></canvas>
 
-<!-- ── REAL ENGINE CORE (same physics/render files run.html loads; NO roguelike/firebase layer) ──
-     Modeled on physlab.html: drive the REAL gameplay.js ball; the agent only sets up a clean
-     test hole + overlays a face + performs scripted manipulations of the real ball/cup. -->
+<!-- engine in-run HUD (populated by the run controller) -->
+<div id="rg-hud"></div>
+
+<!-- ──────────────────────────────────────────────────────────────────────────────────────────────
+     REAL ENGINE — the SAME script set run.html / the dist loads (full physics + render + generators +
+     the roguelike run layer + the deep-space planet→planet TRAVEL transition). The ONE difference: we
+     DO NOT load src/roguelike/login-ui.js, and we set ?nologin semantics — so there is NO firebase /
+     username gate and NO login overlay; the agent boots straight into the loop.
+     (Engine files are loaded UNCHANGED — no shared file is edited. The 2-body loop is installed at the
+     bottom of this page via the existing SOLAR_ITINERARY global + an RG.startRun/_buildCourse wrap, the
+     exact peel-off pattern src/roguelike/portrait.js already uses.)
+─────────────────────────────────────────────────────────────────────────────────────────────────── -->
+<script>
+  // Boot straight into play: no login overlay, no firebase gate. login-ui.js reads ?nologin to skip the
+  // overlay — and we don't even load it — but set the flag so any other peek is consistent. aiEnabled stays
+  // false (a human plays). RG_MINIMAL = the lean core loop (no secrets/Codex clutter), like run.html default.
+  if (!/[?&]nologin\b/.test(location.search)) {
+    try { history.replaceState(null, '', location.pathname + (location.search ? location.search + '&' : '?') + 'nologin'); } catch (e) {}
+  }
+  window.RG_MINIMAL = true;
+</script>
 <script src="../src/shared.js"></script>
+<script src="../src/worlds/run.js"></script>
+<script src="../src/planet-gen.js"></script>
+<script src="../src/lab.js"></script>
 <script src="../src/level-design.js"></script>
+<script src="../src/moon-terrain.js"></script>
+<script src="../src/set-pieces.js"></script>
+<script src="../src/holegen/spine.js"></script>
+<script src="../src/holegen/operators.js"></script>
+<script src="../src/holegen/skin.js"></script>
+<script src="../src/holegen/caves.js"></script>
+<script src="../src/holegen/setpieces-dream.js"></script>
+<script src="../src/holegen/score.js"></script>
+<script src="../src/holegen/dreamgen.js"></script>
+<script src="../src/water.js"></script>
+<script src="../src/weird-terrain.js"></script>
 <script src="../src/modes/desert-golfing.js"></script>
 <script src="../src/art.js"></script>
 <script src="../src/gameplay.js"></script>
+<!-- roguelike run layer (peel-off-able). NOTE: login-ui.js is deliberately OMITTED (no login gate). -->
+<script src="../src/roguelike/save.js"></script>
+<script src="../src/roguelike/profile.js"></script>
+<script src="../src/roguelike/modifiers.js"></script>
+<script src="../src/roguelike/run.js"></script>
+<script src="../src/roguelike/secrets.js"></script>
+<script src="../src/roguelike/economy.js"></script>
+<script src="../src/roguelike/ship.js"></script>
+<script src="../src/roguelike/shop.js"></script>
+<script src="../src/roguelike/wrap.js"></script>
+<script src="../src/roguelike/audio.js"></script>
+<script src="../src/roguelike/fx.js"></script>
+<script src="../src/roguelike/juice.js"></script>
+<script src="../src/roguelike/ambient.js"></script>
+<script src="../src/roguelike/onboard.js"></script>
+<script src="../src/roguelike/travel.js"></script>
+<script src="../src/roguelike/event.js"></script>
+<script src="../src/roguelike/terrain.js"></script>
+<script src="../src/main.js"></script>
 
 <!-- ── ALWAYS-VISIBLE agent UI ── -->
 <div id="agent-ui">
@@ -87,7 +149,7 @@
 <!-- ── DEBUG MENU (hidden; backtick toggles) ── -->
 <div id="dbg">
   <h1>BALL · DEBUG</h1>
-  <div class="sub">PAR SEC · local LLM agent</div>
+  <div class="sub">PAR SEC · local LLM agent · 2-planet loop</div>
 
   <div class="grp">LOCAL BRAIN</div>
   <select id="modelSel" title="local model — pick, then LOAD"></select>
@@ -106,158 +168,98 @@
 
 <script>
 /* ───────────────────────────────────────────────────────────────────────────────────────────────
-   PAR SEC — BALL AGENT
-   A talking golf ball that is an AGENT, running on a REAL ENGINE HOLE. The game looks completely
-   NORMAL (real faceted terrain, the real ball, the gold flag). The only always-visible agent UI is a
-   small "🎤 TALK" button. ALL the LLM machinery (model picker, LOAD, WebGPU status, diagnostics) lives
-   in a DEBUG MENU toggled by the backtick (`) key — hidden by default.
+   PAR SEC — BALL AGENT  (talking golf ball, AGENT, on the REAL ENGINE + the real 2-planet loop)
 
-   You talk to your ball; it performs HIDDEN IN-GAME ACTIONS on the REAL engine ball.
-   Signature: "put yourself in the hole" → the real ball lifts off, glides over the real cup, drops in.
+   The game is the REAL Par Sec: the real generated holes, the real ball/flag, the real hole-to-hole
+   transitions, and the real deep-space planet→planet TRAVEL transition. We boot straight into a
+   2-PLANET × 3-HOLE LOOP (Earth → Kepler-90b · Verdshoal → travel back → Earth → …, forever).
 
-   Pipeline:  mic/STT (or text) → LLM tool-call (JSON {action, say}) → validate → run on REAL ball → TTS.
-   Fallbacks: (1) keyword-intent matcher on the user's text; (2) no WebGPU → keyword matcher + rule line.
-   Reuses golfball-llm.html's LLM/voice/face machinery (convo[], __lastBrain, console logging, secure-ctx).
-   Engine boot modeled on physlab.html. The FACE is overlaid on the real engine ball each frame.
+   The ONLY always-visible agent UI is a small "🎤 TALK" button. ALL the LLM machinery (model picker,
+   LOAD, WebGPU status) lives in a DEBUG MENU toggled by the backtick (`) key — hidden by default.
+
+   You CONVERSE with your ball. It inherently KNOWS its abilities. Ask in ANY natural wording
+   ("hey can you put yourself in the hole?", "pop yourself into the cup", "get in there", "drop in")
+   and it works out the intent and DOES it on the real ball — replying with ONLY a short, natural,
+   in-character spoken line. No on-screen instructions, no meta-text.
+
+   Pipeline:  mic/STT (or text) → LLM tool-call (JSON {action, say}) → validate → run on the REAL ball.
+              The `say` is the ONLY thing shown to the player. Fallbacks: (1) broad keyword-intent
+              matcher; (2) no WebGPU → keyword matcher + a natural rule line.
+
+   The FACE is overlaid on the REAL engine ball each frame (follows it across holes AND planets).
 
    Headless API (no mic/model needed):
-     window.__step(n) / __frame() / __reset() / __setAuto(b)
+     window.__step(n) / __reset() / __setAuto(b)
      window.__say(text)   – route text through LLM/keyword pipeline → performs the action
      window.__do(name)    – directly run an action on the real ball
      window.__lastAction  – name of the last action performed
      window.__debug(bool) – force the debug menu open/closed (for screenshots)
+     window.__nextHole()  – sink the current hole → drives the REAL hole-to-hole transition
+     window.__travel()    – finish the planet (advances to its last hole + sinks) → REAL planet travel
+     window.__state()     – { course, hole, holeCount, state, ball, cup, lastAction, … }
    ─────────────────────────────────────────────────────────────────────────────────────────────── */
 'use strict';
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-//  PART 1 — REAL ENGINE: boot a clean, NORMAL-looking Earth hole (modeled on physlab.js)
+//  PART 0 — THE 2-PLANET × 3-HOLE LOOP  (real engine itinerary override; peel-off, no engine edit)
 // ──────────────────────────────────────────────────────────────────────────────────────────────
+// The real travel-advance (off-limits wrap.js) computes the next body as SOLAR_ITINERARY[indexOf(course)+1]
+// and only advances while indexOf(course) < length-1. We install a 3-slot array that WRAPS — exactly the
+// shipped ?loop2 pattern (planet-gen.js) and portrait.js's 3-body on-ramp:
+//   ['earth','kepler90b','earth']
+//     · on 'earth'    → indexOf finds the FIRST (0) → next = [1] = 'kepler90b'   (earth → kepler90b)
+//     · on 'kepler90b'→ indexOf = 1, 1 < 2 → next = [2] = 'earth'               (kepler90b → BACK to earth)
+//     · arriving on the 3rd 'earth', indexOf re-finds 0 → next is 'kepler90b' again. Endless ping-pong.
+// holeCount is retuned to 3 per body by wrapping RG._buildCourse (the same hook portrait.js wraps).
+const LOOP_BODIES = ['earth', 'kepler90b'];          // 2 colourful bodies: home green + jade sea
+const LOOP_ITIN   = [LOOP_BODIES[0], LOOP_BODIES[1], LOOP_BODIES[0]];   // wrap: …→b1→b2→b1→…
+const LOOP_HOLES  = 3;
 
-// We don't load main.js, so the engine's init()/Firebase boot never runs — the agent owns the loop.
-window.HOLE_OVERRIDES_ENABLED = false;
-
-// The engine's cup-fill (drawCupFill) heals a sunk cup with GROUND (rust/orange) by default — jarring on
-// our Earth-green grass. art.js exposes an inert hook RG._cupFillColorFor; we provide ONLY that one hook
-// so the cup heals with grass green instead of an orange block. (No other RG behaviour is enabled.)
-window.RG = window.RG || {};
-window.RG._cupFillColorFor = function () { return (MATERIALS && MATERIALS.grass && MATERIALS.grass.color) || '#5a9e4b'; };
-
-// Earth-green world (flat faceted, per _PROTO-SPEC palette). The mode reads currentWorld.sky.
-const EARTH_SKY = '#0f1a26';
-currentWorld  = { name: 'EARTH', sky: EARTH_SKY, system: 'sol', courses: {} };
-currentCourse = { name: 'Meadow', holeCount: 1, materials: ['grass'] };
-currentWorld.courses.agent = currentCourse;
-WORLDS['agent-world'] = currentWorld;
-
-// Flat-faceted terrain (legible facets, no sand texture) — matches the spec's "flat color only".
-if (typeof TERRAIN_TEXTURE_ON !== 'undefined') TERRAIN_TEXTURE_ON = false;
-
-// Deep-space sky: dark vertical gradient + a fixed starfield, with an Earth-green horizon glow so the
-// grass hole reads as a friendly Earth meadow under the stars (still in OUR deep-space art).
-const _stars = [];
-(function () {
-  let s = 20260623;
-  const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
-  for (let i = 0; i < 76; i++) {
-    _stars.push({ x: rnd(), y: rnd() * 0.66, r: rnd() < 0.2 ? 1.6 : 1,
-      c: rnd() < 0.25 ? 'rgba(190,210,255,0.85)' : 'rgba(255,255,255,0.45)', tw: rnd() * 6.283, ts: 0.4 + rnd() * 0.9 });
+(function installLoop() {
+  // Retune any built course to 3 holes (mutating the returned clone is safe — it's what startRun installs).
+  function retune(c) { if (c) { c.holeCount = LOOP_HOLES; } return c; }
+  function applyItin() {
+    var courses = (typeof WORLDS !== 'undefined' && WORLDS['run-world'] && WORLDS['run-world'].courses) || {};
+    var have = LOOP_ITIN.filter(function (id, i) { return courses[id] || i === 2; });  // earth is always present
+    // only install once both bodies are registered; never degrade to a 1-slot array
+    if (!courses[LOOP_BODIES[0]] || !courses[LOOP_BODIES[1]]) return false;
+    window.SOLAR_ITINERARY = LOOP_ITIN.slice();
+    return true;
   }
+  function wrapBuild() {
+    if (!window.RG || !RG._buildCourse || RG._loopBuildWrapped) return false;
+    RG._loopBuildWrapped = true;
+    var base = RG._buildCourse.bind(RG);
+    RG._buildCourse = function (id) { return retune(base(id)); };
+    return true;
+  }
+  function wrapStart() {
+    if (!window.RG || !RG.startRun || RG._loopStartWrapped) return false;
+    RG._loopStartWrapped = true;
+    var base = RG.startRun.bind(RG);
+    RG.startRun = function (opts) { applyItin(); var r = base(opts || {}); applyItin(); return r; };
+    return true;
+  }
+  // Persistent watcher: planet-gen reassigns SOLAR_ITINERARY at several boot points, so keep re-asserting
+  // until the wraps are in AND the 2-body itinerary is stably installed (cheap no-op once stable).
+  // ALSO: the engine's initFirebase boots a run BEFORE these wraps install (so it lands at holeCount 9 on
+  // the un-retuned earth). Once the wraps + itinerary are ready, restart that run ONCE through the wrapped
+  // startRun so the 3-hole retune + 2-body loop take effect (the exact re-boot portrait.js does).
+  (function watch(n) {
+    wrapBuild(); wrapStart(); applyItin();
+    var ready = window.RG && RG._loopBuildWrapped && RG._loopStartWrapped
+      && window.SOLAR_ITINERARY && window.SOLAR_ITINERARY.length === 3
+      && (typeof WORLDS !== 'undefined' && WORLDS['run-world'] && WORLDS['run-world'].courses[LOOP_BODIES[1]]);
+    if (ready && window.RG.active && !window.RG._loopBooted) {
+      window.RG._loopBooted = true;
+      try { RG.startRun({ course: LOOP_BODIES[0], seed: (RG.rollSeed ? RG.rollSeed() : 42) }); } catch (e) {}
+    }
+    if (n < 400) setTimeout(function () { watch(n + 1); }, 50);
+  })(0);
 })();
-let _skyFrame = 0;
-MODE.drawSky = function () {
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#070b10'); g.addColorStop(0.5, '#0d1622'); g.addColorStop(1, '#16241a');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  for (const st of _stars) {
-    const tw = 0.6 + 0.4 * Math.sin(_skyFrame * 0.03 * st.ts + st.tw);
-    ctx.globalAlpha = tw; ctx.fillStyle = st.c;
-    ctx.fillRect((st.x * W) | 0, (st.y * H) | 0, st.r, st.r);
-  }
-  ctx.globalAlpha = 1;
-};
-
-// ── A GENTLE test hole — a flat-ish grass Earth green (cup to the right of the tee) ──
-const GROUND_Y = 372;
-const TEE_X    = 210;
-const CUP_X    = 700;
-function buildEarthHole() {
-  // Soft rolling grass: a near-flat run tee→cup with one gentle swale, so it reads as a normal,
-  // calm Earth hole (not a tuning rig). All 'grass'.
-  const v = [];
-  v.push({ x: 40,  y: GROUND_Y,      mat: 'grass' });
-  v.push({ x: 160, y: GROUND_Y - 4,  mat: 'grass' });
-  v.push({ x: 240, y: GROUND_Y,      mat: 'grass' });
-  v.push({ x: 340, y: GROUND_Y + 10, mat: 'grass' });
-  v.push({ x: 440, y: GROUND_Y + 16, mat: 'grass' });   // gentle swale
-  v.push({ x: 540, y: GROUND_Y + 8,  mat: 'grass' });
-  v.push({ x: 640, y: GROUND_Y,      mat: 'grass' });
-  v.push({ x: 760, y: GROUND_Y - 2,  mat: 'grass' });
-  v.push({ x: 900, y: GROUND_Y,      mat: 'grass' });
-  return { verts: v, teeX: TEE_X, teeY: GROUND_Y, cupX: CUP_X };
-}
-
-// ── Cup carving (mirrors level-design.js placeCup / physlab.js carveCup, on OUR verts) ──
-let _matAtVerts = [];
-function _matAt(x) { let m = 'grass'; for (const v of _matAtVerts) { if (v.x <= x) m = v.mat || 'grass'; else break; } return m; }
-function carveCup(cupX) {
-  const halfW = CUP_WIDTH / 2;
-  const leftX = cupX - halfW, rightX = cupX + halfW;
-  const rimY = (terrainYAt(leftX) + terrainYAt(rightX)) / 2;
-  const flatMargin = 20, wallInset = 3;
-  const bottomY = rimY + CUP_DEPTH;
-  vertices = vertices.filter(v => v.x < leftX - flatMargin || v.x > rightX + flatMargin);
-  const cupVerts = [
-    { x: leftX - flatMargin, y: rimY, mat: _matAt(leftX) },
-    { x: leftX, y: rimY, mat: _matAt(leftX) },
-    { x: leftX + wallInset, y: bottomY, mat: _matAt(leftX) },
-    { x: rightX - wallInset, y: bottomY, mat: _matAt(rightX) },
-    { x: rightX, y: rimY, mat: _matAt(rightX) },
-    { x: rightX + flatMargin, y: rimY, mat: _matAt(rightX) },
-  ];
-  let insertIdx = vertices.findIndex(v => v.x >= leftX - flatMargin);
-  if (insertIdx === -1) insertIdx = vertices.length;
-  vertices.splice(insertIdx, 0, ...cupVerts);
-  holes.length = 0;
-  holes.push({
-    cupX, cupY: rimY,
-    cupLeftX: leftX, cupLeftY: rimY,
-    cupRightX: rightX, cupRightY: rimY,
-    cupBottomY: bottomY, cupWallInset: wallInset,
-    cupFilled: false, cupFillProgress: 0,
-    flagHole: 1, flagVisible: true, flagOpacity: 1,
-    teeX: TEE_X, teeY: GROUND_Y,
-  });
-}
-
-function loadHole() {
-  const def = buildEarthHole();
-  vertices = def.verts.map(v => ({ x: v.x, y: v.y, mat: v.mat || 'grass' }));
-  _matAtVerts = vertices.map(v => ({ x: v.x, mat: v.mat }));
-  holes.length = 0; objects.length = 0; currentHole = 0;
-  carveCup(def.cupX);
-  const h = holes[0];
-  h.teeX = def.teeX; h.teeY = def.teeY;
-  reTee();
-  state = STATE_AIM;
-  showTitle = false;
-  flagWiggle = 0;
-  setHoleCamera(h);
-  camera.x = 0; camera.y = 0;
-}
-
-function reTee() {
-  const h = holes[0];
-  ball.x = h.teeX;
-  ball.y = terrainYAt(h.teeX) - BALL_RADIUS;
-  ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = false;
-  ball.spinRate = 0; ball.rotation = 0; ball.lastCollidedMat = null;
-  ball.slowFrames = 0; ball.flightFrames = 0;
-  state = STATE_AIM; strokes = 0;
-  agentAnim = null;     // cancel any in-flight scripted action
-}
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-//  PART 2 — THE BALL'S FACE (from golfball-llm.html), overlaid on the REAL engine ball each frame
+//  PART 1 — THE BALL'S FACE — overlaid on the REAL engine ball each frame (follows it everywhere)
 // ──────────────────────────────────────────────────────────────────────────────────────────────
 
 let face = { bob: 0, sx: 1, sy: 1, blinkT: 40, blinkDur: 0, mouthT: 0 };
@@ -266,25 +268,30 @@ let speaking = false;
 let curLine = '';
 let bubble = { text: '', t: 0, full: 0, timer: 0, speakFrames: 1 };
 let thinking = false;
+let _faceFrame = 0;          // our own frame counter for face/blink/sparkle timing
 
-// The face is drawn in SCREEN space at the real ball's live screen position (world→screen via the
-// engine's camera + displayScale). It scales with BALL_RADIUS so it reads at the real ball's size,
-// but with a comfortable minimum so the face is always legible (the real ball is only ~4px).
+// The face is drawn CENTERED ON the real ball, in GAME UNITS. IMPORTANT: the engine's draw() already does
+// ctx.scale(displayScale) and we draw from MODE.drawHUD which runs INSIDE that scale — so we work in game
+// units (ball.x - camera.x), NOT screen pixels. (An earlier ×displayScale double-applied the scale and made
+// the face drift down-right of the ball.) The face is centered on ball.x/ball.y so it IS the ball's face.
+function _camY() { return (typeof camera !== 'undefined' && camera.y) || 0; }
 function ballScreen() {
-  const sc = (typeof displayScale === 'number' && displayScale) ? displayScale : 1;
-  // Face is rendered larger than the ~4px engine ball so the CHARACTER reads (eyes ≥2px, clearly
-  // separated). It grows a touch more while the agent is performing (the "it came alive" pop).
-  const base = Math.max(BALL_RADIUS * sc, 34);
-  const live = (agentAnim || !ball.atRest) ? 1.18 : 1;
+  // face radius in GAME units: bigger than the ~4px ball so the character reads (eyes/mouth legible), but
+  // centered on the ball so the white ball reads as the head, not a separate dot. ~16 game-units ≈ a head.
+  const base = Math.max(BALL_RADIUS * 3.6, 16);
+  const live = (agentAnim || (typeof ball !== 'undefined' && !ball.atRest)) ? 1.14 : 1;
   return {
-    x: (ball.x - camera.x) * sc,
-    y: (ball.y - camera.y + (face.bob || 0)) * sc,
+    x: (ball.x - camera.x),
+    y: (ball.y - _camY()) + (face.bob || 0),
     r: base * live * (agentAnim && agentAnim.faceScale ? agentAnim.faceScale : 1),
-    sc,
   };
 }
 
 function drawFaceOverlay() {
+  if (typeof ball === 'undefined' || typeof ctx === 'undefined') return;
+  // Hide the face while the deep-space TRAVEL sequence owns the ship (the engine draws its own travel
+  // ball/sky); re-appears on the destination surface. Keeps the planet-transition reading as the real game.
+  if (window.RG && RG.descending) return;
   const p = ballScreen();
   const R = p.r;
   ctx.save();
@@ -357,11 +364,13 @@ function wrapText(t, max) {
 function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r);
   ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
 function drawBubble(p, R) {
+  // game-units wide of the visible frame (we're inside draw()'s displayScale ctx, so coords are game units)
+  const cw = (typeof W !== 'undefined') ? W : (canvas.width / ((typeof displayScale === 'number' && displayScale) || 1));
   if (thinking) {
     const bx = p.x + R * 1.05, by = p.y - R - 30;
     ctx.font = "16px 'Departure Mono', monospace"; ctx.fillStyle = '#f3f7fc';
     roundRect(bx, by, 56, 30, 11); ctx.fill(); ctx.strokeStyle = '#26303c'; ctx.lineWidth = 2; ctx.stroke();
-    const n = (_skyFrame >> 3) % 4;
+    const n = (_faceFrame >> 3) % 4;
     ctx.fillStyle = '#16202c'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
     ctx.fillText('.'.repeat(n + 1), bx + 14, by + 16);
     return;
@@ -373,11 +382,13 @@ function drawBubble(p, R) {
   const pad = 12, lh = 19; let tw = 0;
   for (let i = 0; i < lines.length; i++) tw = Math.max(tw, ctx.measureText(lines[i]).width);
   const bw = tw + pad * 2, bh = lines.length * lh + pad * 2 - 4;
-  // Prefer the RIGHT of the ball, but flip LEFT if it would run off-screen OR overlap the flag/cup area
-  // (when the ball is in the right third of the view the flag is right there). Pin above the ball.
-  let bx = p.x + R * 1.05, by = p.y - R - bh - 6;
-  const nearRight = p.x > canvas.width * 0.6;
-  if (nearRight || bx + bw > canvas.width - 16) bx = p.x - R * 1.05 - bw;
+  // Prefer the RIGHT of the ball, but flip LEFT if it would run off-frame OR sit in the right third
+  // (where the flag/cup are). Pin above the ball with a guaranteed clearance so the bubble never crowds
+  // the face / the tail never vanishes (a small minimum gap above the ball top). GAME units (cw = visible wide).
+  const clearance = Math.max(14, R * 0.9);   // keep the bubble a few px clear of the ball top
+  let bx = p.x + R * 1.05, by = p.y - R - bh - clearance;
+  const nearRight = p.x > cw * 0.6;
+  if (nearRight || bx + bw > cw - 16) bx = p.x - R * 1.05 - bw;
   if (bx < 8) bx = 8;
   if (by < 8) by = 8;
   roundRect(bx, by, bw, bh, 11); ctx.fillStyle = '#f3f7fc'; ctx.fill();
@@ -390,13 +401,12 @@ function drawBubble(p, R) {
   for (let j = 0; j < lines.length; j++) ctx.fillText(lines[j], bx + pad, by + pad + j * lh);
 }
 
-// tick the face every rendered frame
+// tick the face every rendered frame (called from the draw-hook + headless __step)
 function tickFace() {
-  _skyFrame++;
-  // idle bob + breathing squash (only when at rest / not scripted-moving, so flight reads natural)
-  const idle = ball.atRest && !agentAnim;
-  face.bob = idle ? Math.sin(_skyFrame * 0.045) * 3 : 0;
-  const br = 1 + (idle ? Math.sin(_skyFrame * 0.045) * 0.012 : 0);
+  _faceFrame++;
+  const idle = (typeof ball !== 'undefined') && ball.atRest && !agentAnim;
+  face.bob = idle ? Math.sin(_faceFrame * 0.045) * 3 : 0;
+  const br = 1 + (idle ? Math.sin(_faceFrame * 0.045) * 0.012 : 0);
   face.sx = br; face.sy = 2 - br;
   if (face.blinkDur > 0) face.blinkDur--;
   else { face.blinkT--; if (face.blinkT <= 0) { face.blinkDur = 6; face.blinkT = 90 + ((Math.random() * 120) | 0); } }
@@ -408,7 +418,6 @@ function tickFace() {
     if (bubble.t < bubble.full) bubble.t += Math.max(1, bubble.full / Math.max(1, bubble.speakFrames * 0.6));
     if (bubble.timer <= 0) { speaking = false; if (mood === 'think') mood = 'happy'; }
   } else if (bubble.t < bubble.full) bubble.t = bubble.full;
-  if (flagWiggle > 0) flagWiggle--;
 }
 
 function speakLine(text, m) {
@@ -422,31 +431,29 @@ function speakLine(text, m) {
 function pushBubble(text, m) { thinking = false; speakLine(text, m); speakTTS(text); }
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-//  PART 3 — ACTIONS on the REAL engine ball/cup (suspend normal physics while animating, then release)
+//  PART 2 — ACTIONS on the REAL engine ball/cup (suspend physics while animating, then release)
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-// agentAnim = a per-frame scripted controller. While set, the agent owns the ball (state forced to a
-// neutral non-physics value); on completion it RELEASES the ball back to the real engine.
+// agentAnim = a per-frame scripted controller. While set, the agent owns the ball; on completion it
+// RELEASES the ball back to the real engine. The agent tick runs from the engine draw hook + __step.
 let agentAnim = null;
-let flagWiggle = 0;
 let sparkles = [];   // [{x,y,vx,vy,life}]  drawn in WORLD space over the real hole
 
-function cupRef() { return holes[currentHole]; }
+function cupRef() { return (typeof holes !== 'undefined') ? holes[(typeof currentHole !== 'undefined') ? currentHole : 0] : null; }
 function lerp(a, b, t) { return a + (b - a) * t; }
 function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
 function easeInOut(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+function groundYAt(x) { try { return terrainYAt(x) - BALL_RADIUS; } catch (e) { return ball.y; } }
 
-// Start a scripted anim. We park the engine in STATE_AIM and freeze ball velocity; the anim's step(t)
-// fully drives ball.x/ball.y until done(), which releases control.
 function startAnim(a) {
   ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = false;
   state = STATE_AIM;
-  a.t0 = _skyFrame; a.faceScale = a.faceScale || 1; a.faceRot = 0;
+  a.t0 = _faceFrame; a.faceScale = a.faceScale || 1; a.faceRot = 0;
   agentAnim = a;
 }
 function stepAnim() {
   if (!agentAnim) return;
   const a = agentAnim;
-  const t = Math.min(1, (_skyFrame - a.t0) / a.dur);
+  const t = Math.min(1, (_faceFrame - a.t0) / a.dur);
   a.step(t);
   if (t >= 1) {
     const done = a.done; agentAnim = null;
@@ -474,37 +481,22 @@ function drawSparkles() {  // WORLD space (camera transform already applied by c
   ctx.globalAlpha = 1;
 }
 
-// Place the ball INTO the cup using the engine's real sink (cup fill + flag fade), then re-tee.
-// Re-tee is driven by the ENGINE finishing its transition (cupFilled), NOT a wall-clock timer — so it
-// works identically under the auto loop and under headless manual stepping (clean GIFs, deterministic).
-let _awaitSinkFinish = false;
+// Drop the ball INTO the cup and HAND OFF to the engine's REAL sink → transition flow. This is what
+// advances holes (1→2→3) and, on the last hole of a body, fires the REAL planet→planet TRAVEL sequence
+// (wrap.onTransitionEnd → RG._beginTravel via SOLAR_ITINERARY). One code path = the real game.
 function realSink() {
-  const h = cupRef();
+  const h = cupRef(); if (!h) return;
   ball.x = h.cupX;
   ball.y = h.cupBottomY - BALL_RADIUS;
   ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true;
   agentAnim = null;
-  // Hand to the engine's own in-cup → transition flow (fills cup, fades flag), like a real sunk putt.
-  state = STATE_PAUSE; transitionTimer = 0;
-  _awaitSinkFinish = true;      // tick() watches for the fill to complete, then re-tees a fresh hole.
-  _sinkSettleFrames = 0;
-}
-let _sinkSettleFrames = 0;
-function pollSinkFinish() {
-  if (!_awaitSinkFinish) return;
-  const h = holes[0];
-  // The engine fills the previous cup + flips state back toward AIM after the pan. Wait for the cup to
-  // read filled (or the engine to settle back to AIM), then linger a beat so the fill is visible.
-  const filled = h && (h.cupFilled || (h.cupFillProgress || 0) >= 1);
-  if (filled || state === STATE_AIM) {
-    _sinkSettleFrames++;
-    if (_sinkSettleFrames > 40) { _awaitSinkFinish = false; try { loadHole(); } catch (e) {} }
-  }
+  // Enter the engine's in-cup → pause → transition flow exactly like a real sunk putt.
+  if (typeof STATE_PAUSE !== 'undefined') { state = STATE_PAUSE; transitionTimer = 0; }
 }
 
 // ── ACTION TABLE ──────────────────────────────────────────────────────────────────────────────
 const ACTION_INFO = [
-  ['sink_in_hole', '★ lift up, glide over the cup, drop in'],
+  ['sink_in_hole', '★ lift up, glide over the cup, drop in (advances the hole / travels planets)'],
   ['to_tee',       'return to the tee'],
   ['hop',          'a single upward hop (real gravity)'],
   ['spin',         'barrel-roll in place'],
@@ -521,34 +513,30 @@ const ACTION_NAMES = ACTION_INFO.map(a => a[0]);
 const ACTIONS = {
   // ★ SIGNATURE: lift the real ball WAY up, glide it over the cup in a clear arc, drop it in.
   sink_in_hole(say) {
-    const h = cupRef();
+    const h = cupRef(); if (!h) { ACTIONS.none(say); return; }
     const sx = ball.x, sy = ball.y;
-    const apexY = Math.min(sy, h.cupY) - 150;    // a real, readable apex high above the surface
+    const apexY = Math.min(sy, h.cupY) - 150;
     let _liftPopped = false, _dropEmitted = false;
     startAnim({
       dur: 108,
       step(t) {
-        // phase 1 (0..0.40): lift straight up off the surface (ease-out → quick then float)
-        // phase 2 (0.40..0.72): glide across to over the cup, holding the apex (the "levitation")
-        // phase 3 (0.72..1): drop straight DOWN into the cup, vanishing below the rim
         if (t < 0.40) {
           const u = easeOut(t / 0.40);
           ball.x = sx;
           ball.y = lerp(sy, apexY, u);
           this.faceScale = lerp(1, 1.15, u);
-          if (!_liftPopped && u > 0.25) { _liftPopped = true; emitSparkles(sx, sy - 6, 7); }   // liftoff pop
+          if (!_liftPopped && u > 0.25) { _liftPopped = true; emitSparkles(sx, sy - 6, 7); }
         } else if (t < 0.72) {
           const u = easeInOut((t - 0.40) / 0.32);
           ball.x = lerp(sx, h.cupX, u);
-          ball.y = apexY - Math.sin(u * Math.PI) * 22;   // gentle hover crest over the cup
+          ball.y = apexY - Math.sin(u * Math.PI) * 22;
           this.faceScale = 1.15;
         } else {
           const u = easeOut((t - 0.72) / 0.28);
           ball.x = h.cupX;
-          // drop BELOW the rim so it disappears into the dark cup, like a real sunk ball
           ball.y = lerp(apexY, h.cupBottomY - BALL_RADIUS, u);
-          this.faceScale = lerp(1.15, 0.7, u);          // shrink as it sinks out of view
-          if (u > 0.6 && !_dropEmitted) { _dropEmitted = true; emitSparkles(h.cupX, h.cupY, 8); flagWiggle = 20; }
+          this.faceScale = lerp(1.15, 0.7, u);
+          if (u > 0.6 && !_dropEmitted) { _dropEmitted = true; emitSparkles(h.cupX, h.cupY, 8); }
         }
         ball.atRest = true; ball.vx = 0; ball.vy = 0;
       },
@@ -558,27 +546,30 @@ const ACTIONS = {
   },
 
   to_tee(say) {
-    const h = cupRef();
-    const sx = ball.x, sy = ball.y, tx = h.teeX, ty = terrainYAt(h.teeX) - BALL_RADIUS;
+    const h = cupRef(); if (!h) { ACTIONS.none(say); return; }
+    const tx = h.teeX, ty = groundYAt(h.teeX);
+    const sx = ball.x, sy = ball.y;
     startAnim({
       dur: 54,
       step(t) {
         const u = easeInOut(t);
         ball.x = lerp(sx, tx, u);
-        ball.y = lerp(sy, ty, u) - Math.sin(u * Math.PI) * 48;   // float across in an arc
+        ball.y = lerp(sy, ty, u) - Math.sin(u * Math.PI) * 48;
         ball.atRest = true; ball.vx = 0; ball.vy = 0;
       },
-      done() { reTee(); },
+      done() {
+        ball.x = tx; ball.y = ty; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true;
+        if (typeof state !== 'undefined') state = STATE_AIM;
+      },
     });
     pushBubble(say || 'Back to the tee. Fresh start, partner.', 'happy');
   },
 
   hop(say) {
-    // hand the ball a real upward impulse and let the engine's gravity bring it down
     agentAnim = null;
     ball.atRest = false; ball.onGround = false;
     ball.vx = 0; ball.vy = -7; ball.flightFrames = 0; ball.slowFrames = 0;
-    state = STATE_FLIGHT;
+    if (typeof state !== 'undefined') state = STATE_FLIGHT;
     pushBubble(say || 'Hup!', 'happy');
   },
 
@@ -586,9 +577,9 @@ const ACTIONS = {
     startAnim({
       dur: 42, faceScale: 1,
       step(t) {
-        this.faceRot = t * Math.PI * 2;        // one full barrel-roll
+        this.faceRot = t * Math.PI * 2;
         ball.atRest = true; ball.vx = 0; ball.vy = 0;
-        ball.rotation = (ball.rotation || 0) + 0.5;   // real ball dimples spin too
+        ball.rotation = (ball.rotation || 0) + 0.5;
       },
       done() {},
     });
@@ -596,17 +587,16 @@ const ACTIONS = {
   },
 
   putt_to_hole(say) {
-    // give the ball a real velocity toward the cup; the real physics rolls it (and may sink it)
     agentAnim = null;
-    const h = cupRef();
+    const h = cupRef(); if (!h) { ACTIONS.none(say); return; }
     const dx = h.cupX - ball.x;
     const dir = dx >= 0 ? 1 : -1;
     const dist = Math.abs(dx);
-    // tuned so a flat grass roll arrives near the cup
-    ball.vx = dir * Math.min(MAX_POWER, Math.max(2.4, dist * 0.013));
+    const cap = (typeof MAX_POWER !== 'undefined') ? MAX_POWER : 18;
+    ball.vx = dir * Math.min(cap, Math.max(2.4, dist * 0.013));
     ball.vy = -0.4;
     ball.atRest = false; ball.onGround = false; ball.flightFrames = 0; ball.slowFrames = 0; ball.spinRate = 0;
-    state = STATE_FLIGHT;
+    if (typeof state !== 'undefined') state = STATE_FLIGHT;
     pushBubble(say || 'Rolling it up… get in there.', 'think');
   },
 
@@ -614,7 +604,7 @@ const ACTIONS = {
     agentAnim = null;
     ball.atRest = false; ball.onGround = false;
     ball.vx = 0.6; ball.vy = -5.4; ball.flightFrames = 0; ball.slowFrames = 0;
-    state = STATE_FLIGHT;
+    if (typeof state !== 'undefined') state = STATE_FLIGHT;
     pushBubble(say || 'Boing boing boing!', 'happy');
   },
 
@@ -623,10 +613,10 @@ const ACTIONS = {
     startAnim({
       dur: 60,
       step(t) {
-        ball.x = sx + Math.sin(t * Math.PI * 6) * 8;   // happy wiggle in place
+        ball.x = sx + Math.sin(t * Math.PI * 6) * 8;
         ball.y = sy - Math.abs(Math.sin(t * Math.PI * 4)) * 10;
         ball.atRest = true; ball.vx = 0; ball.vy = 0;
-        if ((_skyFrame % 8) === 0) emitSparkles(sx, sy - 12, 3);
+        if ((_faceFrame % 8) === 0) emitSparkles(sx, sy - 12, 3);
       },
       done() {},
     });
@@ -636,7 +626,7 @@ const ACTIONS = {
   come_here(say) {
     const sc = (typeof displayScale === 'number' && displayScale) ? displayScale : 1;
     const targetWX = camera.x + (canvas.width / sc) / 2;
-    const targetWY = camera.y + (canvas.height / sc) / 2;
+    const targetWY = _camY() + (canvas.height / sc) / 2;
     const sx = ball.x, sy = ball.y;
     startAnim({
       dur: 50,
@@ -647,22 +637,23 @@ const ACTIONS = {
         this.faceScale = lerp(1, 1.18, u);
         ball.atRest = true; ball.vx = 0; ball.vy = 0;
       },
-      done() {},     // stays floating in the middle until next command / re-tee
+      done() {},
     });
     pushBubble(say || 'Coming over, boss.', 'happy');
   },
 
   hide(say) {
-    const h = cupRef();
+    const h = cupRef(); if (!h) { ACTIONS.none(say); return; }
+    const tx = h.teeX, ty = groundYAt(h.teeX);
     startAnim({
       dur: 64,
       step(t) {
-        if (t < 0.45) { this.faceScale = lerp(1, 0.02, easeOut(t / 0.45)); }      // shrink out
-        else if (t < 0.6) { this.faceScale = 0.02; ball.x = h.teeX; ball.y = terrainYAt(h.teeX) - BALL_RADIUS; }
-        else { this.faceScale = lerp(0.02, 1, easeOut((t - 0.6) / 0.4)); }        // pop back at tee
+        if (t < 0.45) { this.faceScale = lerp(1, 0.02, easeOut(t / 0.45)); }
+        else if (t < 0.6) { this.faceScale = 0.02; ball.x = tx; ball.y = ty; }
+        else { this.faceScale = lerp(0.02, 1, easeOut((t - 0.6) / 0.4)); }
         ball.atRest = true; ball.vx = 0; ball.vy = 0;
       },
-      done() { reTee(); },
+      done() { ball.x = tx; ball.y = ty; ball.atRest = true; ball.onGround = true; if (typeof state !== 'undefined') state = STATE_AIM; },
     });
     pushBubble(say || 'Now you see me… ', 'think');
   },
@@ -670,7 +661,7 @@ const ACTIONS = {
   say_distance(say) {
     agentAnim = null;
     const h = cupRef();
-    const d = Math.max(1, Math.round(Math.abs(h.cupX - ball.x) / 5));   // px → rough "paces"
+    const d = h ? Math.max(1, Math.round(Math.abs(h.cupX - ball.x) / 5)) : 0;
     pushBubble(say || ("About " + d + " paces to the pin, boss."), 'think');
   },
 
@@ -686,47 +677,91 @@ function runAction(name, say) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-//  PART 4 — BRAIN: LLM tool-calling (JSON) + keyword-intent fallback  (machinery from golfball-llm.html)
+//  PART 3 — BRAIN: LLM tool-calling (JSON) + a BROAD keyword-intent fallback
 // ──────────────────────────────────────────────────────────────────────────────────────────────
 
+// Natural-conversation system prompt. The ball KNOWS its abilities and figures out intent from ANY
+// natural wording, then DOES it and replies with ONLY a short, natural, in-character spoken line.
 const SYSTEM_PROMPT =
-  "You are a talking golf ball — the player's loyal, sassy-but-warm caddie ball in a flat-faceted " +
-  "space-golf game called Par Sec. You run FULLY LOCAL on the player's device. You can perform PHYSICAL " +
-  "ACTIONS on yourself (the real ball) in the game. " +
-  "When the player talks to you, reply with ONLY a JSON object: " +
-  '{"action":"<one action name or none>","say":"<a short, in-character spoken line, 1-2 sentences>"}. ' +
-  "Valid actions: " + ACTION_NAMES.join(", ") + ". " +
-  "Pick the SINGLE best action for what they asked (e.g. 'put yourself in the hole' / 'sink it' → sink_in_hole; " +
-  "'go back' → to_tee; 'jump' → hop; 'spin' → spin; 'putt it' → putt_to_hole; 'bounce' → bounce; " +
-  "'we won' / 'celebrate' → celebrate; 'come here' → come_here; 'hide' → hide; 'how far' → say_distance). " +
-  "If they're just chatting, use \"none\". Never use markdown, lists, or emoji. Output ONLY the JSON object.";
+  "You are Birdie, a friendly, sassy-but-warm talking golf ball in a flat-faceted space-golf game " +
+  "called Par Sec. You run FULLY LOCAL on the player's device. You have these abilities you can do to " +
+  "yourself (the real ball) in the game:\n" +
+  "- sink_in_hole: put yourself in the hole / cup (lift up, float over, drop in)\n" +
+  "- to_tee: go back to the tee / start of the hole\n" +
+  "- hop: a little jump\n" +
+  "- spin: spin / twirl / roll over in place\n" +
+  "- putt_to_hole: roll yourself toward the hole with real physics\n" +
+  "- bounce: a few bouncy hops\n" +
+  "- celebrate: a happy little celebration\n" +
+  "- come_here: float over toward the middle of the screen\n" +
+  "- hide: disappear and pop back at the tee\n" +
+  "- say_distance: tell them how far the hole is\n" +
+  "- none: just chatting, no action\n\n" +
+  "When the player asks you to do something in ANY natural wording, work out which ability they mean " +
+  "and DO it. Reply with ONLY a JSON object: {\"action\":\"<one ability name or none>\",\"say\":\"<your line>\"}. " +
+  "The `say` is a SHORT, natural, in-character spoken line (1-2 sentences). NEVER explain how, NEVER give " +
+  "the player instructions, NEVER tell them what to do, NEVER name the action or output meta-text — just " +
+  "do it and say something natural (e.g. \"there you go, boss\"). If they're only chatting, chat back warmly " +
+  "with action \"none\". Never use markdown, lists, or emoji. Output ONLY the JSON object.";
 
-// Keyword-intent matcher (fallback #1 and the no-WebGPU path). Maps the user's raw text → an action +
-// a canned in-character line. This is also what the headless verify exercises (no WebGPU in headless).
+// BROAD keyword-intent matcher (fallback #1 and the no-WebGPU floor). Maps natural phrasings → an action
+// + a natural, casual line. Heavily synonym'd so "pop yourself into the cup", "get in there", "drop in",
+// "go in the hole for me" all map to sink_in_hole. This is what the headless verify exercises.
 function keywordAction(textRaw) {
-  const t = (textRaw || '').toLowerCase();
+  const t = (' ' + (textRaw || '').toLowerCase() + ' ').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ');
   const has = (...ws) => ws.some(w => t.indexOf(w) >= 0);
-  // ★ signature first
-  if (has('in the hole', 'in the cup', 'sink', 'sink it', 'put yourself', 'get in there', 'hole in one', 'just win', 'win it for me', 'finish it'))
+
+  // ── ★ SINK / GO IN THE HOLE — broadest, checked FIRST ──
+  if (has(
+        'in the hole', 'in the cup', 'in there', 'into the hole', 'into the cup',
+        'in to the hole', 'in to the cup', 'down the hole', 'down the cup',
+        'sink', 'hole it', 'hole in one', 'holeinone', 'cup it',
+        'drop in', 'drop yourself', 'drop down', 'pop in', 'pop yourself', 'pop into', 'pop it in',
+        'put yourself in', 'put it in', 'get in', 'go in', 'jump in', 'dive in', 'fall in', 'hop in', 'slide in',
+        'gimme', 'gimmie', 'just win', 'win it', 'win this', 'finish it', 'finish the hole', 'sink it', 'make it',
+        'get in there', 'go in there', 'down you go', 'in you go'))
     return { action: 'sink_in_hole', say: 'There you go, boss.' };
-  if (has('tee', 'go back', 'start over', 'reset', 'beginning', 'back to start'))
+
+  // ── back to the tee ──
+  if (has('to the tee', 'the tee', 'back to start', 'go back', 'start over', 'start again', 'restart',
+          'reset', 'beginning', 'from the start', 'do over', 'redo', 'take it back', 'rewind'))
     return { action: 'to_tee', say: 'Back to the tee. Watch this.' };
-  if (has('putt', 'roll it', 'roll to', 'toward the hole', 'nudge it'))
+
+  // ── putt / roll toward the cup ──
+  if (has('putt', 'roll it', 'roll to', 'roll toward', 'roll towards', 'roll up', 'nudge', 'tap it',
+          'roll yourself', 'creep toward', 'inch toward', 'head for the hole', 'go for the hole'))
     return { action: 'putt_to_hole', say: 'Rolling it up… get in there.' };
-  if (has('hop', 'jump'))
+
+  // ── hop / jump ──
+  if (has('hop', 'jump', 'leap', 'spring up', 'bounce up', 'little jump', 'hup'))
     return { action: 'hop', say: 'Hup!' };
-  if (has('spin', 'twirl', 'roll over', 'flip'))
+
+  // ── spin / twirl ──
+  if (has('spin', 'twirl', 'roll over', 'flip', 'do a spin', 'do a barrel', 'barrel roll', 'rotate', 'whirl'))
     return { action: 'spin', say: 'Wheee — round and round.' };
-  if (has('bounce', 'boing', 'springy'))
+
+  // ── bounce ──
+  if (has('bounce', 'boing', 'springy', 'bouncy', 'bounce around'))
     return { action: 'bounce', say: 'Boing boing boing!' };
-  if (has('celebrate', 'we won', 'we did it', 'party', 'yay', 'nice shot', 'great shot', 'birdie', 'eagle'))
+
+  // ── celebrate ──
+  if (has('celebrate', 'we won', 'we did it', 'party', 'yay', 'woohoo', 'nice shot', 'great shot',
+          'good shot', 'birdie', 'eagle', 'hooray', 'lets go', 'awesome', 'dance'))
     return { action: 'celebrate', say: 'Yeah! We did it!' };
-  if (has('come here', 'come to me', 'come over', 'closer', 'show yourself'))
+
+  // ── come here ──
+  if (has('come here', 'come to me', 'come over', 'come closer', 'closer', 'show yourself',
+          'over here', 'this way', 'come back to me'))
     return { action: 'come_here', say: 'Coming over, boss.' };
-  if (has('hide', 'disappear', 'vanish', 'peekaboo'))
+
+  // ── hide ──
+  if (has('hide', 'disappear', 'vanish', 'peekaboo', 'peek a boo', 'go away', 'invisible'))
     return { action: 'hide', say: 'Now you see me…' };
-  if (has('how far', 'distance', 'how close', 'how long', 'yardage', 'far is'))
+
+  // ── distance ──
+  if (has('how far', 'distance', 'how close', 'how long', 'yardage', 'far is', 'how many', 'far to'))
     return { action: 'say_distance', say: null };
+
   // plain chat
   const chat = [
     "I'm your caddie ball — point me at the pin and try not to embarrass us.",
@@ -737,7 +772,7 @@ function keywordAction(textRaw) {
   return { action: 'none', say: chat[(Math.random() * chat.length) | 0] };
 }
 
-// ── WebLLM (local on-disk LLM) — model menu + loader from golfball-llm.html ──
+// ── WebLLM (local on-disk LLM) — model menu + loader ──
 const MODELS = [
   { id: "Qwen2.5-0.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 0.5B (phone floor ~0.5GB)" },
   { id: "Qwen2.5-1.5B-Instruct-q4f16_1-MLC", label: "Qwen2.5 1.5B (weak-GPU ~1.2GB)" },
@@ -747,7 +782,7 @@ const MODELS = [
   { id: "Phi-3.5-mini-instruct-q4f16_1-MLC",  label: "Phi-3.5 mini 3.8B (~2.4GB)" },
   { id: "Hermes-3-Llama-3.1-8B-q4f16_1-MLC",  label: "Hermes-3 8B (best, strong GPU ~4.7GB)" },
 ];
-let SELECTED_MODEL = MODELS[4];   // default: Hermes-3 3B (character/tool-following). ?model=hermes / =gemma / =8b
+let SELECTED_MODEL = MODELS[4];   // default: Hermes-3 3B. ?model=hermes / =gemma / =8b
 (function () { const m = /[?&]model=([^&]+)/.exec(location.search); if (m) { const q = decodeURIComponent(m[1]).toLowerCase();
   const hit = MODELS.filter(x => x.id.toLowerCase().indexOf(q) >= 0)[0]; if (hit) SELECTED_MODEL = hit; } })();
 
@@ -789,16 +824,12 @@ async function llmDecide(userText) {
   convo.push({ role: 'user', content: userText });
   if (convo.length > 10) convo = convo.slice(-10);
   const msgs = [{ role: 'system', content: SYSTEM_PROMPT }].concat(convo);
-  let out;
-  try {
-    out = await engine.chat.completions.create({
-      messages: msgs, temperature: 0.7, max_tokens: 160,
-      response_format: { type: 'json_object' },   // WebLLM JSON mode (grammar-constrained when available)
-    });
-  } catch (e) {
-    // some builds reject response_format → retry plain
-    out = await engine.chat.completions.create({ messages: msgs, temperature: 0.7, max_tokens: 160 });
-  }
+  // Plain completion only — NO response_format/json_object: this MLC build's grammar compiler
+  // (GrammarCompiler.CompileJSONSchema) chokes on structured-output mode. The system prompt already
+  // asks for strict {action,say} JSON and we parse it out of the plain text reply below.
+  const out = await engine.chat.completions.create({
+    messages: msgs, temperature: 0.7, max_tokens: 160,
+  });
   const txt = (out.choices && out.choices[0] && out.choices[0].message.content || '').trim();
   console.log('[ball-agent] raw LLM output:', JSON.stringify(txt));
   let parsed = null;
@@ -806,13 +837,13 @@ async function llmDecide(userText) {
   catch (e) { const m = txt.match(/\{[\s\S]*\}/); if (m) { try { parsed = JSON.parse(m[0]); } catch (e2) {} } }
   if (!parsed || typeof parsed !== 'object') return null;
   let action = String(parsed.action || 'none').trim();
-  if (ACTION_NAMES.indexOf(action) < 0) action = 'none';   // validate against the real table
+  if (ACTION_NAMES.indexOf(action) < 0) action = 'none';
   const say = (parsed.say != null) ? String(parsed.say).slice(0, 220) : null;
   convo.push({ role: 'assistant', content: JSON.stringify({ action, say }) });
   return { action, say };
 }
 
-// ── route(): the core. user text → decision (LLM or keyword) → run the action on the real ball → TTS ──
+// ── route(): user text → decision (LLM or keyword) → run the action on the real ball → TTS ──
 let routing = false;
 async function route(userText) {
   if (!userText) return;
@@ -828,9 +859,17 @@ async function route(userText) {
     } catch (e) { console.warn('[ball-agent] LLM decide FAILED → keyword:', e); src = 'keyword (LLM error: ' + (e && e.message || e) + ')'; }
     llmBusy = false;
   }
-  if (!decision) {
-    decision = keywordAction(userText);
-    src = src || ((brainMode === 'llm' && llmReady) ? 'keyword (LLM empty/invalid)' : 'keyword — LLM not loaded (brainMode=' + brainMode + ')');
+  // LLM action=none on an obvious command → re-check the broad keyword matcher (so a weak local model
+  // can't swallow a clear "put yourself in the hole" as chatter). Keeps the LLM's `say` if it had one.
+  if (!decision || decision.action === 'none') {
+    const kw = keywordAction(userText);
+    if (kw.action !== 'none') {
+      decision = { action: kw.action, say: (decision && decision.say) || kw.say };
+      src = (src ? src + ' + ' : '') + 'keyword';
+    } else if (!decision) {
+      decision = kw;
+      src = src || ((brainMode === 'llm' && llmReady) ? 'keyword (LLM empty/invalid)' : 'keyword — LLM not loaded (brainMode=' + brainMode + ')');
+    }
   }
   window.__lastBrain = src;
   console.log('[ball-agent] decided via', src, '→', JSON.stringify(decision));
@@ -840,14 +879,15 @@ async function route(userText) {
   return decision;
 }
 
-// ── Web Speech: STT (hold-to-talk) + TTS (from golfball-llm.html) ──
+// ── Web Speech: STT (hold-to-talk) + TTS ──
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recog = null, recording = false; const ttsOK = ('speechSynthesis' in window);
 let statusMic = 'init…';
 function initMic() {
   if (!SR) { statusMic = 'off (no SpeechRecognition — type instead)'; return false; }
   recog = new SR(); recog.lang = 'en-US'; recog.interimResults = false; recog.maxAlternatives = 1;
-  recog.onresult = (ev) => { const t = ev.results[0][0].transcript; setTin(t); route(t); };
+  // route the transcript via route(t) — keep the (fixed) tin guard; NEVER reference setTin.
+  recog.onresult = (ev) => { const t = ev.results[0][0].transcript; try { const i = document.getElementById('tin'); if (i) i.value = t; } catch (e) {} route(t); };
   recog.onerror = (ev) => { statusMic = 'mic error: ' + ev.error + ' (type instead)'; updateStatus(); stopRec(); };
   recog.onend = () => stopRec();
   statusMic = 'ready (hold to talk)';
@@ -868,30 +908,37 @@ function speakTTS(text) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-//  PART 5 — DEBUG MENU + status (backtick toggles)
+//  PART 4 — DEBUG MENU + status (backtick toggles)
 // ──────────────────────────────────────────────────────────────────────────────────────────────
 let dbgOpen = false;
 function setDebug(v) { dbgOpen = !!v; document.getElementById('dbg').style.display = dbgOpen ? 'block' : 'none'; if (dbgOpen) updateStatus(); }
 function setBoot(msg, pct) {
   if (pct != null) {
-    document.getElementById('bootbarWrap').style.display = 'block';   // reveal only while loading
+    document.getElementById('bootbarWrap').style.display = 'block';
     document.getElementById('bootbar').style.width = pct + '%';
   }
   updateStatus(msg);
 }
+function curCourse() { return (window.RG && RG.course) || (typeof currentCourse !== 'undefined' && currentCourse && currentCourse.name) || '—'; }
 function updateStatus(bootMsg) {
   const gpu = ('gpu' in navigator) ? 'available'
     : (window.isSecureContext ? 'OFF (no WebGPU in this browser)' : 'OFF — open via http://localhost');
   const brain = brainMode === 'llm' ? ('LOCAL: ' + SELECTED_MODEL.id.replace(/-q4f16_1-MLC/, '') + ' (cached)')
     : brainMode === 'llm-loading' ? ('loading ' + (loadPct || 0) + '%' + (bootMsg ? ' · ' + bootMsg : ''))
     : 'keyword brain (rule-based)';
+  const hole = (window.RG && typeof RG.holeCount !== 'undefined')
+    ? ((Math.min(((typeof currentHole !== 'undefined') ? currentHole : 0) + 1, RG.holeCount)) + ' / ' + RG.holeCount) : '—';
+  const stName = (typeof state !== 'undefined') ? (['AIM', 'FLIGHT', 'PAUSE', 'TRANS', 'OOB', 'COMPLETE'][state] || state) : '—';
   const st = document.getElementById('statTxt');
   if (st) st.innerHTML =
     'BRAIN : ' + brain + '\n' +
     'WebGPU: ' + gpu + '\n' +
+    'COURSE: ' + curCourse() + '\n' +
+    'HOLE  : ' + hole + '\n' +
+    'ITIN  : ' + ((window.SOLAR_ITINERARY || []).join(' → ') || '—') + '\n' +
     'MIC   : ' + (statusMic || '…') + '\n' +
     'TTS   : ' + (ttsOK ? 'on (speechSynthesis)' : 'off') + '\n' +
-    'STATE : ' + ['AIM', 'FLIGHT', 'PAUSE', 'TRANS', 'OOB', 'COMPLETE'][state] + (agentAnim ? ' (agent)' : '') + '\n' +
+    'STATE : ' + stName + (agentAnim ? ' (agent)' : '') + ((window.RG && RG.descending) ? ' · TRAVELLING' : '') + '\n' +
     (window.__lastAction ? 'ACTION: ' + window.__lastAction + '\n' : '') +
     (window.__lastBrain ? '<span class="last">LAST  : ' + window.__lastBrain + '</span>' : '');
   const sec = document.getElementById('secTxt');
@@ -901,51 +948,58 @@ function updateStatus(bootMsg) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-//  PART 6 — RENDER LOOP (own boot, like physlab.js): real update + real draw + face/flag/sparkle overlay
+//  PART 5 — OVERLAY HOOK into the REAL engine draw loop + agent tick
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-let auto = true;
+// The engine runs its OWN gameLoop (main.js): update() + draw(). We DON'T own the loop. We:
+//   1. tick the agent (scripted action + sparkles + face) once per engine update, via an update() wrap
+//   2. draw our world-space sparkles + the screen-space FACE after the engine's draw, via a MODE.drawHUD
+//      wrap (drawHUD runs last, inside the displayScale ctx — screen space, which is where the face lives).
+// This makes the face follow the REAL ball across holes and planets for free (it reads ball/camera live).
 
-function renderFrame() {
-  // 1) the REAL engine render (sky, terrain, the real ball, the flag, HUD) — looks like a normal hole.
-  draw();
-  // 2) world-space overlays (sparkles + flag wiggle) — under the same camera transform the engine uses.
-  const sc = (typeof displayScale === 'number' && displayScale) ? displayScale : 1;
-  ctx.save();
-  ctx.scale(sc, sc);
-  ctx.translate(-Math.round(camera.x * sc) / sc, -camera.y);
-  if (flagWiggle > 0) {
-    const h = cupRef();
-    if (h && h.flagVisible) {
-      ctx.save();
-      const poleX = h.cupRightX + 2, sy = terrainYAt(poleX);
-      ctx.translate(poleX, sy - 55);
-      ctx.rotate(Math.sin(flagWiggle * 0.9) * 0.12 * (flagWiggle / 18));
-      ctx.translate(-poleX, -(sy - 55));
-      drawFlag(h, terrainYAt);   // redraw a wiggling copy on top
-      ctx.restore();
-    }
-  }
-  drawSparkles();
-  ctx.restore();
-  // 3) the FACE — screen space, on top of the real ball at its live position.
-  drawFaceOverlay();
-}
-
-function tick() {
-  if (auto) {
-    if (agentAnim) { stepAnim(); }     // scripted action owns the ball this frame
-    else { update(); }                 // real engine physics
-    pollSinkFinish();
-  }
+let _agentTicked = 0;
+function agentTick() {
+  if (agentAnim) stepAnim();   // a scripted action owns the ball this frame (engine update is skipped below)
   stepSparkles();
   tickFace();
-  renderFrame();
-  if (dbgOpen && (_skyFrame % 12 === 0)) updateStatus();
-  window._agentRAF = requestAnimationFrame(tick);
+  _agentTicked++;
 }
 
+// Wrap update(): when a scripted anim owns the ball, run OUR step instead of the engine physics for that
+// frame (so the agent fully drives ball.x/y); otherwise let the engine update, then tick face/sparkles.
+(function wrapUpdate() {
+  if (typeof window.update !== 'function') { setTimeout(wrapUpdate, 30); return; }
+  const baseUpdate = window.update;
+  window.update = function () {
+    if (agentAnim) { agentTick(); return; }   // agent owns the ball — skip engine physics this step
+    baseUpdate.apply(this, arguments);
+    agentTick();
+  };
+})();
+
+// Wrap MODE.drawHUD: after the engine paints its HUD (screen-space, scaled by displayScale), draw the
+// world-space sparkles (re-apply the camera transform) + the face overlay on top.
+(function wrapDraw() {
+  if (typeof MODE === 'undefined' || !MODE.drawHUD) { setTimeout(wrapDraw, 30); return; }
+  const baseHUD = MODE.drawHUD;
+  MODE.drawHUD = function (c) {
+    baseHUD.apply(this, arguments);
+    try {
+      // world-space sparkles (under the same camera transform the engine uses)
+      if (sparkles.length) {
+        ctx.save();
+        if (MODE.applyCameraTransform) MODE.applyCameraTransform(ctx); else { ctx.translate(-camera.x, -_camY()); }
+        drawSparkles();
+        ctx.restore();
+      }
+      // the FACE — screen space (we're already inside the displayScale ctx from draw()).
+      drawFaceOverlay();
+    } catch (e) { /* never let the overlay break the engine frame */ }
+    if (dbgOpen && (_faceFrame % 12 === 0)) updateStatus();
+  };
+})();
+
 // ──────────────────────────────────────────────────────────────────────────────────────────────
-//  PART 7 — WIRING + HEADLESS API
+//  PART 6 — WIRING + HEADLESS API
 // ──────────────────────────────────────────────────────────────────────────────────────────────
 // model picker
 (function () {
@@ -967,49 +1021,137 @@ document.getElementById('btnLoad').onclick = loadLLM;
   el.innerHTML = ACTION_INFO.map(a => '<b>' + a[0] + '</b> — ' + a[1]).join('<br>');
 })();
 
-// TALK button (hold-to-talk; if no mic, focus the text input)
+// The TALK button + text input still exist in the DOM (for logic) but are display:none'd (secret feature).
+// We KEEP the mic plumbing — start/stop is now triggered by the PUSH-TO-TALK key (T), not the button.
 const talkBtn = document.getElementById('talk');
-talkBtn.onmousedown = () => { if (SR) startRec(); else { const i = document.getElementById('tin'); i.style.display = 'block'; i.focus(); } };
-talkBtn.onmouseup   = () => { if (recording) stopRec(); };
-talkBtn.onmouseleave = () => { if (recording) stopRec(); };
-talkBtn.ontouchstart = (e) => { e.preventDefault(); if (SR) startRec(); else { const i = document.getElementById('tin'); i.style.display = 'block'; i.focus(); } };
-talkBtn.ontouchend   = (e) => { e.preventDefault(); if (recording) stopRec(); };
-// text input (also reveal it on focus; Enter sends)
 const tin = document.getElementById('tin');
+// text input (hidden, but Enter still routes if anything ever focuses it)
 tin.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const v = tin.value.trim(); if (v) { tin.value = ''; route(v); } } });
-// make the text input reachable: a right-click / long-press alt — and always show it once the user types.
-talkBtn.oncontextmenu = (e) => { e.preventDefault(); tin.style.display = (tin.style.display === 'block') ? 'none' : 'block'; if (tin.style.display === 'block') tin.focus(); };
 
-// backtick toggles the debug menu (the ONLY way it appears)
+// ── PUSH-TO-TALK: hold T to speak ──────────────────────────────────────────────────────────────
+// T = "talk". The game uses mouse drag-aim, M (map), ` (debug), Escape, and space/arrows for play —
+// T is unused, so it's a safe push-to-talk key. keydown starts mic recording; keyup stops + the
+// transcript routes through route() (recog.onresult → route → LLM/keyword → action + spoken reply).
+// Gated so it never fires while a text input is focused (the hidden tin, or any future field), so it
+// can't interfere with typing. If there's no SpeechRecognition/mic, the held key no-ops gracefully
+// (debug menu shows mic status). preventDefault while held so it doesn't leak into gameplay.
+let pttHeld = false;
+function isTypingTarget(t) {
+  return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+}
 window.addEventListener('keydown', (e) => {
-  const tag = e.target && e.target.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-  if (e.key === '`' || e.code === 'Backquote') { e.preventDefault(); setDebug(!dbgOpen); }
-});
+  if ((e.key === 't' || e.key === 'T' || e.code === 'KeyT') && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (isTypingTarget(e.target)) return;     // don't hijack typing
+    e.preventDefault();
+    if (pttHeld) return;
+    pttHeld = true;
+    speaking = false; mood = 'think';          // subtle "listening" cue on the ball (no text)
+    if (SR) { try { startRec(); } catch (err) {} }   // no mic → graceful no-op (status shows it)
+  }
+}, true);   // capture phase: catch it before the engine's own key handlers
+window.addEventListener('keyup', (e) => {
+  if (e.key === 't' || e.key === 'T' || e.code === 'KeyT') {
+    if (!pttHeld) return;
+    e.preventDefault();
+    pttHeld = false;
+    if (mood === 'think' && !speaking) mood = 'happy';
+    if (recording) { try { stopRec(); } catch (err) {} }   // stop → recog.onresult routes the transcript
+  }
+}, true);
 
-// headless API
-window.__step    = function (n) { n = n || 1; for (let i = 0; i < n; i++) { if (agentAnim) stepAnim(); else update(); pollSinkFinish(); stepSparkles(); tickFace(); } renderFrame(); return _skyFrame; };
-window.__frame   = function () { return _skyFrame; };
-window.__reset   = function () { convo = []; loadHole(); mood = 'happy'; thinking = false; speaking = false; bubble = { text: '', t: 0, full: 0 }; window.__lastAction = null; updateStatus(); return true; };
-window.__setAuto = function (b) { auto = !!b; return auto; };
-window.__say     = function (t) { route(t); return true; };          // full pipeline (LLM → keyword fallback)
-window.__do      = function (name) { runAction(name); return window.__lastAction; };   // direct action
-window.__debug   = function (b) { setDebug(b); return dbgOpen; };
+// backtick toggles the debug menu — REGARDLESS of focus (incl. while the talk box is focused).
+// Escape closes it. For backtick we DON'T bail on INPUT focus, and preventDefault so it doesn't type.
+window.addEventListener('keydown', (e) => {
+  if (e.key === '`' || e.code === 'Backquote') {
+    e.preventDefault(); e.stopPropagation();
+    setDebug(!dbgOpen);
+    return;
+  }
+  if (e.key === 'Escape' && dbgOpen) { setDebug(false); return; }
+}, true);   // capture phase: fire before the input's own keydown handler
+
+// ── HEADLESS API ──
+// Drive N engine frames forward (deterministic; no rAF). Calls the wrapped update() — which ticks the
+// agent — then the engine draw() so the face/sparkles render and screenshots are correct.
+window.__step = function (n) {
+  n = n || 1;
+  for (let i = 0; i < n; i++) {
+    try { window.update(); } catch (e) {}
+    // Headless: the deep-space TRAVEL hold phase normally waits for a player TAP (or aiEnabled). Auto-tap
+    // it so a screenshot/test drive proceeds through the journey (the rise/descend are still time-based, so
+    // the GIF/recorder sees the real motion — we only release the gate). Mirrors travel.js's !ctx path.
+    if (window.RG && RG._travelSeq && RG._descPhase === 'thold' && RG._travelTap) RG._travelTap();
+  }
+  try { if (typeof draw === 'function') draw(); } catch (e) {}
+  return _faceFrame;
+};
+window.__reset = function () {
+  // restart the loop on body 1, hole 1 (a fresh run through the wrapped startRun → 2-body loop + 3 holes)
+  convo = []; mood = 'happy'; thinking = false; speaking = false; agentAnim = null;
+  bubble = { text: '', t: 0, full: 0 }; sparkles.length = 0; window.__lastAction = null;
+  try { if (window.RG && RG.startRun) RG.startRun({ course: LOOP_BODIES[0], seed: (RG.rollSeed ? RG.rollSeed() : 42) }); } catch (e) {}
+  updateStatus();
+  return true;
+};
+window.__setAuto = function (b) {
+  // pause/resume the engine's own loop (handy for clean headless stepping)
+  if (b) { if (!window._gameLoopRunning && typeof ensureGameLoop === 'function') ensureGameLoop(); }
+  else { try { if (window._gameLoopRAF) cancelAnimationFrame(window._gameLoopRAF); window._gameLoopRunning = false; } catch (e) {} }
+  return !!b;
+};
+window.__say  = function (t) { route(t); return true; };          // full pipeline (LLM → keyword fallback)
+window.__do   = function (name) { runAction(name); return window.__lastAction; };   // direct action
+window.__debug = function (b) { setDebug(b); return dbgOpen; };
 window.__lastAction = null;
-window.__state   = function () { return { state: state, atRest: ball.atRest, agent: !!agentAnim,
-  ball: { x: Math.round(ball.x), y: Math.round(ball.y) }, cup: cupRef() ? { x: cupRef().cupX, y: Math.round(cupRef().cupY), filled: cupRef().cupFilled } : null,
-  lastAction: window.__lastAction, lastBrain: window.__lastBrain, brain: brainMode }; };
 
-// ── boot ──
-function boot() {
-  loadHole();
+// Sink the current hole NOW → drives the REAL hole-to-hole transition (and, on the body's last hole,
+// the REAL planet→planet travel). Returns the course/hole before the sink. (Used for screenshots.)
+window.__nextHole = function () {
+  const before = { course: curCourse(), hole: (typeof currentHole !== 'undefined') ? currentHole : 0 };
+  agentAnim = null; realSink();
+  return before;
+};
+// Finish the WHOLE body: jump to its last hole, then sink it → the REAL planet TRAVEL sequence fires.
+window.__travel = function () {
+  try {
+    if (typeof currentHole !== 'undefined' && window.RG) {
+      const last = (RG.holeCount || LOOP_HOLES) - 1;
+      // advance to the last hole instantly (engine has them generated ahead), then sink it
+      if (currentHole < last && typeof ensureHolesAhead === 'function') ensureHolesAhead(RG.holeCount);
+      currentHole = last;
+      const h = cupRef(); if (h) { setHoleCamera && setHoleCamera(h); }
+    }
+  } catch (e) {}
+  agentAnim = null; realSink();
+  return curCourse();
+};
+window.__state = function () {
+  const h = cupRef();
+  return {
+    course: curCourse(),
+    hole: ((typeof currentHole !== 'undefined') ? currentHole : 0) + 1,
+    holeCount: (window.RG && RG.holeCount) || LOOP_HOLES,
+    itinerary: (window.SOLAR_ITINERARY || []).slice(),
+    state: (typeof state !== 'undefined') ? (['AIM', 'FLIGHT', 'PAUSE', 'TRANS', 'OOB', 'COMPLETE'][state] || state) : null,
+    travelling: !!(window.RG && RG.descending),
+    agent: !!agentAnim,
+    ball: (typeof ball !== 'undefined') ? { x: Math.round(ball.x), y: Math.round(ball.y), atRest: ball.atRest } : null,
+    cup: h ? { x: Math.round(h.cupX), y: Math.round(h.cupY), filled: !!h.cupFilled } : null,
+    lastAction: window.__lastAction, lastBrain: window.__lastBrain, brain: brainMode,
+  };
+};
+
+// ── boot: the engine's main.js init() runs initFirebase() (run.js) which boots straight into 'earth'.
+//    We just wire mic/voice + the welcome bubble once RG is up. The loop install (PART 0) is already
+//    re-asserting the 2-body itinerary + holeCount. ──
+(function bootAgent(n) {
+  if (typeof window.update !== 'function' || typeof MODE === 'undefined' || !MODE.drawHUD) { if (n < 200) setTimeout(() => bootAgent(n + 1), 40); return; }
   initMic();
   if (ttsOK) { pickVoice(); if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = pickVoice; }
   updateStatus();
-  setTimeout(() => pushBubble("Hey boss. Talk to me — say 'put yourself in the hole' and watch.", 'happy'), 500);
-  tick();
-}
-boot();
+  // SECRET FEATURE: the ball stays SILENT on boot — no intro/instruction bubble. It just idle-animates
+  // until the player discovers they can talk to it (hold T, or speak/type). No on-screen "talk to me" UI.
+})(0);
 </script>
 </body>
 </html>
