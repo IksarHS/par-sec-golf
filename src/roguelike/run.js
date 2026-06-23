@@ -1718,11 +1718,18 @@
       var from = (_cs && _dep && _cs[_dep] && _cs[_dep].name) ? _cs[_dep].name.toUpperCase()
         : ((this._travelSeq && this._travelSeq.courseId === 'moon') ? 'EARTH' : 'THE MOON');
       ctx.save(); ctx.globalAlpha = a;
+      // Fit the box to the (dynamic) title; shrink the title font when the screen is narrow (mobile) so
+      // long planet names never spill past the box edge. maxW is capped by W so the box fits the screen.
+      var pad = 18, title = 'COURSE COMPLETE · ' + from, tFont = 13, maxW = Math.min(W - 24, 380);
+      ctx.font = tFont + 'px "Departure Mono",monospace';
+      var tw = ctx.measureText(title).width, avail = maxW - pad * 2;
+      if (tw > avail) { tFont = Math.max(8, Math.floor(tFont * avail / tw)); ctx.font = tFont + 'px "Departure Mono",monospace'; tw = ctx.measureText(title).width; }
+      w = Math.min(maxW, Math.max(260, tw + pad * 2)); x = W / 2 - w / 2;
       ctx.fillStyle = 'rgba(14,12,22,0.55)'; ctx.fillRect(x, y, w, h);
-      ctx.textAlign = 'left'; ctx.fillStyle = '#cdd6f5'; ctx.font = '13px "Departure Mono",monospace'; ctx.fillText('COURSE COMPLETE · ' + from, x + 18, y + 26);
-      ctx.fillStyle = '#7ad17a'; ctx.font = '30px "Departure Mono",monospace'; ctx.fillText('-4', x + 18, y + 64);
-      ctx.fillStyle = '#e6b84a'; ctx.font = '14px "Departure Mono",monospace'; ctx.fillText('+$37', x + 18, y + 94);
-      ctx.fillStyle = '#9aa0ab'; ctx.textAlign = 'right'; ctx.fillText('9 / 9 cups', x + w - 18, y + 94);
+      ctx.textAlign = 'left'; ctx.fillStyle = '#cdd6f5'; ctx.fillText(title, x + pad, y + 26);
+      ctx.fillStyle = '#7ad17a'; ctx.font = '30px "Departure Mono",monospace'; ctx.fillText('-4', x + pad, y + 64);
+      ctx.fillStyle = '#e6b84a'; ctx.font = '14px "Departure Mono",monospace'; ctx.fillText('+$37', x + pad, y + 94);
+      ctx.fillStyle = '#9aa0ab'; ctx.textAlign = 'right'; ctx.fillText('9 / 9 cups', x + w - pad, y + 94);
       ctx.restore();
     },
     _drawTravelBtn(ctx, held) {
@@ -1732,12 +1739,19 @@
       var _dst = this._travelSeq && this._travelSeq.courseId;
       var dest = (_cd && _dst && _cd[_dst] && _cd[_dst].name) ? _cd[_dst].name.toUpperCase()
         : ((this._travelSeq && this._travelSeq.courseId === 'moon') ? 'MOON' : 'EARTH');
-      var w = 168, h = 34, x = W / 2 - w / 2, y = H - 96, hot = (Math.floor(held / 460) % 2) === 0;
+      var h = 34, y = H - 96, hot = (Math.floor(held / 460) % 2) === 0;
       ctx.save(); ctx.globalAlpha = a;
+      // Fit the pill to the (dynamic) label; shrink the font when the screen is narrow (mobile) so a long
+      // "TRAVEL TO <planet>" never spills past the highlighted box. maxW is capped by W to fit the screen.
+      var padX = 18, label = '▸ TRAVEL TO ' + dest, bFont = 14, maxW = Math.min(W - 24, 420);
+      ctx.font = bFont + 'px "Departure Mono",monospace';
+      var tw = ctx.measureText(label).width, avail = maxW - padX * 2;
+      if (tw > avail) { bFont = Math.max(8, Math.floor(bFont * avail / tw)); ctx.font = bFont + 'px "Departure Mono",monospace'; tw = ctx.measureText(label).width; }
+      var w = Math.min(maxW, Math.max(168, tw + padX * 2)), x = W / 2 - w / 2;
       ctx.fillStyle = hot ? '#e8a93a' : 'rgba(120,130,170,0.18)';
       ctx.strokeStyle = 'rgba(180,190,230,0.55)'; ctx.lineWidth = 1; ctx.fillRect(x, y, w, h); ctx.strokeRect(x, y, w, h);
-      ctx.fillStyle = hot ? '#2a1f08' : '#cdd6f5'; ctx.font = '14px "Departure Mono",monospace'; ctx.textAlign = 'center';
-      ctx.fillText('▸ TRAVEL TO ' + dest, W / 2, y + 22);
+      ctx.fillStyle = hot ? '#2a1f08' : '#cdd6f5'; ctx.textAlign = 'center';
+      ctx.fillText(label, W / 2, y + 22);
       ctx.restore();
     },
 
