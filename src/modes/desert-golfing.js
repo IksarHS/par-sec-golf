@@ -252,34 +252,97 @@ function collideWithObjects() {
   return collided;
 }
 
-// PORTRAIT vertical framing (peel-off): in the tall phone frame the OLD framing centred the terrain band
-// mid at ~0.54H — but with a low cup the band's TOP rim then sat near mid-screen, leaving the whole upper
-// HALF as dead sky (the real-device symptom). Re-anchor on the band's TOP (the highest terrain over the
-// hole): keep that top rim around ~0.42H so a reasonable arc of sky reads above, and the terrain FILLS the
-// bottom ~58% — no huge empty sky. The deepest point (and the cup) are kept on-screen. Inert in landscape
-// (only called from the portrait branch of setHoleCamera).
+// PORTRAIT framing (peel-off): FIT-TO-CONTENT. The old framing used a fixed zoom-out (0.78) + a fixed
+// terrain-top anchor (~0.46H), which on most holes left the hole crammed into a mid-screen band with a WALL
+// of empty sky above (the real-device symptom). Instead we frame the hole's actual CONTENT bounding box —
+// the ball (tee) + the cup + the terrain surface between them — and pick a per-hole ZOOM + vertical PAN so
+// that box FILLS most of the tall phone frame: hole spans the width, ball sits in the lower third, cup is in
+// view, terrain is prominent, and only a sensible band of sky (~25-35%) reads above for the shot arc.
 // Map a desired SCREEN fraction (0..1 of W/H) for a WORLD point to the camera offset, accounting for the
 // portrait zoom (applyCameraTransform: sx = z*(wx-camx) + (W/2)(1-z); pivot at canvas centre). z=1 reduces
-// to the plain offset, so this is safe to use unconditionally on the portrait path.
-function _portraitCamForScreen(wx, fracW, isY) {
-  const z = (typeof window !== 'undefined' && window.RG && window.RG._zoom) || 1;
+// to the plain offset, so this is safe to use unconditionally on the portrait path. `z` may be passed
+// explicitly (the per-hole fit zoom is computed BEFORE it is committed to RG._zoom).
+function _portraitCamForScreen(wx, fracW, isY, zOverride) {
+  const z = (zOverride != null) ? zOverride
+    : ((typeof window !== 'undefined' && window.RG && window.RG._zoom) || 1);
   const span = isY ? H : W;
   const pivot = span / 2;                       // pivot is canvas centre on both axes
   // sx = z*(wx - cam) + pivot*(1-z)  →  cam = wx - (fracW*span - pivot*(1-z)) / z
   return wx - (fracW * span - pivot * (1 - z)) / z;
 }
 
-function setHoleCameraY(hole) {
-  if (typeof terrainYAt !== 'function') { camera.y = 0; return; }
+// Gather the hole's content bounds (world units): ball/tee + cup + terrain surface between them.
+// Y grows DOWNWARD here, so yTop = highest point (smallest Y), yBot = lowest point (largest Y).
+function _portraitHoleBounds(hole) {
   let lo = Infinity, hi = -Infinity;
-  for (let x = hole.teeX; x <= hole.cupX; x += 10) { const y = terrainYAt(x); if (y < lo) lo = y; if (y > hi) hi = y; }
-  const cupY = hole.cupY != null ? hole.cupY : hi;
-  const deepest = Math.max(hi, cupY);
-  // Zoom-aware vertical framing: place the TOP rim (highest ground = lowest Y) at ~0.46 of the SCREEN, so
-  // terrain fills the lower ~54% and a ~40% arc of sky reads above (headroom for the shot, no dead band).
-  let cy = _portraitCamForScreen(lo, 0.46, true);
-  // Never push the deepest terrain / cup off the bottom of the SCREEN: keep it at/above screen-fraction 0.96.
-  const cyDeep = _portraitCamForScreen(deepest, 0.96, true);
+  if (typeof terrainYAt === 'function') {
+    const x0 = Math.min(hole.teeX, hole.cupX), x1 = Math.max(hole.teeX, hole.cupX);
+    for (let x = x0; x <= x1; x += 8) { const y = terrainYAt(x); if (y < lo) lo = y; if (y > hi) hi = y; }
+  }
+  const teeY = hole.teeY != null ? hole.teeY : (isFinite(hi) ? hi : 0);
+  const cupY = hole.cupY != null ? hole.cupY : (isFinite(hi) ? hi : 0);
+  if (!isFinite(lo)) { lo = Math.min(teeY, cupY); hi = Math.max(teeY, cupY); }
+  return {
+    xLo: Math.min(hole.teeX, hole.cupX),
+    xHi: Math.max(hole.teeX, hole.cupX),
+    yTop: Math.min(lo, teeY, cupY),     // highest point (ball, cup, or terrain crest)
+    yBot: Math.max(hi, teeY, cupY),     // lowest point (deepest terrain / lower of ball|cup)
+    teeY: teeY, cupY: cupY,
+  };
+}
+
+// Per-hole FIT zoom: make the tee→cup x-span fill most of the frame width, AND keep the ball→cup→terrain
+// y-span (plus arc headroom) inside the frame. Returns a zoom clamped to a tasteful phone range so a very
+// short or very tall hole can't blow up / shrink absurdly. Larger z = MORE zoomed IN (content fills more).
+function _portraitFitZoom(b) {
+  const FILL_W = 0.92;                           // tee→cup (+ flag pennant allowance) should fill ~92% of W
+  const FLAG_ALLOW = 55;                          // the flag pole+pennant reads ~55px right of the cup — must
+                                                  // be budgeted into the width or the tee/ball is shoved off-left
+  const CONTENT_H = 0.60;                         // ball→cup→terrain should fit in ~60% of the frame height
+                                                  // (leaves the remaining ~40% as a sky band for the arc)
+  const xSpan = Math.max((b.xHi - b.xLo) + FLAG_ALLOW, 60);   // include the flag so the whole hole frames
+  const ySpan = Math.max(b.yBot - b.yTop, 40);
+  const zX = (W * FILL_W) / xSpan;
+  const zY = (H * CONTENT_H) / ySpan;
+  let z = Math.min(zX, zY);                       // the tighter constraint wins (both must fit)
+  return Math.max(0.82, Math.min(1.30, z));       // tasteful clamp: never wilder than the old 0.78, never huge
+}
+
+// Compute the per-hole portrait zoom (and stash it so the wrap.js keep-alive holds THIS hole's value, not
+// the static default). Called from setHoleCamera before the camera offsets are computed. Inert in landscape.
+function portraitHoleZoom(hole) {
+  const z = _portraitFitZoom(_portraitHoleBounds(hole));
+  if (typeof window !== 'undefined' && window.RG_PORTRAIT) window.RG_PORTRAIT.zoom = z;  // keep-alive reads this
+  return z;
+}
+
+function setHoleCameraY(hole) {
+  const z = (typeof window !== 'undefined' && window.RG && window.RG._zoom) || 1;
+  const b = _portraitHoleBounds(hole);
+  const ballY = hole.teeY != null ? hole.teeY : b.yBot;   // the resting ball sits on the tee
+  const cupY = hole.cupY != null ? hole.cupY : b.yTop;
+  // Vertical PAN — the KEY to killing the dead-sky symptom. We have three competing goals; resolve in order:
+  //  (1) sky band: keep the HIGHEST content point (yTop = top of ball|cup|terrain crest) at ~0.34 of the
+  //      screen, so terrain+action FILL the lower ~66% and only a sensible ~34% sky band reads above for the
+  //      shot arc (NOT the old ~60-75% wall of sky). This is the default anchor.
+  // (NOTE on sign: a SMALLER camera.y puts content LOWER on screen — _portraitCamForScreen returns the
+  //  camera.y that lands a world point at a target fraction, larger fraction → smaller cam.)
+  let cy = _portraitCamForScreen(b.yTop, 0.40, true, z);
+  //  (2) keep the BALL in the lower-middle band — don't let it ride too HIGH (above ~0.40, where a flat hole
+  //      would strand it near the top with a big empty green slab below) and don't let it drop too LOW (below
+  //      ~0.80, off into the bottom on a tall climb). Clamp the ball into [0.40, 0.80] of the screen height.
+  const cyBallFloor = _portraitCamForScreen(ballY, 0.80, true, z);   // ball no lower than 0.80
+  const cyBallCeil  = _portraitCamForScreen(ballY, 0.46, true, z);   // ball no higher than 0.46
+  cy = Math.max(cy, cyBallFloor);
+  cy = Math.min(cy, cyBallCeil);
+  //  (3) cup/flag must stay visible: the flag pole rises ~60px above the cup; keep that tip at/below 0.06 so
+  //      a HIGH cup doesn't clip off the top. Lowering the flag on screen = SMALLER cam → take the min.
+  //      (The cup is the aim target, so this caps how far up goal (2) can push.)
+  const cyFlagTop = _portraitCamForScreen(cupY - 60, 0.06, true, z);
+  cy = Math.min(cy, cyFlagTop);
+  // Final safety: never push the deepest content off the bottom edge (keep yBot at/above fraction 0.97 →
+  //  LARGER cam → max).
+  const cyDeep = _portraitCamForScreen(b.yBot, 0.97, true, z);
   cy = Math.max(cy, cyDeep);
   camera.y = cy;
 }
@@ -312,6 +375,11 @@ function setHoleCamera(hole) {
   // so the resting ball is ~30% in from the left + the flag still reads; the follow-cam keeps it there in
   // flight. Gated entirely on RG._portraitCapture (set only under ?portrait) — landscape is byte-identical.
   if (typeof window !== 'undefined' && window.RG && window.RG._portraitCapture) {
+    // FIT-TO-CONTENT: pick this hole's zoom FIRST (so the x/y framing below sees the right scale), commit it
+    // to RG._zoom (+ RG_PORTRAIT.zoom for the wrap.js keep-alive), then frame x + y against it.
+    const z = portraitHoleZoom(hole);
+    window.RG._zoom = z;
+    window.RG._zoomPivot = { x: W / 2, y: H / 2 };
     camera.x = portraitCameraX(hole);
     setHoleCameraY(hole);                  // portrait-tuned vertical framing (below)
     return;
@@ -851,7 +919,15 @@ MODE = {
       // jumping here while only camera.x was being animated). camera-Y easing lives in onTransitionUpdate.
       const newHole = holes[currentHole];
       const savedCamX = camera.x, savedCamY = camera.y;
+      // PORTRAIT zoom ease (gated): setHoleCamera computes the NEW hole's fit-zoom + frames camera.x/y at it.
+      // Holes differ in fit-zoom (a short hole zooms in more than a wide one), so a raw snap would POP the
+      // world scale at the transition. Capture old→new zoom; onTransitionUpdate eases RG_PORTRAIT.zoom (which
+      // the wrap.js keep-alive mirrors into RG._zoom every frame), so the scale GLIDES into the new hole.
+      // Inert in landscape (RG_PORTRAIT only exists under ?portrait).
+      const portraitZoom = (typeof window !== 'undefined' && window.RG_PORTRAIT);
+      _transZoomStart = portraitZoom ? window.RG_PORTRAIT.zoom : null;
       setHoleCamera(newHole);
+      _transZoomEnd = portraitZoom ? window.RG_PORTRAIT.zoom : null;
       transitionCamEnd = camera.x;
       transitionCamYEnd = (typeof camera.y === 'number') ? camera.y : 0;
       camera.x = savedCamX; // restore — we'll animate to target
@@ -872,6 +948,15 @@ MODE = {
     if (transitionCamYEnd !== transitionCamYStart) {
       camera.y = transitionCamYStart + (transitionCamYEnd - transitionCamYStart) * ease;
     }
+    // PORTRAIT fit-zoom ease (gated): glide the world scale from the previous hole's zoom to the new hole's
+    // zoom so the scale doesn't pop at the cut. We ease RG_PORTRAIT.zoom; the wrap.js keep-alive mirrors it
+    // into RG._zoom every frame, so the live transform follows. Inert in landscape (_transZoom* stay null).
+    if (_transZoomStart != null && _transZoomEnd != null && _transZoomStart !== _transZoomEnd
+        && typeof window !== 'undefined' && window.RG_PORTRAIT) {
+      const z = _transZoomStart + (_transZoomEnd - _transZoomStart) * ease;
+      window.RG_PORTRAIT.zoom = z;
+      if (window.RG) { window.RG._zoom = z; window.RG._zoomPivot = { x: W / 2, y: H / 2 }; }
+    }
   },
 
   getTransitionCupData() {
@@ -879,6 +964,13 @@ MODE = {
   },
 
   onTransitionEnd() {
+    // PORTRAIT: settle the zoom on the new hole's exact fit value + clear the ease endpoints (so a later
+    // resize-reframe isn't clobbered by a stale tween). Inert in landscape (_transZoom* are null).
+    if (_transZoomEnd != null && typeof window !== 'undefined' && window.RG_PORTRAIT) {
+      window.RG_PORTRAIT.zoom = _transZoomEnd;
+      if (window.RG) { window.RG._zoom = _transZoomEnd; window.RG._zoomPivot = { x: W / 2, y: H / 2 }; }
+    }
+    _transZoomStart = null; _transZoomEnd = null;
     const prevHole = holes[currentHole - 1];
     if (prevHole) {
       prevHole.cupFilled = true;

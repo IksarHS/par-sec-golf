@@ -184,6 +184,16 @@
       // the HUD is drawn in game units (H tall), so multiply by H/cssHeight to convert. cssHeight ~= h.
       window.RG_PORTRAIT.cssToGame = (typeof H !== 'undefined' && h) ? (H / h) : 1;
       if (typeof resizeDisplay === 'function') resizeDisplay();
+      // FIT-TO-CONTENT re-frame on resize: the portrait camera is framed ONCE per hole against the live W
+      // (W is derived from the canvas aspect by resizeDisplay). A viewport/orientation change (or a desktop
+      // window resize in the phone-preview) changes W, leaving the static framing stale — the hole drifts
+      // off-frame. Re-run setHoleCamera so the fit-zoom + vertical pan recompute for the new W. Gated on the
+      // portrait capture flag + only while resting (not mid-shot), so it never fights the static shot frame.
+      if (window.RG && RG._portraitCapture && typeof holes !== 'undefined' && typeof currentHole !== 'undefined'
+          && holes[currentHole] && typeof setHoleCamera === 'function'
+          && !(typeof state !== 'undefined' && (state === STATE_FLIGHT || state === STATE_OOB))) {
+        try { setHoleCamera(holes[currentHole]); } catch (e) {}
+      }
     }
     window.addEventListener('resize', syncFrame);
     // also re-sync after the engine's own resize listener so W is recomputed from the real box.
