@@ -237,6 +237,42 @@ for (const f of ['manual.js', 'progression.js']) {
   fs.copyFileSync(path.join(ROOT, 'src', 'roguelike', f), path.join(DIST, 'src', 'roguelike', f));
 }
 
+// ── 6. Copy the SELF-CONTAINED standalone prototypes + a hub page, so they're playable on the live
+//      site (and on a phone), not just the local dev server. Each is pure-canvas + ../assets/fonts only
+//      (resolves to dist/assets/fonts). Engine-dependent tools (physlab/striking/starmap) are NOT here. ──
+fs.mkdirSync(path.join(DIST, 'prototypes'), { recursive: true });
+const PROTOS = ['golforbit.html', 'golforbit-planet.html', 'softbody-planet.html', 'ssg-camera.html', 'ssg-levels.js', 'aesthetics.html', 'golfball-llm.html'];
+let nProto = 0;
+for (const f of PROTOS) {
+  const src = path.join(ROOT, 'prototypes', f);
+  if (fs.existsSync(src)) { fs.copyFileSync(src, path.join(DIST, 'prototypes', f)); nProto++; }
+}
+log('copied', nProto, 'standalone prototypes');
+const hub = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Par Sec — lab</title>
+<link rel="preload" href="assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<style>@font-face{font-family:'Departure Mono';src:url('assets/fonts/DepartureMono-Regular.woff2') format('woff2');font-display:swap}
+*{margin:0;box-sizing:border-box}body{font-family:'Departure Mono',monospace;background:#0b0d14;color:#e8ecf5;padding:28px 20px;max-width:640px;margin:0 auto;line-height:1.5}
+h1{font-size:22px;letter-spacing:4px;margin-bottom:4px}.sub{color:#8a93a8;font-size:12px;margin-bottom:24px}
+h2{font-size:12px;color:#7fa8d8;letter-spacing:2px;margin:22px 0 8px}
+a{display:block;color:#e8ecf5;text-decoration:none;padding:13px 14px;margin:7px 0;background:#141826;border:1px solid #232a3c;border-radius:9px}
+a:active{background:#1c2236}.d{color:#8a93a8;font-size:11px}</style></head>
+<body><h1>PAR SEC</h1><div class="sub">flat-faceted procedural space golf &middot; tap to play</div>
+<h2>THE GAME</h2>
+<a href="./">&#9654; Play &mdash; desktop / landscape<div class="d">the full tour, all systems</div></a>
+<a href="./?portrait">&#9654; Play in PORTRAIT &mdash; mobile beta<div class="d">phone-first: snackable holes, 3-planet on-ramp</div></a>
+<h2>PROTOTYPES</h2>
+<a href="./prototypes/golforbit-planet.html">Golf Orbit &mdash; whole planet + auto-golf</a>
+<a href="./prototypes/golforbit.html">Golf Orbit &mdash; mega-drive</a>
+<a href="./prototypes/softbody-planet.html">Soft-body planet &mdash; jelly ball + morph</a>
+<a href="./prototypes/ssg-camera.html">Super Stickman &mdash; 10-level campaign<div class="d">[ and ] switch levels</div></a>
+<a href="./prototypes/aesthetics.html">Aesthetics explorer &mdash; 12 looks<div class="d">keys 1-9 / 0 / - / =</div></a>
+<a href="./prototypes/golfball-llm.html">Talking golf ball &mdash; local LLM<div class="d">full voice needs WebGPU + mic</div></a>
+</body></html>`;
+fs.writeFileSync(path.join(DIST, 'play.html'), hub);
+log('wrote dist/play.html (hub)');
+
 // ── report ──
 const distSize = (() => {
   let total = 0;
