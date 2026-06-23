@@ -1,3 +1,17 @@
+// ── Launch power ──────────────────────────────────────────
+// Convert a drag distance (game units) into launch speed. In PORTRAIT (?portrait) the visible frame is a
+// narrow ~250-game-unit phone width zoomed to ~320 world-units, so the PC-tuned POWER_SCALE/MAX_POWER (built
+// for the 960-wide view + 600-1000px holes) overshoots the 120-160px snack holes — a full-power drag flew
+// way past the cup. Scale the launch velocity DOWN in portrait so a full drag travels ~most of the short
+// frame, not past it. Gated on RG._portraitCapture (set only under ?portrait) → LANDSCAPE power is unchanged.
+function _launchPower(dist) {
+  let power = Math.min(dist * POWER_SCALE, MAX_POWER);
+  if (typeof window !== 'undefined' && window.RG && window.RG._portraitCapture) {
+    power *= 0.5;   // portrait power scale — tuned by feel so a full-power drag covers most of the snack hole
+  }
+  return power;
+}
+
 // ── Input System ──────────────────────────────────────────
 canvas.addEventListener('mousedown', (e) => {
   // Handle completion screen button clicks
@@ -56,7 +70,7 @@ window.addEventListener('mouseup', (e) => {
   // Title card clears only on an ACTUAL strike (dist >= 5), not a bare click.
   if (showTitle) showTitle = false;
 
-  const power = Math.min(dist * POWER_SCALE, MAX_POWER);
+  const power = _launchPower(dist);
   const angle = Math.atan2(dy, dx);
 
   ball.vx = Math.cos(angle) * power;
@@ -107,7 +121,7 @@ canvas.addEventListener('touchend', (e) => {
   // Title card clears only on an ACTUAL strike (dist >= 5), not a bare tap.
   if (showTitle) showTitle = false;
 
-  const power = Math.min(dist * POWER_SCALE, MAX_POWER);
+  const power = _launchPower(dist);
   const angle = Math.atan2(dy, dx);
 
   ball.vx = Math.cos(angle) * power;

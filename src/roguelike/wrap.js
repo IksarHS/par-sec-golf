@@ -17,6 +17,26 @@
   const baseWorld = base.drawWorld ? base.drawWorld.bind(base) : null;
   const baseSky = base.drawSky ? base.drawSky.bind(base) : null;
 
+  // ── PORTRAIT EDGE-BOUNCE ─────────────────────────────────────────────────────────────────────────────
+  // The visible SCREEN edges act as walls in portrait so the ball can't leave the static phone frame.
+  // Compute the visible WORLD bounds from the (static) camera + portrait zoom and reflect ball velocity at
+  // left/right/top with restitution. The camera transform (applyCameraTransform) is, with zoom z about the
+  // canvas centre:  screenX = z*(worldX - camera.x) + (W/2)*(1-z)  →  worldX at screenX=s is
+  //   worldX = camera.x + (s - (W/2)*(1-z)) / z   (same for Y with H). Inert unless RG._portraitCapture set.
+  const _EDGE_RESTITUTION = 0.7;   // a little energy lost on each wall bounce (not a perfect mirror)
+  function _portraitEdgeBounce() {
+    if (typeof ball === 'undefined' || typeof camera === 'undefined') return;
+    const z = (window.RG && RG._zoom) || 1;
+    const r = (typeof BALL_RADIUS !== 'undefined' ? BALL_RADIUS : 4);
+    // visible world bounds (inset by the ball radius so the ball's EDGE bounces, not its centre)
+    const left  = camera.x + (0 - (W / 2) * (1 - z)) / z + r;
+    const right = camera.x + (W - (W / 2) * (1 - z)) / z - r;
+    const top   = ((camera.y) || 0) + (0 - (H / 2) * (1 - z)) / z + r;   // top wall only; bottom is the ground
+    if (ball.x < left)  { ball.x = left;  if (ball.vx < 0) ball.vx = -ball.vx * _EDGE_RESTITUTION; }
+    if (ball.x > right) { ball.x = right; if (ball.vx > 0) ball.vx = -ball.vx * _EDGE_RESTITUTION; }
+    if (ball.y < top)   { ball.y = top;   if (ball.vy < 0) ball.vy = -ball.vy * _EDGE_RESTITUTION; }
+  }
+
   MODE = Object.assign({}, base, {
     onTransitionStart() {
       // Base advances currentHole (++) and decides course-complete by holeCount.
@@ -175,10 +195,21 @@
       var onPlat = (window.RG_ATLAS && RG_ATLAS.collide) ? RG_ATLAS.collide() : false;
       var base = baseCollide ? baseCollide() : false;
       if (onPlat && typeof ball !== 'undefined') ball.onGround = true;
+      // PORTRAIT EDGE-BOUNCE (peel-off, gated on RG._portraitCapture): the static phone camera is barely
+      // wider than a hole, so a hard shot would leave the frame. Instead the LEFT/RIGHT/TOP edges of the
+      // VISIBLE screen act as walls — reflect the velocity (restitution ~0.7) so the ball stays on-screen.
+      // Runs per substep (collide() is every substep) so a fast ball can't tunnel through an edge. The
+      // BOTTOM stays the ground (handled by the heightfield collide above). Inert in landscape + headless
+      // (no _portraitCapture is ever set there → the verify/bot determinism baseline is untouched).
+      if (window.RG && RG._portraitCapture) _portraitEdgeBounce();
       return base || onPlat;
     },
     isOOB() {
       if (window.RG && RG.descending) return false; // a Fault drop is not an out-of-bounds
+      // PORTRAIT: the visible screen edges are walls (see collide()/_portraitEdgeBounce), so the ball can
+      // NEVER leave the frame → there is no out-of-bounds in portrait. Short-circuit before the base rule
+      // (isBallOffScreen) which would otherwise trigger an OOB reset the instant the ball touched an edge.
+      if (window.RG && RG._portraitCapture) return false;
       // Experimental planets may redefine out-of-bounds (e.g. only-up: a tumble off the BOTTOM of
       // the frame is OOB the same way the left/right edges are). Return true/false to decide, or
       // null/undefined to defer to the base rule. Inert unless an atlas planet defines it.
@@ -210,31 +241,13 @@
       // Return true to take over; the base apron-follow is then skipped. Inert by default.
       if (window.RG_ATLAS && RG_ATLAS.camera && RG_ATLAS.camera()) return;
       if (!(window.RG && RG.active) || RG.descending || typeof camera === 'undefined') return;
-      // PORTRAIT FOLLOW-CAM (peel-off, gated on RG._portraitCapture): the narrow phone frame is barely
-      // wider than a hole, so a static camera lets the ball fly off the edge. Ease the camera so the ball
-      // stays anchored ~30% in from the left (portraitCameraX) and re-frame the vertical band so an
-      // airborne ball isn't lost above the frame. Eased (lerp) so it glides, not snaps. Engine drives
-      // updateCamera() only in FLIGHT/OOB; AIM follow is handled in drawWorld below. Inert in landscape.
-      if (window.RG._portraitCapture && typeof portraitCameraX === 'function'
-          && typeof holes !== 'undefined' && typeof currentHole !== 'undefined' && holes[currentHole]) {
-        const hole = holes[currentHole];
-        // Look slightly ahead of a moving ball (in its travel direction) so it doesn't crowd the edge.
-        const vx = (typeof ball !== 'undefined' && ball.vx) || 0;
-        const lead = Math.max(-W * 0.12, Math.min(W * 0.12, vx * 6));
-        const tgtX = portraitCameraX(hole, (typeof ball !== 'undefined' ? ball.x : hole.teeX) + lead);
-        camera.x += (tgtX - camera.x) * 0.16;
-        // Vertical: keep the ball comfortably in frame. If it climbs above ~0.26 of the SCREEN (a high arc),
-        // pan UP to follow it; otherwise hold the per-hole address framing. Zoom-aware (matches the camera
-        // transform). Never pans below the address frame.
-        if (typeof ball !== 'undefined') {
-          const z = (window.RG && RG._zoom) || 1;
-          const ballScreenYFrac = (z * (ball.y - camera.y) + (H / 2) * (1 - z)) / H;
-          if (ballScreenYFrac < 0.26) {
-            // camera.y that puts the ball at screen-fraction 0.26 (invert the transform)
-            const tgtY = ball.y - (0.26 * H - (H / 2) * (1 - z)) / z;
-            camera.y += (tgtY - camera.y) * 0.16;
-          }
-        }
+      // PORTRAIT STATIC CAMERA (peel-off, gated on RG._portraitCapture): the hole is framed ONCE at address
+      // (setHoleCamera) and the camera does NOT move during the shot. The narrow phone frame would let a hard
+      // shot fly off-edge, so instead the visible SCREEN EDGES act as walls (the ball bounces back — see the
+      // isOOB/edge-reflect handling) and the framing stays put. This replaces the old portrait follow-cam
+      // (pan/zoom-to-ball), which made the world slide under the ball mid-flight. Take over + do nothing so
+      // the base apron-follow below is also skipped. Inert in landscape (no _portraitCapture).
+      if (window.RG._portraitCapture) {
         return;
       }
       const sp = window.RG_secret ? RG_secret('ship') : null;
@@ -313,19 +326,10 @@
       if (typeof state !== 'undefined' && state === STATE_AIM
           && !(window.RG && (RG.descending || RG._simulating))
           && window.RG_ATLAS && RG_ATLAS.camera) RG_ATLAS.camera();
-      // PORTRAIT AIM follow (gated): the engine drives updateCamera() only in FLIGHT/OOB, so without this
-      // the portrait camera would freeze wherever the hole-to-hole pan left it and only re-anchor on the
-      // ball once you shot. Drive the same anchor during AIM from the draw pass (the only per-frame tick in
-      // AIM) so the view eases onto the resting ball BEFORE the shot. Target is fixed while the ball rests,
-      // so the ease settles + stops. Inert in landscape (no _portraitCapture) and during descents/bot sims.
-      if (typeof state !== 'undefined' && state === STATE_AIM
-          && window.RG && RG._portraitCapture && !(RG.descending || RG._simulating)
-          && typeof portraitCameraX === 'function'
-          && typeof holes !== 'undefined' && typeof currentHole !== 'undefined' && holes[currentHole]) {
-        const _h = holes[currentHole];
-        const _tx = portraitCameraX(_h, (typeof ball !== 'undefined' ? ball.x : _h.teeX));
-        camera.x += (_tx - camera.x) * 0.16;
-      }
+      // PORTRAIT STATIC CAMERA (gated): the per-hole framing is set ONCE by setHoleCamera (at address and at
+      // each hole transition) and is NOT moved during AIM or the shot — the screen edges bounce the ball back
+      // instead of the camera chasing it. The old AIM follow that eased the camera onto the resting ball has
+      // been removed so the framing is truly static per hole. (Landscape is untouched — no _portraitCapture.)
       // Keep mid-run terrain ON-PALETTE: clamp any vertex the engine (re)generated with no mat
       // to the active course default BEFORE the terrain draws, so the no-mat boundary verts never
       // render as DEFAULT_MAT ('sand' = orange) on Earth / tan-crust the Moon. Cheap (~100 verts),
