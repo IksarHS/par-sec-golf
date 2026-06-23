@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="icon" href="data:,">
+  <meta charset="utf-8">
+  <title>Golf Orbit — mega-drive prototype</title>
+  <link rel="preload" href="../assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    @font-face{font-family:'Departure Mono';
+      src:url('../assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+          url('../assets/fonts/DepartureMono-Regular.woff') format('woff');
+      font-weight:normal;font-style:normal;font-display:swap;}
+    html,body{margin:0;background:#0c0e14;overflow:hidden}
+  </style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+// ── GOLF ORBIT — MEGA-DRIVE prototype (our art style) ─────────────────────────────────────────────
+// Line up a juicy POWER BAR, then SLAM the ball so hard it screams over the CURVE of a real planet,
+// thousands of yards to the pin. At ADDRESS it reads as a normal flat-faceted hole; once airborne the
+// camera ZOOMS OUT to reveal the planet's curved limb, a glowing atmosphere band, the far-side bow, and
+// a gorgeous tapering contrail — then eases back IN to a weighty bouncing landing. No hole on screen,
+// just "yds to pin", coins along the arc. Deep-space sky, our flat planet, white dimpled ball.
+var cv = document.getElementById('c'), ctx = cv.getContext('2d'), W = 960, H = 540;
+var FONT = "'Departure Mono', monospace";
+
+// ── tunables ──
+var TARGET = 12000;          // yds to the pin (no hole drawn — just the readout)
+var GRAV = 1500, DRAG = 0.16, REST = 0.52, ROLLF = 0.80;
+var LAUNCH_DEG = 27, VBASE = 1900, VPOW = 2750;
+var GY = H * 0.78;           // screen Y of the planet surface at screen-centre
+var CURVE_MAX = 0.00095;     // peak limb curvature (screen-space, at full zoom-out) — bows ~160px at the edge
+var CURVE_MIN = 0.00010;     // a gentle baseline bow even at address/landing — you always feel the world
+var SWEET_LO = 0.74, SWEET_HI = 0.88;
+
+var ball, state, pm, pmDir, view, trail, facets, coins, doneT, lastPerfect, frame;
+var shake, puffs, pops, flash, perfectPop, launchT, landT, settleT, starPhase;
+
+// ── deterministic helpers ──
+function hash(i){ var x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+
+// flat-faceted terrain profile (world yds → world height above baseline). Low-freq rolling so it reads
+// as a real rolling fairway up close and melts into the smooth limb at planet scale.
+function terrainH(wx){ return 30*Math.sin(wx*0.0072) + 16*Math.sin(wx*0.018+1.3) + 8*Math.sin(wx*0.041+0.7); }
+
+function reset() {
+  ball = { x: 0, y: 0, vx: 0, vy: 0, moving: false, bounces: 0, rot: 0 };
+  state = 'aim'; pm = 0; pmDir = 1;
+  view = { zoom: 0.92, ox: 0, curve: 0, shakeX: 0, shakeY: 0 };
+  trail = []; doneT = 0; lastPerfect = false; frame = 0;
+  shake = 0; puffs = []; pops = []; flash = 0; perfectPop = 0; launchT = 0; landT = 0; settleT = 0; starPhase = 0;
+  // flat-faceted ridge features (world-anchored): each is a tiny triangular peak or mesa on the surface.
+  facets = [];
+  for (var i = 0; i < 220; i++) {
+    var fx = i * 150 + hash(i) * 90;
+    facets.push({ x: fx, w: 26 + hash(i+9) * 46, h: 14 + hash(i+3) * 34, kind: (hash(i+5) < 0.34 ? 'peak' : 'mesa') });
+  }
+  // coins arc along a believable flight path (hidden at address)
+  coins = [];
+  for (var i = 1; i < 34; i++) coins.push({ x: i * 320, y: 380 + Math.sin(i * 0.55) * 560, got: 0 });
+  updateView(); draw();
+}
+
+function shoot(power) {
+  var perfect = power >= SWEET_LO && power <= SWEET_HI; lastPerfect = perfect;
+  var p = perfect ? 1.06 : power, sp = VBASE + p * VPOW, a = LAUNCH_DEG * Math.PI / 180;
+  ball.vx = sp * Math.cos(a); ball.vy = sp * Math.sin(a); ball.moving = true; state = 'fly'; trail = [];
+  // launch JUICE
+  shake = perfect ? 16 : 11; flash = 1; launchT = 1;
+  if (perfect) perfectPop = 1;
+  spawnPuff(ball.x, 0, 18, perfect ? '#bfe9ff' : '#dfe7d2');
+}
+window.__shoot = function (angleDeg, power01) { if (typeof power01 === 'number') shoot(Math.max(0, Math.min(1, power01))); };
+
+function spawnPuff(wx, wy, n, col, dirx) {
+  // dirx (optional): bias the fan in the travel direction so an impact KICKS forward, not symmetric.
+  for (var i = 0; i < n; i++) {
+    var a = Math.random() * 6.2832, sp = 30 + Math.random() * 180;
+    var bx = (dirx != null) ? dirx * (60 + Math.random() * 160) : 0;
+    puffs.push({ x: wx, y: wy, vx: Math.cos(a) * sp + bx, vy: Math.sin(a) * sp * 0.5 - 30, life: 1, col: col, r: 4 + Math.random() * 8 });
+  }
+}
+function spawnPop(sx, sy, col) { pops.push({ x: sx, y: sy, life: 1, col: col }); }
+
+// ── CAMERA: anchor the still planet, zoom OUT on the climb to reveal the limb, ease IN on descent ──
+function updateView() {
+  var BALLSX = W * 0.40;
+  var target = (state === 'aim') ? 0.92 : Math.max(0.12, Math.min(0.92, (GY - 46) / (ball.y + 430)));
+  view.zoom += (target - view.zoom) * (target < view.zoom ? 0.11 : 0.085);   // out a touch faster, in smooth
+  view.ox = BALLSX - ball.x * view.zoom;
+  // curvature: a gentle baseline bow always (CURVE_MIN), ramping to a strong limb as we zoom OUT.
+  view.curve = CURVE_MIN + CURVE_MAX * Math.pow(Math.max(0, 1 - view.zoom), 1.15);
+  // screen-shake decay
+  shake *= 0.86; if (shake < 0.2) shake = 0;
+  view.shakeX = (Math.random() - 0.5) * shake; view.shakeY = (Math.random() - 0.5) * shake;
+}
+
+// ground screen Y at a screen-x: base + planet-bow (parabolic, ×curve) − terrain features (×zoom)
+function groundScreenY(sx) {
+  var dx = sx - W / 2, wx = (sx - view.ox) / view.zoom;
+  return GY + view.curve * dx * dx - terrainH(wx) * view.zoom + view.shakeY;
+}
+function wToS(wx, wy) { var sx = view.ox + wx * view.zoom + view.shakeX; return { x: sx, y: groundScreenY(sx) - wy * view.zoom }; }
+
+function step() {
+  frame++; var dt = 1 / 60;
+  starPhase += 0.03;
+  if (flash > 0) flash -= 0.06;
+  if (perfectPop > 0) perfectPop -= 0.014;
+  if (launchT > 0) launchT -= 0.03;
+  if (landT > 0) landT -= 0.04;
+
+  if (state === 'aim') {
+    pm += pmDir * 0.020; if (pm > 1) { pm = 1; pmDir = -1; } if (pm < 0) { pm = 0; pmDir = 1; }
+    if (frame === 56) { pm = 0.81; shoot(0.81); }                 // auto-demo: lock a perfect drive
+  } else if (state === 'fly') {
+    ball.vy -= GRAV * dt; var d = Math.exp(-DRAG * dt); ball.vx *= d; ball.vy *= d;
+    ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+    ball.rot += ball.vx * dt * 0.012;
+    if (ball.y <= 0) {
+      ball.y = 0;
+      if (Math.abs(ball.vy) > 140) {
+        ball.vy = -ball.vy * REST; ball.vx *= ROLLF; ball.bounces++;
+        shake = Math.min(12, Math.abs(ball.vy) * 0.014); landT = 1;
+        var dir = ball.vx > 0 ? 1 : -1;
+        spawnPuff(ball.x, 0, 14, '#d8e6cc', dir);
+        // a couple of bright LEADING puffs so the kick direction is unmistakable
+        for (var pp = 0; pp < 3; pp++) puffs.push({ x: ball.x, y: 0, vx: dir * (140 + Math.random() * 120), vy: -40 - Math.random() * 40, life: 1, col: '#f2f8ea', r: 6 + Math.random() * 5 });
+      } else {
+        ball.vy = 0; ball.vx *= 0.90;
+        if (ball.vx < 26) { ball.moving = false; state = 'done'; doneT = 0; settleT = 1; spawnPuff(ball.x, 0, 8, '#d8e6cc'); }
+      }
+    }
+    trail.push({ x: ball.x, y: ball.y }); if (trail.length > 90) trail.shift();
+    // coin pickups — pop when the ball passes near a coin
+    for (var i = 0; i < coins.length; i++) { var c = coins[i]; if (!c.got && Math.abs(c.x - ball.x) < 140 && Math.abs(c.y - ball.y) < 160) { c.got = 1; var s = wToS(c.x, c.y); spawnPop(s.x, s.y, '#ffd23c'); } }
+  } else if (state === 'done') { if (settleT > 0) settleT -= 0.03; if (++doneT > 130) reset(); }
+
+  // update particles (world-space puffs)
+  for (var i = puffs.length - 1; i >= 0; i--) { var p = puffs[i]; p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= 60 * dt; p.life -= 1.6 * dt; if (p.life <= 0) puffs.splice(i, 1); }
+  for (var i = pops.length - 1; i >= 0; i--) { pops[i].life -= 2.4 * dt; if (pops[i].life <= 0) pops.splice(i, 1); }
+
+  updateView(); draw();
+}
+
+function draw() {
+  var z = view.zoom, openOut = Math.max(0, 1 - z);    // 0 at address → 1 fully zoomed out
+  // ── deep-space sky (our palette) — richer multi-stop gradient ──
+  var g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#06070d'); g.addColorStop(0.42, '#0b1018'); g.addColorStop(0.78, '#0f1622'); g.addColorStop(1, '#16222f');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // nebula wash that emerges as we climb (subtle, our blue/teal)
+  if (openOut > 0.05) {
+    var neb = ctx.createRadialGradient(W * 0.72, H * 0.30, 30, W * 0.72, H * 0.30, 420);
+    neb.addColorStop(0, 'rgba(60,110,170,' + (0.10 * openOut).toFixed(3) + ')');
+    neb.addColorStop(1, 'rgba(60,110,170,0)');
+    ctx.fillStyle = neb; ctx.fillRect(0, 0, W, H);
+  }
+  // ── stars: parallax with camera, layered sizes, gentle twinkle ──
+  for (var i = 0; i < 130; i++) {
+    var bx = hash(i) * 2400, by = hash(i + 50) * 1400;
+    var sx = (bx - view.ox * 0.18) % (W + 40); if (sx < -20) sx += W + 40;
+    var sy = (by * 0.6 + 8) % H;
+    var layer = i % 3, b = layer === 0 ? 2 : 1;
+    var tw = 0.55 + 0.45 * Math.sin(starPhase + i * 1.7);
+    var blue = i % 6 === 0;
+    var al = (layer === 0 ? 0.85 : 0.45) * (0.6 + 0.4 * tw);
+    ctx.fillStyle = blue ? 'rgba(190,210,255,' + al.toFixed(3) + ')' : 'rgba(255,255,255,' + al.toFixed(3) + ')';
+    ctx.fillRect(sx, sy, b, b);
+  }
+
+  // precompute the ground polyline once (shared by limb/atmosphere/fill)
+  var STEP = 6, gx = [], gyv = [];
+  for (var sx = 0; sx <= W + STEP; sx += STEP) { gx.push(sx); gyv.push(groundScreenY(sx)); }
+
+  // ── FAR-SIDE limb glow (only when zoomed way out): a faint second curved arc above the near limb to
+  //    suggest the whole sphere. Drawn as a thin atmosphere ribbon high in the sky. ──
+  if (openOut > 0.45) {
+    var farA = 0.12 * (openOut - 0.45) / 0.55;
+    ctx.strokeStyle = 'rgba(120,180,235,' + farA.toFixed(3) + ')'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (var k = 0; k < gx.length; k++) { var fy = gyv[k] - 230 - view.curve * 1200; if (k === 0) ctx.moveTo(gx[k], fy); else ctx.lineTo(gx[k], fy); }
+    ctx.stroke();
+  }
+
+  // ── ATMOSPHERE band hugging the limb (emerges as we zoom out) ──
+  var aA = 0.50 * openOut;
+  if (aA > 0.01) {
+    var bandH = 150;
+    var atmo = ctx.createLinearGradient(0, GY - bandH, 0, GY);
+    atmo.addColorStop(0, 'rgba(70,140,210,0)');
+    atmo.addColorStop(0.55, 'rgba(96,176,226,' + (aA * 0.5).toFixed(3) + ')');
+    atmo.addColorStop(1, 'rgba(150,210,240,' + aA.toFixed(3) + ')');
+    ctx.fillStyle = atmo;
+    ctx.beginPath(); ctx.moveTo(gx[0], gyv[0]);
+    for (var k = 1; k < gx.length; k++) ctx.lineTo(gx[k], gyv[k]);
+    for (var k = gx.length - 1; k >= 0; k--) ctx.lineTo(gx[k], gyv[k] - bandH);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // ── CURVED PLANET — flat-faceted earth-green (our palette), with a bright lit limb ──
+  function gpath(off) { ctx.beginPath(); ctx.moveTo(gx[0], gyv[0] + off); for (var k = 1; k < gx.length; k++) ctx.lineTo(gx[k], gyv[k] + off); ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); }
+  ctx.fillStyle = '#2f7330'; gpath(7); ctx.fill();          // darker shade band (depth)
+  ctx.fillStyle = '#3f8f3a'; gpath(0); ctx.fill();          // base fill
+  // TERMINATOR — darken the planet toward the limb extremes (left/right edges) so it reads as a SPHERE,
+  // not a flat hill. Only as we zoom out (a uniform-lit hill is fine at address). Clip to the planet body.
+  if (openOut > 0.15) {
+    ctx.save(); gpath(0); ctx.clip();
+    var tA = 0.40 * openOut;
+    var term = ctx.createLinearGradient(0, 0, W, 0);
+    term.addColorStop(0, 'rgba(8,16,24,' + tA.toFixed(3) + ')');
+    term.addColorStop(0.32, 'rgba(8,16,24,0)');
+    term.addColorStop(0.68, 'rgba(8,16,24,0)');
+    term.addColorStop(1, 'rgba(8,16,24,' + tA.toFixed(3) + ')');
+    ctx.fillStyle = term; ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+  // bright lit-limb LIP (#5cb653) — the crisp lit edge of the planet
+  ctx.strokeStyle = '#5cb653'; ctx.lineWidth = 3; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.beginPath(); for (var k = 0; k < gx.length; k++) { if (k === 0) ctx.moveTo(gx[k], gyv[k]); else ctx.lineTo(gx[k], gyv[k]); } ctx.stroke();
+  // RIM-LIGHT — a luminous cyan/white edge hugging the lit limb, sitting just ABOVE the lip so it glows
+  // off into the black sky (the "horizon of a glowing planet" hero beat). Three additive passes:
+  //   wide soft halo → medium glow → hot white core. Brightest at screen-centre (facing the light),
+  //   falling off toward the dark terminator at both limb extremes. Grows as we zoom out.
+  if (openOut > 0.06) {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    var rimA = Math.min(1, 0.45 + 0.55 * openOut);
+    var passes = [[10, 0.22], [5, 0.40], [2, 0.95]];   // [width, alphaScale] — wide soft → hot core
+    for (var rp = 0; rp < passes.length; rp++) {
+      var pw = passes[rp][0], pa = passes[rp][1] * rimA;
+      var rim = ctx.createLinearGradient(0, 0, W, 0);
+      rim.addColorStop(0.00, 'rgba(150,210,255,0)');
+      rim.addColorStop(0.50, (rp === 2 ? 'rgba(235,250,255,' : 'rgba(150,215,255,') + pa.toFixed(3) + ')');
+      rim.addColorStop(1.00, 'rgba(150,210,255,0)');
+      ctx.strokeStyle = rim; ctx.lineWidth = pw;
+      ctx.beginPath(); for (var k = 0; k < gx.length; k++) { var ry = gyv[k] - 1.5; if (k === 0) ctx.moveTo(gx[k], ry); else ctx.lineTo(gx[k], ry); } ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ── flat-faceted surface features — the STILL earth the ball races over (world-anchored) ──
+  for (var i = 0; i < facets.length; i++) {
+    var f = facets[i], s = wToS(f.x, 0); if (s.x < -60 || s.x > W + 60) continue;
+    var hh = f.h * z, ww = f.w * z; if (hh < 1.5) continue;
+    if (f.kind === 'peak') {
+      // triangular flat-faceted peak: lit left face + dark right face + a bright lit ridge line
+      ctx.fillStyle = '#4ea23f'; ctx.beginPath(); ctx.moveTo(s.x - ww, s.y + 1); ctx.lineTo(s.x, s.y - hh); ctx.lineTo(s.x + 1, s.y + 1); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#2f7d34'; ctx.beginPath(); ctx.moveTo(s.x, s.y - hh); ctx.lineTo(s.x + ww, s.y + 1); ctx.lineTo(s.x - 1, s.y + 1); ctx.closePath(); ctx.fill();
+      if (hh > 6) { ctx.strokeStyle = '#62b257'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(s.x - ww, s.y + 1); ctx.lineTo(s.x, s.y - hh); ctx.stroke(); }   // lit left ridge
+    } else {
+      // mesa: flat-top block — lit front face + a darker right side band + a BRIGHT top lip (#5cb653)
+      ctx.fillStyle = '#2f7d34'; ctx.fillRect(s.x - ww * 0.5, s.y - hh, ww, hh);                    // dark side band
+      ctx.fillStyle = '#4ea23f'; ctx.fillRect(s.x - ww * 0.5, s.y - hh, ww * 0.74, hh);             // lit front face
+      ctx.fillStyle = '#5cb653'; ctx.fillRect(s.x - ww * 0.5, s.y - hh, ww, Math.max(2, hh * 0.14));// bright top lip
+    }
+  }
+
+  // ── coins along the arc (hidden at address; uncollected = gold disc with lit lip) ──
+  if (state !== 'aim') for (var i = 0; i < coins.length; i++) { var c = coins[i]; if (c.got) continue; var s = wToS(c.x, c.y); if (s.x < -14 || s.x > W + 14) continue; var cr = Math.max(2.5, 22 * z + 4); ctx.fillStyle = '#caa024'; ctx.beginPath(); ctx.arc(s.x, s.y + 1, cr, 0, 6.2832); ctx.fill(); ctx.fillStyle = '#ffd23c'; ctx.beginPath(); ctx.arc(s.x, s.y, cr, 0, 6.2832); ctx.fill(); ctx.fillStyle = 'rgba(255,240,180,0.7)'; ctx.beginPath(); ctx.arc(s.x - cr*0.3, s.y - cr*0.3, cr*0.32, 0, 6.2832); ctx.fill(); }
+
+  // ── world-space puffs (impact/launch dust) ──
+  for (var i = 0; i < puffs.length; i++) { var p = puffs[i], s = wToS(p.x, p.y); var pr = Math.max(1.5, p.r * z) * (0.6 + p.life); ctx.fillStyle = p.col.replace(')', ',' + (0.5 * p.life).toFixed(3) + ')').replace('rgb', 'rgba'); ctx.globalAlpha = 0.55 * p.life; ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(s.x, s.y, pr, 0, 6.2832); ctx.fill(); ctx.globalAlpha = 1; }
+
+  // ── GLOWING CONTRAIL — wide soft glow under a bright tapering core ──
+  if (trail.length > 1) {
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    var n = trail.length;
+    for (var pass = 0; pass < 2; pass++) {
+      for (var i = 1; i < n; i++) {
+        var a = wToS(trail[i - 1].x, trail[i - 1].y), b = wToS(trail[i].x, trail[i].y);
+        var t = i / n;                                  // 0 oldest → 1 newest
+        var alpha = Math.pow(t, 1.5) * (pass === 0 ? 0.30 : 0.92);
+        if (alpha < 0.012) continue;
+        ctx.lineWidth = (pass === 0 ? 11 : 3) * t + (pass === 0 ? 3 : 1.2);
+        ctx.strokeStyle = (pass === 0) ? 'rgba(120,200,255,' + (alpha * 0.55).toFixed(3) + ')' : 'rgba(238,250,255,' + alpha.toFixed(3) + ')';
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+    }
+  }
+
+  // ── ball: soft halo + velocity-stretched white dimpled ball (our signature), sells SPEED ──
+  var bs = wToS(ball.x, ball.y), r = Math.max(3.5, Math.min(11, 30 * z));
+  // screen-space velocity → stretch the ball into the travel direction (motion smear) when fast.
+  var svx = ball.vx * z, svy = -ball.vy * z, spd = Math.hypot(svx, svy), ang = Math.atan2(svy, svx);
+  var stretch = (state === 'fly') ? Math.min(1.7, 1 + spd * 0.00060) : 1;
+  if (state === 'fly') {
+    var haloR = r * (2.6 + openOut * 1.6);
+    var hg = ctx.createRadialGradient(bs.x, bs.y, 0, bs.x, bs.y, haloR);
+    hg.addColorStop(0, 'rgba(200,235,255,0.50)'); hg.addColorStop(0.5, 'rgba(150,205,255,0.18)'); hg.addColorStop(1, 'rgba(150,205,255,0)');
+    ctx.fillStyle = hg; ctx.beginPath(); ctx.arc(bs.x, bs.y, haloR, 0, 6.2832); ctx.fill();
+    // a brighter glow nudged to the LEADING edge so the ball reads as screaming forward
+    if (stretch > 1.05) {
+      var lg = ctx.createRadialGradient(bs.x + Math.cos(ang) * r, bs.y + Math.sin(ang) * r, 0, bs.x + Math.cos(ang) * r, bs.y + Math.sin(ang) * r, r * 2.2);
+      lg.addColorStop(0, 'rgba(235,250,255,0.55)'); lg.addColorStop(1, 'rgba(235,250,255,0)');
+      ctx.fillStyle = lg; ctx.beginPath(); ctx.arc(bs.x + Math.cos(ang) * r, bs.y + Math.sin(ang) * r, r * 2.2, 0, 6.2832); ctx.fill();
+    }
+  }
+  var squash = (landT > 0) ? (1 - landT * 0.28) : 1;          // squash on landing impact
+  ctx.save(); ctx.translate(bs.x, bs.y);
+  ctx.save(); ctx.rotate(ang); ctx.scale(stretch, (1 / Math.sqrt(stretch)) * squash);    // stretch along velocity
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.2832); ctx.fill();
+  ctx.restore();
+  if (r > 5) {
+    ctx.rotate(ball.rot); ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    for (var a = 0; a < 3; a++) { var da = (a / 3) * Math.PI * 2; ctx.beginPath(); ctx.arc(Math.cos(da) * r * 0.5, Math.sin(da) * r * 0.5, r * 0.18, 0, 6.2832); ctx.fill(); }
+  }
+  ctx.restore();
+
+  // ── screen-space pops (coin sparkles) ──
+  for (var i = 0; i < pops.length; i++) { var p = pops[i], pl = p.life; ctx.globalAlpha = pl; ctx.fillStyle = p.col; ctx.font = "bold 14px " + FONT; ctx.textAlign = 'center'; ctx.fillText('+1', p.x, p.y - (1 - pl) * 22); ctx.globalAlpha = 1; ctx.textAlign = 'left'; }
+
+  // ── launch flash (white veil on the kick) ──
+  if (flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + (flash * 0.28).toFixed(3) + ')'; ctx.fillRect(0, 0, W, H); }
+
+  drawHUD();
+}
+
+function drawHUD() {
+  ctx.textAlign = 'left'; ctx.fillStyle = '#fff'; ctx.font = "13px " + FONT; ctx.fillText('GOLF ORBIT', 22, 28);
+
+  if (state === 'aim') {
+    ctx.fillStyle = 'rgba(255,255,255,0.80)'; ctx.font = "11px " + FONT;
+    ctx.fillText('PIN ' + TARGET.toLocaleString() + ' YDS  ·  STOP THE BAR ON THE LINE FOR A PERFECT DRIVE', 22, 46);
+    // ── juicy power bar ──
+    var bw = 470, bx = (W - bw) / 2, by = H - 50, bh = 24;
+    var inSweet = pm >= SWEET_LO && pm <= SWEET_HI, pulse = 0.5 + 0.5 * Math.sin(frame * 0.18);
+    // backing plate (anchors the bar against the dark sky)
+    ctx.fillStyle = 'rgba(8,12,18,0.78)'; ctx.fillRect(bx - 10, by - 12, bw + 20, bh + 34);
+    ctx.strokeStyle = 'rgba(120,150,180,0.45)'; ctx.lineWidth = 1; ctx.strokeRect(bx - 10.5, by - 12.5, bw + 21, bh + 35);
+    // track + crisp outline
+    ctx.fillStyle = '#16201b'; ctx.fillRect(bx, by, bw, bh);
+    // sweet-spot zone (bright green with glow + animated pulse)
+    var sLo = SWEET_LO * bw, sHi = SWEET_HI * bw, sMid = (SWEET_LO + SWEET_HI) / 2 * bw;
+    ctx.fillStyle = 'rgba(46,210,90,' + (0.28 + 0.24 * pulse) + ')'; ctx.fillRect(bx + sLo - 3, by - 3, (sHi - sLo) + 6, bh + 6);
+    ctx.fillStyle = '#2ed25a'; ctx.fillRect(bx + sLo, by, (sHi - sLo), bh);
+    ctx.fillStyle = '#7bf0a0'; ctx.fillRect(bx + sLo, by, (sHi - sLo), 3);
+    // power fill (gradient cyan→gold→red)
+    var grd = ctx.createLinearGradient(bx, 0, bx + bw, 0); grd.addColorStop(0, '#3fd0e0'); grd.addColorStop(0.7, '#ffe14a'); grd.addColorStop(1, '#ff5a3c');
+    ctx.fillStyle = grd; ctx.fillRect(bx, by, pm * bw, bh);
+    // the PERFECT TARGET TICK — the single most important pixel. A hot white pip line straight through the
+    // sweet-spot centre + a downward caret above it, with a soft glow so the eye locks onto the exact spot.
+    var tx = bx + sMid;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = 'rgba(255,255,255,' + (0.18 + 0.18 * pulse) + ')'; ctx.fillRect(tx - 4, by - 8, 8, bh + 16);   // glow
+    ctx.restore();
+    ctx.fillStyle = '#fff'; ctx.fillRect(tx - 1.5, by - 8, 3, bh + 16);                                            // hot pip
+    ctx.fillStyle = 'rgba(255,255,255,' + (0.85 + 0.15 * pulse) + ')';                                            // downward caret
+    ctx.beginPath(); ctx.moveTo(tx, by - 4); ctx.lineTo(tx - 5, by - 12); ctx.lineTo(tx + 5, by - 12); ctx.closePath(); ctx.fill();
+    // crisp bar outline
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1.5; ctx.strokeRect(bx - 0.5, by - 0.5, bw + 1, bh + 1);
+    // marker — pulses bright when in the sweet spot
+    ctx.fillStyle = inSweet ? '#bfffd0' : '#fff';
+    ctx.fillRect(bx + pm * bw - 2.5, by - 6, 5, bh + 12);
+    if (inSweet) { ctx.globalAlpha = 0.5 + 0.5 * pulse; ctx.fillRect(bx + pm * bw - 5, by - 8, 10, bh + 16); ctx.globalAlpha = 1; }
+    ctx.textAlign = 'center'; ctx.fillStyle = inSweet ? '#9af0b4' : 'rgba(255,255,255,0.9)'; ctx.font = "11px " + FONT;
+    ctx.fillText(inSweet ? '★ PERFECT ★' : 'POWER', W / 2, by - 17); ctx.textAlign = 'left';
+  } else {
+    var yds = Math.round(ball.x);
+    ctx.textAlign = 'center';
+    // big yardage with a perfect-pop scale
+    var scale = 1 + (perfectPop > 0 ? perfectPop * 0.22 : 0);
+    ctx.save(); ctx.translate(W / 2, 54); ctx.scale(scale, scale);
+    ctx.fillStyle = '#fff'; ctx.font = "38px " + FONT; ctx.fillText(yds.toLocaleString() + ' YDS', 0, 0);
+    ctx.restore();
+    ctx.font = "12px " + FONT;
+    if (state === 'fly') {
+      if (lastPerfect && perfectPop > 0.02) { ctx.fillStyle = 'rgba(123,240,160,' + Math.min(1, perfectPop * 1.6) + ')'; ctx.font = "16px " + FONT; ctx.fillText('PERFECT DRIVE!', W / 2, 82); ctx.font = "12px " + FONT; }
+      else { ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.fillText(Math.max(0, TARGET - yds).toLocaleString() + ' YDS TO PIN  ·  ' + ball.bounces + ' BOUNCE' + (ball.bounces === 1 ? '' : 'S'), W / 2, 82); }
+    } else {
+      var diff = yds - TARGET; ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.fillText((diff >= 0 ? '+' + diff.toLocaleString() + ' PAST THE PIN' : Math.abs(diff).toLocaleString() + ' YDS SHORT') + '  ·  ' + ball.bounces + ' BOUNCES', W / 2, 82);
+    }
+    ctx.textAlign = 'left';
+  }
+}
+
+window.__reset = reset; window.__step = step; window.__frame = function () { return frame; };
+window.__state = function () { return { state: state, x: Math.round(ball.x), y: Math.round(ball.y), zoom: +view.zoom.toFixed(3), bounces: ball.bounces }; };
+var auto = true; window.__setAuto = function (a) { auto = a; };
+cv.addEventListener('click', function () { if (state === 'aim') shoot(pm); });
+reset();                                                       // init state BEFORE the loop starts
+(function loop() { if (auto) step(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
