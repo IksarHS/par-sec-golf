@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Par Sec — Striking Variants</title>
+<link rel="preload" href="assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="data:,">
+<style>
+  @font-face {
+    font-family: 'Departure Mono';
+    src: url('assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+         url('assets/fonts/DepartureMono-Regular.woff') format('woff');
+    font-weight: normal; font-style: normal; font-display: swap;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #0c0e14;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: 'Departure Mono', monospace; color: #f2ecff; }
+  canvas { display: block; cursor: crosshair; image-rendering: -webkit-optimize-contrast;
+    max-width: 100vw; max-height: 82vh; box-shadow: 0 8px 40px rgba(0,0,0,0.6); }
+  #switcher { margin-top: 16px; display: flex; gap: 8px; align-items: center; }
+  #switcher button { font-family: 'Departure Mono', monospace; font-size: 13px;
+    background: rgba(255,255,255,0.06); color: #cfc6e6; border: 1px solid rgba(255,255,255,0.14);
+    padding: 7px 12px; border-radius: 6px; cursor: pointer; }
+  #switcher button.on { background: #2ff07a; color: #08090f; border-color: #2ff07a; }
+  #switcher .lbl { font-size: 12px; color: rgba(242,236,255,0.45); margin-left: 8px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540" style="visibility:hidden;"></canvas>
+<div id="switcher">
+  <button data-v="1">1 · Timing Meter</button>
+  <button data-v="2">2 · Drag + Arc</button>
+  <button data-v="3">3 · Two-Stage</button>
+  <button data-v="4">4 · Pull + Tension</button>
+  <span class="lbl">keys 1–4 switch · R resets · drag/hold to strike</span>
+</div>
+<script src="src/striking-variants.js"></script>
+<script>
+  (function () {
+    var btns = document.querySelectorAll('#switcher button');
+    function sync() {
+      var v = (window.__state && window.__state().variant) || 1;
+      btns.forEach(function (b) { b.classList.toggle('on', +b.dataset.v === v); });
+    }
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () { window.__setVariant(+b.dataset.v); sync(); });
+    });
+    window.addEventListener('keydown', function (e) { if (e.key >= '1' && e.key <= '4') setTimeout(sync, 0); });
+    sync();
+  })();
+</script>
+</body>
+</html>

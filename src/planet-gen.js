@@ -40,22 +40,55 @@
       barnard_regolith_dust: ['sand', '#8A7E6E'], barnard_copper_silt: ['sand', '#1F7A6D'],
       barnard_crimson_loam: ['grass', '#3B0A14'], barnard_scorched_basalt: ['rock', '#D94A1F'],
       barnard_dim_ember: ['rock', '#C23B22'],
+      // ── KEPLER-90 system (Sun-like G-star, 8 planets — "the other solar system") — BRIGHT + varied ──
+      kepler_jade_sea: ['ice', '#2FB39A'], kepler_amber_reef: ['sand', '#E0A23A'],
+      kepler_violet_crystal: ['sand', '#8C5CD6'], kepler_teal_terrace: ['grass', '#3FAE9C'],
+      kepler_coral_hollow: ['sand', '#E87A5C'], kepler_ice_loom: ['ice', '#9FE0E8'],
+      kepler_jade_giant: ['grass', '#46B06A'], kepler_gold_crown: ['sand', '#D8B24A'],
+      kepler_plasma: ['rock', '#FFAE3A'],
+      // ── PROXIMA CENTAURI system (nearest star — red dwarf, planets b/c/d + invented moons) — kept COLORFUL ──
+      prox_dawn_coral: ['sand', '#F08A6A'], prox_verdant: ['grass', '#3FB07A'],
+      prox_amethyst: ['sand', '#9A6AD0'], prox_frost: ['ice', '#7FD0E0'],
+      prox_cinder_bright: ['sand', '#E89A4A'], prox_near_fire: ['rock', '#FF9A30'],
+      // ── TAU CETI system (6th system — the DREAM-GENERATOR system; bodies built ONLY by holegen/) — jade/
+      // teal/violet/amber/coral/ice, NO brown. Each leans on composed concepts + (cavernous bodies) the cave
+      // layer + (signature bodies) floating landmark set-pieces incl. the ziggurat. (peel with the system block) ──
+      tau_jade_wake: ['grass', '#2FB389'], tau_teal_rise: ['ice', '#3FB3B0'],
+      tau_violet_hollow: ['sand', '#8C6AD6'], tau_amber_veil: ['sand', '#E0A23A'],
+      tau_coral_caldra: ['sand', '#E8775C'], tau_coral_shelf: ['sand', '#E89A7A'],
+      tau_ice_vesh: ['ice', '#9FE0E8'], tau_plasma_gold: ['rock', '#FFB23A'],
     };
     for (const k in CUSTOM) if (!MATERIALS[k]) { const c = CUSTOM[k]; MATERIALS[k] = Object.assign(phys(c[0]), { color: c[1], colorLight: c[1] }); }
   }
 
+  // ── TRUE complexity control (P3) ────────────────────────────────────────────────────────────────────
   // Cumulative archetype tiers — higher complexity unlocks more dramatic native archetypes ON TOP of the
-  // calmer ones, so simple planets stay simple and complex ones get the wild stuff too.
+  // calmer ones, so simple planets stay simple and complex ones get the wild stuff too. BUT tiers alone only
+  // swap WHICH single-feature shape is picked — a "complex" hole could still roll a trivial slope. So the
+  // pool is now (a) anchored by 'complex_composite' (a multi-feature, drama-scaling spine whose intricacy
+  // tracks difficulty) whose PRESENCE grows with c, and (b) the calmest single-feature shapes are DROPPED as
+  // c rises (no flat_run/gentle_slope on a gnarly world). Result: dragging c genuinely ramps intricacy, not
+  // just shape vocabulary. ('complex_composite' is registered in level-design.js.)
   const TIERS = [
-    ['flat_run', 'faceted', 'gentle_slope', 'downhill', 'uphill'],                  // t0  (gentle)
-    ['rolling_hills', 'valley', 'shelf', 'cliff_drop'],                              // t1  ~0.2  (angular)
-    ['mesa', 'peak_obstacle', 'stepped_descent', 'dramatic_ridge'],                  // t2  ~0.4  (dramatic)
-    ['canyon', 'twin_peaks', 'deep_plunge', 'shelf_drop_shelf', 'cliff_valley_climb'], // t3 ~0.6 (big)
-    ['compound_terrain', 'dramatic_ridge', 'deep_plunge', 'twin_peaks', 'stepped_descent', 'fortress', 'narrow_gap', 'canyon_cup', 'deep_pocket', 'crater', 'punchbowl', 'ziggurat'], // t4 ~0.8 (gnarly + new crater/punchbowl/ziggurat)
+    ['flat_run', 'faceted', 'gentle_slope', 'downhill', 'uphill', 'gentle_hill'],   // t0  (gentle)
+    ['rolling_hills', 'valley', 'shelf', 'cliff_drop', 'washboard_cradle'],          // t1  ~0.2  (angular)
+    ['mesa', 'peak_obstacle', 'stepped_descent', 'dramatic_ridge', 'sky_terrace', 'summit_saddle'], // t2 ~0.4 (dramatic)
+    ['canyon', 'twin_peaks', 'deep_plunge', 'shelf_drop_shelf', 'cliff_valley_climb', 'chasm_carry', 'amphitheatre'], // t3 ~0.6 (big)
+    ['compound_terrain', 'dramatic_ridge', 'deep_plunge', 'twin_peaks', 'stepped_descent', 'fortress', 'narrow_gap', 'canyon_cup', 'deep_pocket', 'crater', 'punchbowl', 'ziggurat'], // t4 ~0.8 (gnarly)
   ];
+  // The calmest shapes that should FADE OUT of the pool as complexity climbs (so high-c never rolls a
+  // single trivial slope). Removed once c crosses the matching threshold.
+  const FADE = [['flat_run', 0.45], ['gentle_slope', 0.5], ['faceted', 0.55], ['downhill', 0.6], ['uphill', 0.6], ['gentle_hill', 0.5]];
   function archetypesFor(c) {
     const upto = Math.min(TIERS.length, 1 + Math.floor(c / 0.2 + 0.001));
-    let a = []; for (let i = 0; i < upto; i++) a = a.concat(TIERS[i]); return a;
+    let a = []; for (let i = 0; i < upto; i++) a = a.concat(TIERS[i]);
+    // drop the calmest shapes once complexity passes their fade threshold
+    for (const [name, thr] of FADE) if (c >= thr) a = a.filter((n) => n !== name);
+    // the multi-feature spine: ALWAYS available, and its share of the pool grows with c so harder worlds
+    // reliably get intricate multi-feature holes (repeats raise its weight in the filtered course pool).
+    const composites = 1 + Math.round(c * 4);   // 1 copy at c=0 … 5 copies at c=1
+    for (let i = 0; i < composites; i++) a.push('complex_composite');
+    return a;
   }
 
   // 24 planets. complexity rises smoothly 0.05 → 0.97 (simple → complex). material + sky cycle
@@ -212,6 +245,21 @@
   // A SECOND signature set-piece on some bodies (the first comes from special/atIdx above).
   const SPECIAL2 = { luna: { a: 'ruins', at: 2 }, mars: { a: 'ruins', at: 3 }, miranda: { a: 'ruins', at: 3 }, charon: { a: 'ruins', at: 2 }, titan: { a: 'obelisk', at: 2 }, pluto: { a: 'obelisk', at: 7 }, europa: { a: 'obelisk', at: 3 } };
   for (const id in SPECIAL2) if (COURSES[id]) COURSES[id].specialHoles = [SPECIAL2[id]];
+  // ── P4: CAVE / OVERHANG archetypes gated onto the dramatic rocky/cavernous bodies (cup-under-lip, putt-in
+  // cave, walk-under arch). Each is a designed heightfield floor + an authored solid roof slab; bot-validated.
+  // Added as ONE signature cave hole per body (via specialHoles, at a free index) so a cave reliably appears
+  // without flooding the pool. Only on rocky/cratered worlds where a stone roof reads.
+  const CAVE_BODIES = { luna: 'cup_under_lip', mars: 'arch_under', io: 'putt_cave', ganymede: 'cup_under_lip', miranda: 'arch_under', charon: 'putt_cave', phobos: 'cup_under_lip' };
+  for (const id in CAVE_BODIES) {
+    if (!COURSES[id]) continue;
+    const a = CAVE_BODIES[id];
+    if (COURSES[id].archetypes && COURSES[id].archetypes.indexOf(a) < 0) COURSES[id].archetypes = COURSES[id].archetypes.concat(a);
+    const used = new Set();                                                    // avoid colliding with existing special hole indices
+    if (COURSES[id].specialHoleAt != null) used.add(COURSES[id].specialHoleAt);
+    (COURSES[id].specialHoles || []).forEach(sh => used.add(sh.at));
+    let at = 5; while (used.has(at) && at < 9) at++;                          // first free index from 5
+    COURSES[id].specialHoles = (COURSES[id].specialHoles || []).concat({ a, at });
+  }
 
   // ════════ THE TRAPPIST-1 SYSTEM ════════ the next system, reached after Charon: an ultracool RED DWARF
   // star + 7 tidally-locked rocky planets (b–h) + 3 assumed moons. Reddish dim palettes; lava on the hot
@@ -272,6 +320,133 @@
     COURSES[id] = c;
   }
 
+  // ── P4: signature CAVE / OVERHANG holes on the cavernous bodies of the outer two systems too. Same
+  // designed-floor + authored-roof archetypes (cup-under-lip / putt-cave / arch-under), bot-validated.
+  const CAVE_BODIES2 = {
+    trappist1b: 'putt_cave', trappist1c: 'arch_under', fenra: 'cup_under_lip', elai: 'arch_under',
+    veil: 'cup_under_lip', hollow: 'putt_cave', barnard_b: 'arch_under', ember: 'cup_under_lip',
+  };
+  for (const id in CAVE_BODIES2) {
+    if (!COURSES[id]) continue;
+    const a = CAVE_BODIES2[id];
+    if (COURSES[id].archetypes && COURSES[id].archetypes.indexOf(a) < 0) COURSES[id].archetypes = COURSES[id].archetypes.concat(a);
+    COURSES[id].overhangs = true;                                              // ensure set-piece collision path is on
+    const used = new Set();
+    if (COURSES[id].specialHoleAt != null) used.add(COURSES[id].specialHoleAt);
+    (COURSES[id].specialHoles || []).forEach(sh => used.add(sh.at));
+    let at = 5; while (used.has(at) && at < 9) at++;
+    COURSES[id].specialHoles = (COURSES[id].specialHoles || []).concat({ a, at });
+  }
+
+  // ════════ THE KEPLER-90 SYSTEM ════════ (P6) the 4th system, reached after Barnard's Star: a real
+  // Sun-like G-star with 8 confirmed planets — "the other solar system". COLORFUL invented bodies
+  // (jade/teal/violet/amber/coral/ice — NOT brown), each leaning on a different P5 silhouette set so the
+  // system reads as varied. The G-star itself is the grand finale. Bright skies.
+  const KEPLER = [
+    // id, name, mat, sky, grav, archetypes, [dMin,dMax], waterBias|null, surfCol, deepCol, special, atIdx
+    ['kepler90b', 'Kepler-90b · Verdshoal', 'kepler_jade_sea', '#1e3a44', 0.92, ['horseshoe_bay', 'halfpipe_gather', 'archipelago_hop', 'island_green', 'shallow_saucer_pin', 'twin_lobe_valley', 'crescent_dune_bay', 'sea_stack'], [0.25, 0.65], 0.55, 'rgba(47,179,154,0.55)', 'rgba(12,70,64,0.95)', 'horseshoe_bay', 4],
+    ['kepler90c', 'Kepler-90c · Amberreef', 'kepler_amber_reef', '#3a2e1a', 0.9, ['aqueduct_arches', 'colonnade_cloister', 'coral_fan', 'ocean_groundswell', 'silo_cluster', 'billowing_hills', 'derelict_hull_ramp', 'rolling_hills'], [0.3, 0.68], 0.3, 'rgba(224,162,58,0.45)', 'rgba(120,72,20,0.9)', 'aqueduct_arches', 5],
+    ['kepler90i', 'Kepler-90i · Violetspire', 'kepler_violet_crystal', '#241a36', 0.6, ['cathedral_spires', 'crystal_cluster', 'needle_spire_crown', 'jagged_rock_fins', 'matterhorn_col', 'knife_edge_arete', 'hoodoo_field', 'dragon_back'], [0.4, 0.85], null, null, null, 'cathedral_spires', 6],
+    ['kepler90d', 'Kepler-90d · Tealterrace', 'kepler_teal_terrace', '#1a3a34', 0.95, ['rice_paddy_terraces', 'temple_grand_staircase', 'pyramid_step_apex', 'sunken_stadium', 'zigzag_ledge_climb', 'split_level_benches', 'amphitheatre', 'dropped_shelf_cascade'], [0.3, 0.72], null, null, null, 'temple_grand_staircase', 4],
+    ['kepler90e', 'Kepler-90e · Coral Hollows', 'kepler_coral_hollow', '#3a221c', 0.75, ['rock_arch_bridge', 'tunnel_mouth', 'undercut_cliff', 'mushroom_rock', 'colonnade_cloister', 'crater', 'punchbowl', 'honeycomb_pockets'], [0.35, 0.78], 0.32, 'rgba(232,122,92,0.5)', 'rgba(120,46,32,0.9)', 'rock_arch_bridge', 5],
+    ['kepler90f', 'Kepler-90f · Iceloom', 'kepler_ice_loom', '#16323a', 0.9, ['caldera_dish', 'kettle_pond', 'teacup_saucer', 'frozen_lake', 'terraced_bowl', 'shallow_saucer_pin', 'funnel_chute', 'spiral_gather'], [0.3, 0.72], 0.45, 'rgba(159,224,232,0.5)', 'rgba(40,96,120,0.92)', 'caldera_dish', 6],
+    ['kepler90g', 'Kepler-90g · Jade Giant', 'kepler_jade_giant', '#1a3624', 1.15, ['archipelago_hop', 'broken_bridge_pillar', 'catwalk_pads', 'leapfrog_risers', 'fjord_crossing', 'gom_islands', 'land_bridge_neck', 'stepping_stones'], [0.4, 0.85], 0.4, 'rgba(70,176,106,0.5)', 'rgba(18,72,40,0.92)', 'broken_bridge_pillar', 5],
+    ['kepler90h', 'Kepler-90h · Goldcrown', 'kepler_gold_crown', '#322a16', 1.0, ['table_mountain_saddle', 'double_decker_mesa', 'wedge_ramp_mesa', 'tilted_flatiron', 'undercut_mesa', 'flat_top_butte', 'split_mesa_chasm', 'slot_mesa_pocket'], [0.35, 0.8], null, null, null, 'flat_top_butte', 5],
+    ['kepler90', 'Kepler-90 (The Star)', 'kepler_plasma', '#2a1206', 1.2, ['granulation_cells', 'sunspot_basin', 'volcano_crater_cup', 'dragon_back', 'lightning_zigzag', 'geyser_cones', 'funnel_gather', 'amphitheatre'], [0.8, 1.0], 0.4, 'rgba(255,174,58,0.7)', 'rgba(150,40,4,0.95)', 'sunspot_basin', 8],
+  ];
+  const KEPLER_OVERHANGS = ['kepler90e', 'kepler90i', 'kepler90', 'kepler90g'];
+  for (const [id, nm, mat, sky, grav, arch, diff, wbias, wcol, wdeep, special, atIdx] of KEPLER) {
+    const c = {
+      name: nm, worldName: nm, sky: sky, defaultMaterial: mat, materials: [mat],
+      gen: 'faceted', archetypes: arch, difficultyRange: diff,
+      holeDistMin: 440, holeDistMax: 760, holeCount: 9, validate: true,
+      phys: { gravityScale: grav, windScale: 1 },
+    };
+    if (wbias != null) { c.floodWater = true; c.waterBias = wbias; c.waterColor = wcol; c.waterDeep = wdeep; c.waterRarity = 0.4; }
+    if (special) { c.specialHole = special; c.specialHoleAt = atIdx; }
+    if (KEPLER_OVERHANGS.indexOf(id) >= 0) c.overhangs = true;
+    COURSES[id] = c;
+  }
+
+  // ════════ THE PROXIMA CENTAURI SYSTEM ════════ (P6) the 5th system, reached after Kepler-90: the NEAREST
+  // star (a red dwarf), planets b/c/d + 2 invented moons. Kept deliberately COLORFUL (coral/jade/violet/
+  // cyan/amber) despite the dim-red-dwarf reality — the brief is bright, not dreary. The near fire is the finale.
+  const PROXIMA = [
+    // id, name, mat, sky, grav, archetypes, [dMin,dMax], waterBias|null, surfCol, deepCol, special, atIdx
+    ['proxima_d', 'Proxima d · Dawnglass', 'prox_dawn_coral', '#3a221c', 0.6, ['ocean_groundswell', 'billowing_hills', 'crescent_dune_bay', 'sine_swell_run', 'quilted_dunes', 'rolling_moguls', 'horseshoe_bay', 'gentle_hill'], [0.2, 0.6], null, null, null, 'crescent_dune_bay', 4],
+    ['proxima_b', 'Proxima b · Verdant', 'prox_verdant', '#1a3a2c', 0.95, ['halfpipe_gather', 'amphitheater_hollow', 'twin_lobe_valley', 'bermed_basin', 'island_green', 'shallow_saucer_pin', 'moat_ringed_plateau', 'punchbowl'], [0.25, 0.66], 0.5, 'rgba(63,176,122,0.5)', 'rgba(20,80,52,0.92)', 'amphitheater_hollow', 5],
+    ['wisp', 'Wisp (Proxima b I)', 'prox_amethyst', '#241a36', 0.45, ['arch_under', 'tunnel_mouth', 'rock_arch_bridge', 'crystal_cluster', 'undercut_cliff', 'mushroom_rock', 'pylon_base', 'crater'], [0.25, 0.62], null, null, null, 'arch_under', 4],
+    ['proxima_c', 'Proxima c · Frostmere', 'prox_frost', '#16303a', 1.05, ['kettle_pond', 'caldera_dish', 'frozen_lake', 'rice_paddy_terraces', 'descending_sump_stairs', 'terraced_bowl', 'pressure_ridge', 'bermed_basin'], [0.3, 0.75], 0.46, 'rgba(127,208,224,0.5)', 'rgba(30,84,108,0.92)', 'caldera_dish', 6],
+    ['cinder', 'Cinder (Proxima c I)', 'prox_cinder_bright', '#2a1c10', 0.5, ['volcano_crater_cup', 'geyser_cones', 'jagged_rock_fins', 'matterhorn_col', 'hoodoo_field', 'caldera_shelf', 'dragon_back', 'shark_fin_ridge'], [0.32, 0.78], 0.22, 'rgba(232,154,74,0.85)', 'rgba(150,52,16,0.92)', 'volcano_crater_cup', 5],
+    ['proxima', 'Proxima Centauri (The Star)', 'prox_near_fire', '#2a0e06', 1.18, ['granulation_cells', 'sunspot_basin', 'lightning_zigzag', 'dragon_back', 'funnel_gather', 'chasm_carry', 'amphitheatre', 'volcano_crater_cup'], [0.8, 1.0], 0.42, 'rgba(255,154,48,0.72)', 'rgba(150,38,6,0.95)', 'sunspot_basin', 8],
+  ];
+  const PROXIMA_OVERHANGS = ['wisp', 'proxima_c', 'cinder', 'proxima', 'proxima_b'];
+  for (const [id, nm, mat, sky, grav, arch, diff, wbias, wcol, wdeep, special, atIdx] of PROXIMA) {
+    const c = {
+      name: nm, worldName: nm, sky: sky, defaultMaterial: mat, materials: [mat],
+      gen: 'faceted', archetypes: arch, difficultyRange: diff,
+      holeDistMin: 440, holeDistMax: 760, holeCount: 9, validate: true,
+      phys: { gravityScale: grav, windScale: 1 },
+    };
+    if (wbias != null) { c.floodWater = true; c.waterBias = wbias; c.waterColor = wcol; c.waterDeep = wdeep; c.waterRarity = 0.4; }
+    if (special) { c.specialHole = special; c.specialHoleAt = atIdx; }
+    if (PROXIMA_OVERHANGS.indexOf(id) >= 0) c.overhangs = true;
+    COURSES[id] = c;
+  }
+
+  // ════════ THE TAU CETI SYSTEM ════════ (the DREAM-GENERATOR system) the 6th system, reached after Proxima:
+  // a real Sun-like G-star (Tau Ceti, 12 ly) with confirmed planets e/f/g/h + invented moons. EVERY body's
+  // holes come ONLY from the new composed-signal dream pipeline (gen:'composed' → holegen/) — NO old
+  // archetypes. Colorful invented bodies (jade/teal/violet/amber/coral/ice, no brown). Cavernous bodies add
+  // the REAL cave layer (dream_*); two SIGNATURE bodies add floating landmark set-pieces incl. the ziggurat.
+  // GATED PEEL-OFF UNIT: this Tau Ceti block + its itinerary entries + the holegen/ <script> tags form ONE
+  // deletable unit → delete all three and the 5-system tour (Sol→Proxima) is byte-identical. The courses use
+  // gen:'composed' + dream_* archetype names that ONLY holegen/dreamgen.js registers, so they stay dormant
+  // (never selectable, never on the tour) unless the pipeline is loaded.
+  {
+    var dc = function (n) { return 'dream_' + n; };
+    var df = function (n) { return 'dream_float_' + n; };
+    // Each body: id, name, mat, sky, grav, [dMin,dMax], caves:[{a,at}], floaters:[{a,at}].
+    // gen:'composed' → the 'composed' archetype (picks a concept per hole); caves/floaters are signature
+    // holes forced at fixed indices. All names come ONLY from the dream pipeline (no old archetypes).
+    var TAU_CETI = [
+      { id: 'tauceti_g', name: 'Tau Ceti g · Jadewake', mat: 'tau_jade_wake', sky: '#1e3a30', grav: 0.92, diff: [0.25, 0.62],
+        caves: [{ a: dc('cup_under_lip'), at: 4 }], floaters: [] },
+      { id: 'tauceti_h', name: 'Tau Ceti h · Tealrise', mat: 'tau_teal_rise', sky: '#16323a', grav: 0.96, diff: [0.3, 0.7],
+        caves: [{ a: dc('pocket_wall'), at: 5 }], floaters: [] },
+      { id: 'liss', name: 'Liss (Tau Ceti h I)', mat: 'tau_violet_hollow', sky: '#241a36', grav: 0.5, diff: [0.3, 0.72],
+        caves: [{ a: dc('slot_canyon'), at: 3 }, { a: dc('drop_cavern'), at: 6 }], floaters: [] },
+      { id: 'tauceti_e', name: 'Tau Ceti e · Amberveil', mat: 'tau_amber_veil', sky: '#3a2e1a', grav: 0.9, diff: [0.3, 0.72],
+        caves: [{ a: dc('stone_arch'), at: 5 }], floaters: [] },
+      { id: 'caldra', name: 'Caldra (Tau Ceti e I)', mat: 'tau_coral_caldra', sky: '#2a1c1c', grav: 0.55, diff: [0.32, 0.78],
+        caves: [], floaters: [{ a: df('ziggurat'), at: 6 }, { a: df('floating_isles'), at: 3 }] },
+      { id: 'tauceti_f', name: 'Tau Ceti f · Coralshelf', mat: 'tau_coral_shelf', sky: '#3a221c', grav: 0.88, diff: [0.3, 0.74],
+        caves: [{ a: dc('tunnel_putt'), at: 4 }, { a: dc('double_decker'), at: 7 }], floaters: [] },
+      { id: 'vesh', name: 'Vesh (Tau Ceti f I)', mat: 'tau_ice_vesh', sky: '#16242e', grav: 0.5, diff: [0.32, 0.78],
+        caves: [{ a: dc('the_maw'), at: 4 }], floaters: [{ a: df('great_arch'), at: 6 }, { a: df('spire_pin'), at: 2 }] },
+      { id: 'tauceti', name: 'Tau Ceti (The Star)', mat: 'tau_plasma_gold', sky: '#2a1a06', grav: 1.15, diff: [0.7, 1.0],
+        caves: [{ a: dc('keyhole'), at: 5 }], floaters: [{ a: df('leviathan'), at: 7 }] },
+    ];
+    for (var ti = 0; ti < TAU_CETI.length; ti++) {
+      var T = TAU_CETI[ti];
+      // POOL = composed only → every NON-signature hole is a generator-native composed hole. The cave/float
+      // signatures fire ONLY at their fixed specialHoles index (the idiosyncrasy rule: rare landmarks against a
+      // calm composed baseline), since the specialHole path resolves archetypes[sh.a] directly (not via the pool).
+      var arch = ['composed'];
+      var specials = T.caves.concat(T.floaters);
+      var co = {
+        name: T.name, worldName: T.name, sky: T.sky, defaultMaterial: T.mat, materials: [T.mat],
+        gen: 'composed',                                  // ← THE dream pipeline (no old archetypes)
+        archetypes: arch, difficultyRange: T.diff,
+        holeDistMin: 460, holeDistMax: 780, holeCount: 9, validate: true,
+        overhangs: true,                                  // set-pieces collision path on (caves/floaters emit slabs)
+        phys: { gravityScale: T.grav, windScale: 1 },
+      };
+      if (specials.length) co.specialHoles = specials;
+      COURSES[T.id] = co;
+    }
+  }
+
   // THE SOLAR TOUR — the ordered itinerary, Earth → Pluto. A run plays each in order; finishing one warps
   // (the seamless ship-travel transition) to the next. The last (Charon) finishes to the recap.
   if (typeof window !== 'undefined') {
@@ -280,7 +455,19 @@
       // ── cross into the TRAPPIST-1 system: outer planets inward, moons after their planet, red dwarf star finale ──
       'trappist1h', 'trappist1g', 'geryn', 'trappist1f', 'fenra', 'trappist1e', 'elai', 'trappist1d', 'trappist1c', 'trappist1b', 'trappist1',
       // ── cross into the Barnard's Star system: outermost inward, moons after the ice giant, the dim red dwarf as the grand finale ──
-      'barnard_e', 'barnard_d', 'veil', 'hollow', 'ember', 'tidewell', 'solace', 'barnard_b', 'barnard_star'];
+      'barnard_e', 'barnard_d', 'veil', 'hollow', 'ember', 'tidewell', 'solace', 'barnard_b', 'barnard_star',
+      // ── (P6) cross into KEPLER-90 — "the other solar system" (8 planets), bodies outer→inner, the G-star finale ──
+      'kepler90b', 'kepler90c', 'kepler90i', 'kepler90d', 'kepler90e', 'kepler90f', 'kepler90g', 'kepler90h', 'kepler90',
+      // ── (P6) cross into PROXIMA CENTAURI — the nearest star: planets + moons, the near fire as the grand finale ──
+      'proxima_d', 'proxima_b', 'wisp', 'proxima_c', 'cinder', 'proxima'];
+
+    // ── cross into TAU CETI — the DREAM-GENERATOR system. Part of the Tau Ceti peel-off unit (drop these 8
+    // ids together with the system block + holegen tags → byte-identical tour). The composed/dream_* courses
+    // are dormant without the pipeline, so a stray entry can't break the base tour. ──
+    if (COURSES['tauceti_g']) {
+      window.SOLAR_ITINERARY = window.SOLAR_ITINERARY.concat([
+        'tauceti_g', 'tauceti_h', 'liss', 'tauceti_e', 'caldra', 'tauceti_f', 'vesh', 'tauceti']);
+    }
 
     // ── FIRST TWO PLANETS LOOP (?loop2) — a gated, peel-off-able direct comparable to the
     // original desert-golf-roguelike (which loops Earth → Moon forever). When present, the run

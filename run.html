@@ -67,6 +67,18 @@
 <script src="src/level-design.js"></script>
 <script src="src/moon-terrain.js"></script>
 <script src="src/set-pieces.js"></script>
+<!-- DREAM hole-gen (holegen/*) — the composed-signal generator + real caves + floating landmark bodies +
+     quality-diversity selection. ADDITIVE + GATED: registers NEW archetypes (composed / dream_* / dream_float_*)
+     and installs ONE generateHoleTerrain wrapper that is INERT unless a course sets gen:'composed' (only the
+     new Tau Ceti system does). Peel these tags + the Tau Ceti block in planet-gen.js → the 5-system tour is
+     byte-identical. Load order: pure modules first, then the orchestrator that wires them into the engine. -->
+<script src="src/holegen/spine.js"></script>
+<script src="src/holegen/operators.js"></script>
+<script src="src/holegen/skin.js"></script>
+<script src="src/holegen/caves.js"></script>
+<script src="src/holegen/setpieces-dream.js"></script>
+<script src="src/holegen/score.js"></script>
+<script src="src/holegen/dreamgen.js"></script>
 <script src="src/water.js"></script>
 <script src="src/weird-terrain.js"></script>
 <script src="src/modes/desert-golfing.js"></script>

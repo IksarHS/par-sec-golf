@@ -26,6 +26,7 @@ const sandbox = {
   localStorage: { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } },
   requestAnimationFrame: () => 0, cancelAnimationFrame: noop, setTimeout: () => 0, clearTimeout: noop,
   performance: { now: () => 0 }, navigator: { userAgent: 'node' },
+  location: { search: '', href: '', hash: '', pathname: '/' },
   addEventListener: noop, removeEventListener: noop,
   Image: function () { return { addEventListener: noop, set src(v) {}, get src() { return ''; }, onload: null, width: 0, height: 0 }; },
   AudioContext: function () { return { createGain: () => ({ connect: noop, gain: {} }), createOscillator: () => ({ connect: noop, start: noop, stop: noop, frequency: {} }), destination: {} }; },
@@ -38,7 +39,12 @@ vm.createContext(sandbox);
 // ── load the real engine (concatenate so top-level let/const are shared across files) ──
 const FILES = [
   'src/shared.js', 'src/worlds/run.js', 'src/planet-gen.js', 'src/level-design.js',
-  'src/modes/desert-golfing.js', 'src/set-pieces.js', 'src/water.js', 'src/gameplay.js', 'src/roguelike/playtest-bot.js',
+  'src/modes/desert-golfing.js', 'src/set-pieces.js',
+  // DREAM hole-gen modules (gated): registers composed/dream_* archetypes + the QD wrapper. Inert unless a
+  // course sets gen:'composed'. Loaded here so the harness can play the new Tau Ceti system to completion.
+  'src/holegen/spine.js', 'src/holegen/operators.js', 'src/holegen/skin.js', 'src/holegen/caves.js',
+  'src/holegen/setpieces-dream.js', 'src/holegen/score.js', 'src/holegen/dreamgen.js',
+  'src/water.js', 'src/gameplay.js', 'src/roguelike/playtest-bot.js',
 ];
 let combined = '';
 for (const f of FILES) combined += `\n/* ===== ${f} ===== */\n` + read(f);
@@ -116,7 +122,9 @@ RESULT = (function () {
 const argPlanets = process.argv[2] || 'all';
 const seedsPer = parseInt(process.argv[3] || '3', 10);
 const allPlanets = Array.from({ length: 24 }, (_, i) => 'p' + (i + 1));
-sandbox.PLANETS_TO_RUN = argPlanets === 'all' ? allPlanets : argPlanets.split(',');
+// the NEW dream-generator system (gen:'composed' + holegen/). `node tools/verify.cjs tauceti 3` plays all 8.
+const TAUCETI = ['tauceti_g', 'tauceti_h', 'liss', 'tauceti_e', 'caldra', 'tauceti_f', 'vesh', 'tauceti'];
+sandbox.PLANETS_TO_RUN = argPlanets === 'all' ? allPlanets : (argPlanets === 'tauceti' ? TAUCETI : argPlanets.split(','));
 sandbox.SEEDS_PER = seedsPer;
 sandbox.GEOM_SEED = (process.argv[3] === 'geom') ? (parseInt(process.argv[4] || '777', 10)) : null;
 

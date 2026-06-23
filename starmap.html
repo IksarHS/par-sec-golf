@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Par Sec — Star Map</title>
+  <link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'&gt;&lt;circle cx='8' cy='8' r='6' fill='%23ffffff'/&gt;&lt;circle cx='11.3' cy='8' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='10.86' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='5.14' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;/svg&gt;">
+  <link rel="preload" href="assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    @font-face {
+      font-family: 'Departure Mono';
+      src: url('assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+           url('assets/fonts/DepartureMono-Regular.woff') format('woff');
+      font-display: block;
+    }
+    html, body { margin: 0; background: #08090f; overflow: hidden; }
+    body { display: flex; align-items: center; justify-content: center; height: 100vh; }
+    canvas { display: block; cursor: pointer; max-width: 100vw; max-height: 100vh; }
+  </style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<!-- The star map screen. Pulls the real tour itinerary from planet-gen.js (loaded via a tiny
+     shim that defines WORLDS so planet-gen registers, then reads SOLAR_ITINERARY + course data). -->
+<script src="src/starmap-data.js"></script>
+<script src="src/planet-gen.js"></script>
+<script src="src/starmap.js"></script>
+</body>
+</html>

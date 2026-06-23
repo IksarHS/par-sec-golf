@@ -195,6 +195,38 @@ function addMicroNoise(verts, startX, startY, difficulty) {
 // Based on analysis of real Desert Golfing gameplay footage (holes 1-6400).
 // Real DG uses sharp, angular, construction-paper geometry — not smooth curves.
 
+// ── P4: archetype-authored OVERHANGS / CAVES ─────────────────────────────────────────────────────────
+// The heightfield is a single ground-line per column, so it can't draw a roof/lip over a pocket. The
+// set-pieces system (src/set-pieces.js) already gives us SOLID convex slabs floating over the heightfield
+// with swept circle-vs-polygon collision. A CAVE/OVERHANG archetype shapes the heightfield FLOOR (a pocket,
+// a mouth, a notch) AND emits one or more convex slabs to act as the ROOF / LIP / cantilever above it.
+// During generation an archetype pushes slab specs to _archOverhangSpecs (absolute world coords); the main
+// generator converts them to hole._overhangs (so collision + draw just work). Reachable BY CONSTRUCTION:
+// the cup sits on the heightfield floor under the lip, with a ball-clearance mouth, so a putt/lob can reach
+// it; the bot validator (which drives the REAL collide() incl. set-pieces) re-rolls anything it can't sink.
+let _archOverhangSpecs = [];
+// push a convex slab (array of {x,y} in absolute world coords). MUST be convex (the swept collision assumes it).
+function _emitOverhang(pts) { if (pts && pts.length >= 3) _archOverhangSpecs.push(pts); }
+
+// P5: monotonic-x SANITIZER for the big batch of new archetypes. The engine deletes any vertex whose x goes
+// backwards (X-monotonicity is required), which would silently corrupt a shape that overshoots. Wrapping a
+// new archetype in _monoArch forces x to be non-decreasing FIRST (collapsing the rare overshoot into a
+// near-vertical wall) so the intended silhouette survives intact. Preserves cup/mat flags. Existing
+// hand-tuned archetypes are NOT wrapped (they're already clean); only the P5 pool below.
+function _monoArch(fn) {
+  return function (sx, sy, dist, cupY, diff) {
+    const v = fn(sx, sy, dist, cupY, diff);
+    if (!Array.isArray(v)) return v;
+    let mx = -Infinity; const out = [];
+    for (const p of v) {
+      let x = p.x; if (!(x >= mx)) x = mx; mx = x + 0.01;
+      const q = { x, y: clampY(p.y) }; if (p.cup) q.cup = true; if (p.mat) q.mat = p.mat;
+      out.push(q);
+    }
+    return out;
+  };
+}
+
 const archetypes = {
   // ── EASY ──────────────────────────────────────────────
   flat_run(sx, sy, dist, cupY, diff) {
@@ -1877,6 +1909,2852 @@ const archetypes = {
   ];
 },
 
+  // ════ COMPLEX_COMPOSITE — the TRUE-complexity spine (P3) ════════════════════════════════════════════
+  // The complexity axis used to just swap which single-feature archetype was picked, so a "high complexity"
+  // hole could still be one trivial slope. This archetype instead STITCHES several features into one hole,
+  // with the FEATURE COUNT, VERTICAL DRAMA, FEATURE VARIETY and HAZARD-DIP frequency all scaling with `diff`.
+  // Low diff → 1 gentle feature on a calm baseline (reads like flat_run/gentle_hill). High diff → 4–6 mixed
+  // features (humps, plateaus, steps, terraces, ramps) with big elevation swings and occasional gather-dips —
+  // genuinely intricate. Always ends on a WIDE flat green (cup sinkable in low gravity); the validator still
+  // re-rolls anything unsinkable, so drama never costs completability.
+  complex_composite(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist;
+    const TOP = H * 0.20, BOT = H * 0.88;
+    const cl = (y) => Math.max(TOP, Math.min(BOT, y));
+    // feature count ramps 1 → ~6 with complexity (the heart of the "simple→intricate" axis)
+    const nFeat = Math.max(1, Math.round(1 + diff * 5 + (random() - 0.5)));
+    const drama = 34 + diff * 150;                 // per-feature vertical scale (calm → dramatic)
+    const greenW = 110 + random() * 50;            // wide flat green at the end (sinkable)
+    const playEnd = endX - greenW;
+    const span = playEnd - sx;
+    const v = [{ x: sx, y: cl(sy) }];
+    let x = sx + 18, y = sy;
+    // a short flat runway off the tee so the ball never starts trapped on a steep wall
+    x += Math.min(span * 0.10, 70); v.push({ x, y: cl(y) });
+    const segW = (playEnd - x) / nFeat;
+    // feature palette widens with complexity — low diff sticks to gentle kinds, high diff unlocks drama
+    for (let i = 0; i < nFeat; i++) {
+      const fx0 = x, fx1 = x + segW;
+      const r = random();
+      const dramaKind = diff > 0.32;
+      const wildKind = diff > 0.6;
+      let kind;
+      if (!dramaKind) kind = r < 0.55 ? 'flat' : (r < 0.8 ? 'slope' : 'hump');
+      else if (!wildKind) kind = r < 0.24 ? 'flat' : r < 0.46 ? 'slope' : r < 0.66 ? 'hump' : r < 0.84 ? 'plateau' : 'step';
+      else kind = r < 0.12 ? 'flat' : r < 0.28 ? 'slope' : r < 0.44 ? 'hump' : r < 0.6 ? 'plateau' : r < 0.74 ? 'step' : r < 0.88 ? 'terrace' : 'dip';
+      if (kind === 'flat') {                               // calm flat (a place the ball can stop)
+        x = fx1; v.push({ x, y: cl(y) });
+      } else if (kind === 'slope') {                       // straight angular ramp
+        const dy = (random() < 0.5 ? -1 : 1) * drama * randRange(0.5, 1.0);
+        x = fx1; y = cl(y + dy); v.push({ x, y });
+      } else if (kind === 'hump') {                        // a rounded hill or dip to carry/roll over
+        const up = (random() < 0.62 ? -1 : 1) * drama * randRange(0.7, 1.2);
+        x = fx0 + segW * 0.5; v.push({ x, y: cl(y + up) });
+        x = fx1; v.push({ x, y: cl(y) });
+      } else if (kind === 'plateau') {                     // up a wall onto a flat-top, back down
+        const top = cl(y - drama * randRange(0.8, 1.3));
+        x = fx0 + segW * 0.18; v.push({ x, y: top });
+        x = fx0 + segW * 0.82; v.push({ x, y: top });
+        x = fx1; v.push({ x, y: cl(y) });
+      } else if (kind === 'step') {                        // a sharp step up or down to a new level
+        const ny = cl(y + (random() < 0.5 ? -1 : 1) * drama * randRange(0.9, 1.4));
+        x = fx0 + segW * 0.45; v.push({ x, y: cl(y) });
+        x += Math.min(segW * 0.12, 14); v.push({ x, y: ny }); y = ny;
+        x = fx1; v.push({ x, y });
+      } else if (kind === 'terrace') {                     // 2 little stair-steps (intricate texture)
+        const s1 = cl(y + (random() < 0.5 ? -1 : 1) * drama * 0.6);
+        x = fx0 + segW * 0.34; v.push({ x, y: cl(y) }); x += 12; v.push({ x, y: s1 }); y = s1;
+        const s2 = cl(y + (random() < 0.5 ? -1 : 1) * drama * 0.6);
+        x = fx0 + segW * 0.72; v.push({ x, y }); x += 12; v.push({ x, y: s2 }); y = s2;
+        x = fx1; v.push({ x, y });
+      } else {                                             // dip — a gathering valley (a soft hazard pocket)
+        const lo = cl(Math.max(y, H * 0.6) + drama * randRange(0.5, 0.9));
+        x = fx0 + segW * 0.22; v.push({ x, y: cl(y) });
+        x = fx0 + segW * 0.5; v.push({ x, y: lo });
+        x = fx0 + segW * 0.78; v.push({ x, y: lo });
+        x = fx1; v.push({ x, y: cl(y) });
+      }
+    }
+    // WIDE flat green into the cup — y settles wherever the last feature left us
+    const gy = cl(y);
+    v.push({ x: playEnd, y: gy });
+    v.push({ x: Math.min(playEnd + greenW * 0.5, endX - 40), y: gy, cup: true });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  // ════ P4 CAVE / OVERHANG ARCHETYPES ════════════════════════════════════════════════════════════════
+  // CUP_UNDER_LIP — the cup sits in a shallow scoop, sheltered under a stone LIP that cantilevers out over
+  // it from the BACK. The front (tee side) is wide open, so the ball rolls/lobs down the approach INTO the
+  // scoop and settles under the lip. The lip is a solid slab (set-piece) high enough to clear a rolling ball
+  // but low enough to read as a roof. Reachable: the cup is on the open heightfield floor; the lip only caps
+  // the back half, never the mouth.
+  cup_under_lip(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const cx = sx + dist * randRange(0.56, 0.66);                 // scoop centre (cup), past the approach
+    const scoopHalf = randRange(70, 95);
+    const floorY = clampY(Math.max(base, H * 0.6) + randRange(26, 50) + diff * 20);   // shallow scoop floor (cup)
+    const lipY = clampY(floorY - (60 + BALL_RADIUS * 4) - diff * 16);                 // roof height: clear ball roll
+    const v = [
+      { x: sx, y: base },
+      { x: cx - scoopHalf - randRange(40, 70), y: clampY(lerp(base, floorY, 0.5)) },  // approach ramps down
+      { x: cx - scoopHalf, y: clampY(floorY - 4) },                                    // mouth lip (open front)
+      { x: cx - scoopHalf * 0.4, y: floorY },                                          // into the scoop
+      { x: cx, y: floorY, cup: true },                                                 // CUP on the sheltered floor
+      { x: cx + scoopHalf * 0.5, y: floorY },
+      { x: cx + scoopHalf, y: clampY(floorY - 10) },                                   // back wall rises
+      { x: cx + scoopHalf + 16, y: clampY(lipY - 26) },                                // back pillar up to the lip
+      { x: endX - 60, y: clampY(lipY - 30) },                                          // high back shelf
+      { x: endX, y: clampY(lipY - 30) },
+    ];
+    // the LIP slab: a flat stone roof cantilevering FORWARD over the back of the scoop (covers cup..back),
+    // leaving the front mouth open. Convex quad.
+    const lipL = cx - scoopHalf * 0.15, lipR = cx + scoopHalf + 20, lipTh = 16 + diff * 10;
+    _emitOverhang([
+      { x: lipL, y: lipY },
+      { x: lipR, y: lipY },
+      { x: lipR, y: lipY + lipTh },
+      { x: lipL, y: lipY + lipTh + 6 },          // slightly thicker drooping front edge (reads as a lip)
+    ]);
+    return v;
+  },
+
+  // PUTT_CAVE — a cave you PUTT into: a flat approach runs into a low cave MOUTH; the roof is a long solid
+  // slab with a generous ball-clearance gap to the floor, and the cup waits on the flat floor deep inside.
+  // The ball rolls in along the floor (a putt) and the roof keeps lobs out, so it rewards the ground game.
+  putt_cave(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const floorY = clampY(Math.max(base, H * 0.62));                     // flat cave floor (tee-height-ish)
+    const mouthX = sx + dist * randRange(0.42, 0.52);                    // where the cave begins
+    const caveEnd = Math.min(mouthX + randRange(190, 260), endX - 70);
+    const cupX = lerp(mouthX, caveEnd, 0.62);
+    const roofGap = BALL_RADIUS * 4 + 22 + diff * 8;                     // clear gap so a rolling ball fits
+    const roofY = clampY(floorY - roofGap);
+    const v = [
+      { x: sx, y: base },
+      { x: mouthX - randRange(50, 80), y: clampY(lerp(base, floorY, 0.6)) },   // approach down to floor level
+      { x: mouthX - 20, y: floorY },                                           // flat run into the mouth
+      { x: cupX, y: floorY, cup: true },                                       // CUP on the cave floor
+      { x: caveEnd, y: floorY },                                               // floor continues (backstop)
+      { x: caveEnd + 18, y: clampY(floorY - 30) },                            // far wall rises out of the cave
+      { x: endX - 50, y: clampY(roofY - 24) },
+      { x: endX, y: clampY(roofY - 24) },
+    ];
+    // the cave ROOF: a long flat slab over the floor from the mouth to the back wall.
+    const rL = mouthX - 8, rR = caveEnd + 8, rTh = 18 + diff * 10;
+    _emitOverhang([
+      { x: rL, y: clampY(roofY - 14) },          // mouth slightly higher (an inviting opening)
+      { x: rR, y: roofY },
+      { x: rR, y: roofY + rTh },
+      { x: rL, y: clampY(roofY - 14) + rTh },
+    ]);
+    return v;
+  },
+
+  // ARCH_UNDER — a cantilevered ARCH you go UNDER: the floor runs continuous (gentle dip) and a thick stone
+  // arch spans over the mid-fairway with headroom; the cup is on the OPEN green past the arch. Tests threading
+  // UNDER the overhang (a low, fast shot) vs lobbing over it (which lands long). Reachable: the floor path
+  // under the arch is clear to the green.
+  arch_under(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const archX = sx + dist * randRange(0.4, 0.5);
+    const floorDipY = clampY(Math.max(base, H * 0.58) + randRange(10, 30));   // gentle dip under the arch
+    const archSpan = randRange(120, 170);
+    const headroom = BALL_RADIUS * 4 + 28 + diff * 6;
+    const archY = clampY(floorDipY - headroom);
+    const greenStart = archX + archSpan + randRange(50, 90);
+    const greenY = clampY(base - diff * 10);
+    const cupX = Math.min(greenStart + randRange(70, 130), endX - 60);
+    const v = [
+      { x: sx, y: base },
+      { x: archX - archSpan * 0.5 - 30, y: clampY(lerp(base, floorDipY, 0.7)) },   // down into the dip
+      { x: archX, y: floorDipY },                                                  // floor under the arch
+      { x: archX + archSpan * 0.5, y: floorDipY },
+      { x: archX + archSpan * 0.5 + 30, y: clampY(lerp(floorDipY, greenY, 0.6)) }, // climb out
+      { x: greenStart, y: greenY },                                               // onto the open green
+      { x: cupX, y: greenY, cup: true },                                          // CUP past the arch
+      { x: Math.min(cupX + 80, endX - 20), y: greenY },
+      { x: endX, y: clampY(greenY + randRange(0, 20)) },
+    ];
+    // the ARCH: a thick stone span over the dip, both feet planted (drawn as one convex block; the headroom
+    // gap below it is the playable tunnel). Trapezoid wider at the top.
+    const aL = archX - archSpan * 0.5 - 10, aR = archX + archSpan * 0.5 + 10, aTh = 26 + diff * 14;
+    _emitOverhang([
+      { x: aL - 8, y: clampY(archY - aTh) },
+      { x: aR + 8, y: clampY(archY - aTh) },
+      { x: aR, y: archY },
+      { x: aL, y: archY },
+    ]);
+    return v;
+  },
+
+
+  // ════════ P5: 100+ NEW VISUALLY-DISTINCT HOLE ARCHETYPES ════════════════════════════════════════════
+  // Invented across silhouette categories (PEAK_RIDGE / PLATEAU_MESA / BASIN_BOWL / WAVE_ROLLING /
+  // GAP_CARRY / STAIR_TERRACE / STRUCTURE / CAVE_OVERHANG / EXOTIC). All are wrapped in _monoArch at
+  // registration (X-monotonic) and bot-validated for completability. Category map: P5_ARCHETYPE_CATS.
+  // CAT: PEAK_RIDGE — row of jagged rock fins/teeth the ball threads between, cup on flat past the last fin
+  jagged_rock_fins(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 30);
+    const v = [{x: sx, y: clampY(sy)}];
+    v.push({x: sx + 22, y: base});
+    const fins = 4 + Math.round(diff * 4), zone = dist * 0.62, x0 = sx + 40;
+    const step = zone / fins;
+    for (let i = 0; i < fins; i++) {
+      const fx = x0 + i * step;
+      const tipH = base - (60 + diff * 130) * (0.6 + 0.4 * random());
+      v.push({x: fx + step * 0.18, y: clampY(base - 8)});
+      v.push({x: fx + step * 0.42, y: clampY(tipH)});
+      v.push({x: fx + step * 0.66, y: clampY(base - 8)});
+      v.push({x: fx + step * 0.84, y: clampY(base + 18)});
+    }
+    const gx = lerp(x0 + zone, endX, 0.6);
+    const gy = clampY(base + 14);
+    v.push({x: gx - 70, y: gy});
+    v.push({x: gx - 40, y: gy});
+    v.push({x: gx, y: gy, cup: true});
+    v.push({x: gx + 40, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  needle_spire_crown(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 20);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.30, y: base}];
+    const cx = sx + dist * 0.52;
+    const crownY = clampY(base - (140 + diff * 120));
+    v.push({x: cx - 60, y: clampY(base - 20)});
+    v.push({x: cx - 22, y: clampY(crownY + 40)});
+    v.push({x: cx - 50, y: crownY});
+    v.push({x: cx, y: crownY, cup: true});
+    v.push({x: cx + 50, y: crownY});
+    v.push({x: cx + 22, y: clampY(crownY + 40)});
+    v.push({x: cx + 60, y: clampY(base - 20)});
+    v.push({x: cx + 110, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  twin_tower_gateway(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.18, y: base}];
+    const t1 = sx + dist * 0.34, t2 = sx + dist * 0.60;
+    const topY = clampY(base - (120 + diff * 110));
+    v.push({x: t1 - 26, y: clampY(base - 10)});
+    v.push({x: t1 - 22, y: topY});
+    v.push({x: t1 + 22, y: topY});
+    v.push({x: t1 + 26, y: clampY(base + 10)});
+    v.push({x: (t1 + t2) / 2, y: clampY(base + 30)});
+    v.push({x: t2 - 26, y: clampY(base + 10)});
+    v.push({x: t2 - 22, y: topY});
+    v.push({x: t2 + 22, y: topY});
+    v.push({x: t2 + 26, y: clampY(base - 10)});
+    const gx = lerp(t2 + 40, endX, 0.5), gy = base;
+    v.push({x: gx - 50, y: gy});
+    v.push({x: gx, y: gy, cup: true});
+    v.push({x: gx + 50, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  tilted_flatiron(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 30);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.16, y: base}];
+    const rampTop = clampY(base - (120 + diff * 120));
+    const r0 = sx + dist * 0.22, r1 = sx + dist * 0.66;
+    const segs = 8;
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      v.push({x: lerp(r0, r1, t), y: clampY(lerp(base, rampTop, t))});
+    }
+    const gy = rampTop;
+    v.push({x: r1 + 20, y: gy});
+    v.push({x: r1 + 60, y: gy});
+    v.push({x: r1 + 100, y: gy, cup: true});
+    v.push({x: r1 + 140, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  stepped_pyramid_notch(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 30);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.12, y: base}];
+    const steps = 3 + Math.round(diff * 2);
+    const peakX = sx + dist * 0.50, rise = 50 + diff * 50;
+    const upW = (peakX - (sx + dist * 0.16)) / steps;
+    let cy = base;
+    let x = sx + dist * 0.16;
+    for (let i = 0; i < steps; i++) {
+      cy = clampY(cy - rise);
+      v.push({x: x, y: cy});
+      x += upW;
+      v.push({x: x, y: cy});
+    }
+    const ntop = cy;
+    v.push({x: peakX - 30, y: ntop});
+    v.push({x: peakX - 25, y: clampY(ntop + 36)});
+    v.push({x: peakX, y: clampY(ntop + 36), cup: true});
+    v.push({x: peakX + 25, y: clampY(ntop + 36)});
+    v.push({x: peakX + 30, y: ntop});
+    let dx = peakX + 30;
+    for (let i = 0; i < steps; i++) {
+      v.push({x: dx, y: cy});
+      dx += upW;
+      cy = clampY(cy + rise);
+      v.push({x: dx, y: cy});
+    }
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  layered_cake_butte(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 30);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.14, y: base}];
+    const bands = 3 + Math.round(diff * 2);
+    const totRise = 110 + diff * 110;
+    const bandRise = totRise / bands;
+    const climbW = (dist * 0.46) / bands;
+    let cy = base, x = sx + dist * 0.18;
+    for (let i = 0; i < bands; i++) {
+      cy = clampY(cy - bandRise);
+      v.push({x: x, y: cy});
+      x += climbW * 0.55;
+      v.push({x: x, y: cy});
+      x += climbW * 0.45;
+    }
+    const gy = cy;
+    v.push({x: x, y: gy});
+    v.push({x: x + 50, y: gy});
+    v.push({x: x + 95, y: gy, cup: true});
+    v.push({x: x + 140, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  anvil_rock(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.28, y: base}];
+    const cx = sx + dist * 0.54;
+    const neckY = clampY(base - 50);
+    const topY = clampY(base - (130 + diff * 110));
+    v.push({x: cx - 24, y: neckY});
+    v.push({x: cx - 30, y: topY});
+    v.push({x: cx - 60, y: topY});
+    v.push({x: cx, y: topY, cup: true});
+    v.push({x: cx + 60, y: topY});
+    v.push({x: cx + 30, y: topY});
+    v.push({x: cx + 24, y: neckY});
+    v.push({x: cx + 40, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  domed_knoll_cluster(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 20);
+    const v = [{x: sx, y: clampY(sy)}];
+    const knolls = 3 + Math.round(diff * 2);
+    const zone = dist * 0.70, w = zone / knolls;
+    for (let k = 0; k < knolls; k++) {
+      const kx = sx + 30 + k * w;
+      const h = (40 + diff * 70) * (0.7 + 0.3 * random());
+      const segs = 10;
+      for (let i = 0; i <= segs; i++) {
+        const t = i / segs;
+        const yy = base - h * Math.sin(Math.PI * t);
+        v.push({x: kx + w * t, y: clampY(yy)});
+      }
+    }
+    const gx = lerp(sx + 30 + zone, endX, 0.5), gy = base;
+    v.push({x: gx - 50, y: gy});
+    v.push({x: gx, y: gy, cup: true});
+    v.push({x: gx + 50, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  table_mountain_saddle(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 30);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.10, y: base}];
+    const topY = clampY(base - (120 + diff * 100));
+    const l = sx + dist * 0.18, r = sx + dist * 0.82;
+    v.push({x: l + 18, y: topY});
+    v.push({x: l + 60, y: topY});
+    const cx = (l + r) / 2;
+    const saddleY = clampY(topY + 30);
+    v.push({x: cx - 70, y: clampY(topY + 6)});
+    v.push({x: cx - 45, y: saddleY});
+    v.push({x: cx, y: saddleY, cup: true});
+    v.push({x: cx + 45, y: saddleY});
+    v.push({x: cx + 70, y: clampY(topY + 6)});
+    v.push({x: r - 60, y: topY});
+    v.push({x: r - 18, y: topY});
+    v.push({x: r, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  serrated_comb(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + 24, y: base}];
+    const teeth = 6 + Math.round(diff * 6), zone = dist * 0.58, x0 = sx + 40;
+    const w = zone / teeth, h = 40 + diff * 70;
+    for (let i = 0; i < teeth; i++) {
+      const tx = x0 + i * w;
+      v.push({x: tx + w * 0.5, y: clampY(base - h)});
+      v.push({x: tx + w, y: clampY(base)});
+    }
+    const gx = lerp(x0 + zone, endX, 0.55), gy = base;
+    v.push({x: gx - 60, y: gy});
+    v.push({x: gx, y: gy, cup: true});
+    v.push({x: gx + 60, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  leaning_tower(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.30, y: base}];
+    const bx = sx + dist * 0.46;
+    const lean = 50 + diff * 40;
+    const topY = clampY(base - (140 + diff * 110));
+    v.push({x: bx, y: clampY(base - 20)});
+    v.push({x: bx + lean * 0.5, y: clampY(base - 90)});
+    v.push({x: bx + lean, y: clampY(topY + 30)});
+    v.push({x: bx + lean - 4, y: topY});
+    v.push({x: bx + lean + 44, y: topY, cup: true});
+    v.push({x: bx + lean + 90, y: topY});
+    v.push({x: bx + lean + 100, y: clampY(base - 60)});
+    v.push({x: bx + lean + 120, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  crouching_sphinx(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.14, y: base}];
+    const headX = sx + dist * 0.30;
+    const headY = clampY(base - (110 + diff * 90));
+    v.push({x: headX - 30, y: clampY(base - 30)});
+    v.push({x: headX, y: headY});
+    v.push({x: headX + 30, y: clampY(headY + 26)});
+    const backY = clampY(base - 40);
+    v.push({x: headX + 70, y: backY});
+    const cx = sx + dist * 0.62;
+    v.push({x: cx - 50, y: backY});
+    v.push({x: cx, y: backY, cup: true});
+    v.push({x: cx + 50, y: backY});
+    v.push({x: cx + 110, y: clampY(base - 70)});
+    v.push({x: cx + 150, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  radiating_ridge_fan(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + 24, y: base}];
+    const ridges = 5 + Math.round(diff * 3), zone = dist * 0.60, x0 = sx + 40;
+    const w = zone / ridges;
+    for (let i = 0; i < ridges; i++) {
+      const t = i / (ridges - 1);
+      const h = (50 + diff * 110) * Math.sin(Math.PI * (0.25 + 0.75 * (1 - Math.abs(t - 0.5) * 2)));
+      const rx = x0 + i * w;
+      v.push({x: rx + w * 0.45, y: clampY(base - Math.max(20, h))});
+      v.push({x: rx + w * 0.9, y: clampY(base - 6)});
+    }
+    const gx = lerp(x0 + zone, endX, 0.5), gy = base;
+    v.push({x: gx - 55, y: gy});
+    v.push({x: gx, y: gy, cup: true});
+    v.push({x: gx + 55, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  castle_battlement(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.10, y: base}];
+    const wallX = sx + dist * 0.18;
+    const topY = clampY(base - (110 + diff * 90));
+    v.push({x: wallX, y: topY});
+    const merlons = 4 + Math.round(diff * 3);
+    const wzone = dist * 0.40, w = wzone / merlons;
+    let x = wallX;
+    for (let i = 0; i < merlons; i++) {
+      v.push({x: x, y: topY});
+      v.push({x: x + w * 0.5, y: topY});
+      v.push({x: x + w * 0.5, y: clampY(topY + 28)});
+      v.push({x: x + w, y: clampY(topY + 28)});
+      v.push({x: x + w, y: topY});
+      x += w;
+    }
+    const gy = clampY(base - 20);
+    v.push({x: x + 6, y: clampY(topY + 50)});
+    v.push({x: x + 30, y: gy});
+    const cx = lerp(x + 30, endX, 0.5);
+    v.push({x: cx - 50, y: gy});
+    v.push({x: cx, y: gy, cup: true});
+    v.push({x: cx + 50, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  hoodoo_field(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + 26, y: base}];
+    const hoodoos = 3 + Math.round(diff * 3), zone = dist * 0.62, x0 = sx + 45;
+    const w = zone / hoodoos;
+    for (let i = 0; i < hoodoos; i++) {
+      const hx = x0 + i * w + w * 0.5;
+      const capY = clampY(base - (90 + diff * 110) * (0.7 + 0.3 * random()));
+      v.push({x: hx - 22, y: clampY(base - 10)});
+      v.push({x: hx - 10, y: clampY(capY + 40)});
+      v.push({x: hx - 20, y: capY});
+      v.push({x: hx + 20, y: capY});
+      v.push({x: hx + 10, y: clampY(capY + 40)});
+      v.push({x: hx + 22, y: clampY(base - 10)});
+      v.push({x: hx + 30, y: base});
+    }
+    const gx = lerp(x0 + zone, endX, 0.5), gy = base;
+    v.push({x: gx - 55, y: gy});
+    v.push({x: gx, y: gy, cup: true});
+    v.push({x: gx + 55, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  cathedral_spires(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.12, y: base}];
+    const spires = 4, zone = dist * 0.50, x0 = sx + dist * 0.16;
+    const w = zone / spires;
+    const heights = [0.6, 1.0, 1.0, 0.6];
+    for (let i = 0; i < spires; i++) {
+      const sxp = x0 + i * w;
+      const h = (130 + diff * 110) * heights[i];
+      v.push({x: sxp + w * 0.2, y: clampY(base - 10)});
+      v.push({x: sxp + w * 0.5, y: clampY(base - h)});
+      v.push({x: sxp + w * 0.8, y: clampY(base - 10)});
+    }
+    const gy = clampY(base + 10);
+    const cx = lerp(x0 + zone + 20, endX, 0.5);
+    v.push({x: x0 + zone + 10, y: gy});
+    v.push({x: cx - 55, y: gy});
+    v.push({x: cx, y: gy, cup: true});
+    v.push({x: cx + 55, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  shark_fin_ridge(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.18, y: base}];
+    const tipX = sx + dist * 0.50;
+    const tipY = clampY(base - (150 + diff * 120));
+    const segs = 7;
+    for (let i = 1; i <= segs; i++) {
+      const t = i / segs;
+      v.push({x: lerp(sx + dist * 0.18, tipX, t), y: clampY(lerp(base, tipY, t))});
+    }
+    v.push({x: tipX + 24, y: clampY(base - 30)});
+    v.push({x: tipX + 40, y: base});
+    const gx = lerp(tipX + 40, endX, 0.55), gy = base;
+    v.push({x: gx - 55, y: gy});
+    v.push({x: gx, y: gy, cup: true});
+    v.push({x: gx + 55, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  double_decker_mesa(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 30);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.12, y: base}];
+    const lowY = clampY(base - (80 + diff * 50));
+    const l = sx + dist * 0.18;
+    v.push({x: l + 18, y: lowY});
+    v.push({x: l + 70, y: lowY});
+    const upY = clampY(lowY - (70 + diff * 60));
+    const u = l + 110;
+    v.push({x: u + 16, y: upY});
+    v.push({x: u + 50, y: upY});
+    v.push({x: u + 95, y: upY, cup: true});
+    v.push({x: u + 140, y: upY});
+    v.push({x: u + 156, y: lowY});
+    v.push({x: u + 200, y: lowY});
+    v.push({x: u + 216, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  matterhorn_col(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.16, y: base}];
+    const peakX = sx + dist * 0.40;
+    const peakY = clampY(base - (170 + diff * 120));
+    v.push({x: peakX - 60, y: clampY(base - 50)});
+    v.push({x: peakX, y: peakY});
+    v.push({x: peakX + 55, y: clampY(base - 70)});
+    const colY = clampY(base - 55);
+    const cx = sx + dist * 0.66;
+    v.push({x: cx - 50, y: colY});
+    v.push({x: cx, y: colY, cup: true});
+    v.push({x: cx + 50, y: colY});
+    v.push({x: cx + 90, y: clampY(base - 100)});
+    v.push({x: cx + 120, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  slot_mesa_pocket(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 30);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.12, y: base}];
+    const topY = clampY(base - (120 + diff * 90));
+    const l = sx + dist * 0.18;
+    v.push({x: l + 18, y: topY});
+    const slotX = sx + dist * 0.50;
+    v.push({x: slotX - 40, y: topY});
+    const pocketY = clampY(topY + (60 + diff * 30));
+    v.push({x: slotX - 30, y: pocketY});
+    v.push({x: slotX - 28, y: pocketY});
+    v.push({x: slotX, y: pocketY, cup: true});
+    v.push({x: slotX + 28, y: pocketY});
+    v.push({x: slotX + 30, y: pocketY});
+    v.push({x: slotX + 40, y: topY});
+    const r = sx + dist * 0.84;
+    v.push({x: r, y: topY});
+    v.push({x: r + 18, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  ascending_peak_stair(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + 26, y: base}];
+    const peaks = 3 + Math.round(diff * 2), zone = dist * 0.62, x0 = sx + 45;
+    const w = zone / peaks;
+    let valley = base;
+    for (let i = 0; i < peaks; i++) {
+      const px = x0 + i * w;
+      const h = (60 + diff * 70) * (1 + i * 0.45);
+      v.push({x: px + w * 0.5, y: clampY(base - h)});
+      valley = clampY(base - h * 0.35);
+      v.push({x: px + w * 0.9, y: valley});
+    }
+    const gy = valley;
+    const gx = x0 + zone + 30;
+    v.push({x: gx - 20, y: gy});
+    v.push({x: gx + 25, y: gy, cup: true});
+    v.push({x: gx + 70, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  undercut_mesa(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 30);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.20, y: base}];
+    const topY = clampY(base - (130 + diff * 90));
+    const l = sx + dist * 0.30;
+    v.push({x: l, y: clampY(base - 30)});
+    v.push({x: l + 10, y: clampY(base - 90)});
+    v.push({x: l + 26, y: topY});
+    v.push({x: l + 60, y: topY});
+    const cx = lerp(l + 60, sx + dist * 0.86, 0.5);
+    v.push({x: cx - 45, y: topY});
+    v.push({x: cx, y: topY, cup: true});
+    v.push({x: cx + 45, y: topY});
+    const r = sx + dist * 0.86;
+    v.push({x: r, y: topY});
+    v.push({x: r + 18, y: clampY(base - 40)});
+    v.push({x: r + 40, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  molar_ridge(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.10, y: base}];
+    const h = 90 + diff * 90;
+    const m1 = sx + dist * 0.28, m2 = sx + dist * 0.62;
+    const segs = 8;
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      v.push({x: lerp(m1 - 40, m1 + 40, t), y: clampY(base - h * Math.sin(Math.PI * t))});
+    }
+    const cx = (m1 + m2) / 2;
+    const gy = clampY(base - 14);
+    v.push({x: cx - 50, y: gy});
+    v.push({x: cx, y: gy, cup: true});
+    v.push({x: cx + 50, y: gy});
+    for (let i = 0; i <= segs; i++) {
+      const t = i / segs;
+      v.push({x: lerp(m2 - 40, m2 + 40, t), y: clampY(base - h * Math.sin(Math.PI * t))});
+    }
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  wedge_ramp_mesa(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 30);
+    const v = [{x: sx, y: clampY(sy)}];
+    const topY = clampY(base - (130 + diff * 110));
+    const r0 = sx + dist * 0.06, r1 = sx + dist * 0.70;
+    const segs = 12;
+    v.push({x: r0, y: base});
+    for (let i = 1; i <= segs; i++) {
+      const t = i / segs;
+      v.push({x: lerp(r0, r1, t), y: clampY(lerp(base, topY, t))});
+    }
+    const gy = topY;
+    v.push({x: r1 + 20, y: gy});
+    v.push({x: r1 + 65, y: gy});
+    v.push({x: r1 + 110, y: gy, cup: true});
+    v.push({x: r1 + 155, y: gy});
+    v.push({x: endX, y: gy});
+    return v;
+  },
+
+  knife_edge_arete(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.10, y: base}];
+    const teeth = 4 + Math.round(diff * 3), zone = dist * 0.55, x0 = sx + dist * 0.14;
+    const w = zone / teeth;
+    for (let i = 0; i < teeth; i++) {
+      const tx = x0 + i * w;
+      const climb = (i + 1) / teeth;
+      const hi = clampY(base - (60 + diff * 130) * climb);
+      const lo = clampY(base - (30 + diff * 90) * climb);
+      v.push({x: tx + w * 0.5, y: hi});
+      v.push({x: tx + w, y: lo});
+    }
+    const capY = clampY(base - (90 + diff * 140));
+    const gx = x0 + zone + 24;
+    v.push({x: gx, y: capY});
+    v.push({x: gx + 40, y: capY, cup: true});
+    v.push({x: gx + 84, y: capY});
+    v.push({x: endX, y: capY});
+    return v;
+  },
+
+  split_mesa_chasm(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 30);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.12, y: base}];
+    const topY = clampY(base - (120 + diff * 90));
+    const l = sx + dist * 0.18;
+    v.push({x: l + 18, y: topY});
+    const chasmX = sx + dist * 0.46;
+    v.push({x: chasmX - 30, y: topY});
+    v.push({x: chasmX - 18, y: clampY(base + 30)});
+    v.push({x: chasmX + 18, y: clampY(base + 30)});
+    v.push({x: chasmX + 30, y: topY});
+    v.push({x: chasmX + 64, y: topY});
+    const cx = lerp(chasmX + 64, sx + dist * 0.86, 0.5);
+    v.push({x: cx - 45, y: topY});
+    v.push({x: cx, y: topY, cup: true});
+    v.push({x: cx + 45, y: topY});
+    v.push({x: sx + dist * 0.86, y: topY});
+    v.push({x: sx + dist * 0.86 + 18, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+
+  volcano_crater_cup(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy + 25);
+    const v = [{x: sx, y: clampY(sy)}, {x: sx + dist * 0.16, y: base}];
+    const cx = sx + dist * 0.50;
+    const rimY = clampY(base - (140 + diff * 110));
+    v.push({x: cx - 90, y: clampY(base - 40)});
+    v.push({x: cx - 50, y: rimY});
+    const floorY = clampY(rimY + (55 + diff * 30));
+    v.push({x: cx - 42, y: floorY});
+    v.push({x: cx - 38, y: floorY});
+    v.push({x: cx, y: floorY, cup: true});
+    v.push({x: cx + 38, y: floorY});
+    v.push({x: cx + 42, y: floorY});
+    v.push({x: cx + 50, y: rimY});
+    v.push({x: cx + 90, y: clampY(base - 40)});
+    v.push({x: cx + 130, y: base});
+    v.push({x: endX, y: base});
+    return v;
+  },
+  halfpipe_gather(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 70 + diff * 120;
+    const cx = sx + dist * 0.5;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= cx - 50; x += 12) {
+      const t = (x - sx) / (cx - 50 - sx);
+      const y = base + depth * (1 - Math.cos(t * Math.PI / 2));
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx - 40, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 40, y: gy });
+    v.push({ x: cx + 50, y: gy });
+    for (let x = cx + 50; x <= endX; x += 12) {
+      const t = (x - (cx + 50)) / (endX - (cx + 50));
+      const y = base + depth * Math.cos(t * Math.PI / 2);
+      v.push({ x, y: clampY(y) });
+    }
+    return v;
+  },
+
+  horseshoe_bay(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 80 + diff * 110;
+    const cx = sx + dist * 0.55;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= cx - 55; x += 12) {
+      const t = (x - sx) / (cx - 55 - sx);
+      const y = base + depth * (t * t);
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx - 45, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 45, y: gy });
+    v.push({ x: cx + 55, y: gy });
+    const rimY = clampY(base - 30);
+    for (let x = cx + 55; x <= cx + 130; x += 14) {
+      const t = (x - (cx + 55)) / 75;
+      v.push({ x, y: clampY(base + depth - (depth + 30) * (t * t)) });
+    }
+    v.push({ x: cx + 130, y: rimY });
+    v.push({ x: endX, y: rimY });
+    return v;
+  },
+
+  double_bowl_saddle(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const d1 = 90 + diff * 110, d2 = 55 + diff * 80;
+    const saddleY = clampY(base + 25);
+    const c1 = sx + dist * 0.28, c2 = sx + dist * 0.72;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= c1 - 50; x += 12) {
+      const t = (x - sx) / (c1 - 50 - sx);
+      v.push({ x, y: clampY(base + d1 * (1 - Math.cos(t * Math.PI / 2))) });
+    }
+    const gy = clampY(base + d1);
+    v.push({ x: c1 - 50, y: gy });
+    v.push({ x: c1 - 40, y: gy });
+    v.push({ x: c1, y: gy, cup: true });
+    v.push({ x: c1 + 40, y: gy });
+    v.push({ x: c1 + 50, y: gy });
+    const sx2 = (c1 + c2) / 2;
+    for (let x = c1 + 50; x <= sx2; x += 12) {
+      const t = (x - (c1 + 50)) / (sx2 - (c1 + 50));
+      v.push({ x, y: clampY(base + d1 + (saddleY - (base + d1)) * t) });
+    }
+    for (let x = sx2; x <= c2; x += 12) {
+      const t = (x - sx2) / (c2 - sx2);
+      v.push({ x, y: clampY(lerp(saddleY, base + d2, 1 - Math.cos(t * Math.PI / 2))) });
+    }
+    for (let x = c2; x <= endX; x += 12) {
+      const t = (x - c2) / (endX - c2);
+      v.push({ x, y: clampY(lerp(base + d2, base, Math.sin(t * Math.PI / 2))) });
+    }
+    return v;
+  },
+
+  shallow_saucer_pin(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 35 + diff * 55;
+    const cx = sx + dist * 0.5;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= cx - 60; x += 12) {
+      const t = (x - sx) / (cx - 60 - sx);
+      v.push({ x, y: clampY(base + depth * (t * t * (3 - 2 * t))) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 60, y: gy });
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 50, y: gy });
+    v.push({ x: cx + 60, y: gy });
+    for (let x = cx + 60; x <= endX; x += 12) {
+      const t = (x - (cx + 60)) / (endX - (cx + 60));
+      v.push({ x, y: clampY(base + depth * (1 - (t * t * (3 - 2 * t)))) });
+    }
+    return v;
+  },
+
+  teacup_saucer(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const saucer = 30 + diff * 35, cup = 70 + diff * 90;
+    const cx = sx + dist * 0.5;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= cx - 110; x += 13) {
+      const t = (x - sx) / (cx - 110 - sx);
+      v.push({ x, y: clampY(base + saucer * (t * t * (3 - 2 * t))) });
+    }
+    const sLevel = clampY(base + saucer);
+    v.push({ x: cx - 110, y: sLevel });
+    v.push({ x: cx - 95, y: sLevel });
+    for (let x = cx - 95; x <= cx - 45; x += 12) {
+      const t = (x - (cx - 95)) / 50;
+      v.push({ x, y: clampY(base + saucer + (cup - saucer) * t) });
+    }
+    const gy = clampY(base + cup);
+    v.push({ x: cx - 45, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 45, y: gy });
+    for (let x = cx + 45; x <= cx + 95; x += 12) {
+      const t = (x - (cx + 45)) / 50;
+      v.push({ x, y: clampY(base + cup - (cup - saucer) * t) });
+    }
+    v.push({ x: cx + 95, y: sLevel });
+    v.push({ x: cx + 110, y: sLevel });
+    for (let x = cx + 110; x <= endX; x += 13) {
+      const t = (x - (cx + 110)) / (endX - (cx + 110));
+      v.push({ x, y: clampY(base + saucer * (1 - t * t * (3 - 2 * t))) });
+    }
+    return v;
+  },
+
+  kettle_pond(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 95 + diff * 105;
+    const cx = sx + dist * 0.5;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= cx - 95; x += 14) v.push({ x, y: base });
+    for (let x = cx - 95; x <= cx - 50; x += 11) {
+      const t = (x - (cx - 95)) / 45;
+      v.push({ x, y: clampY(base + depth * Math.sin(t * Math.PI / 2)) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 50, y: gy });
+    for (let x = cx + 50; x <= cx + 95; x += 11) {
+      const t = (x - (cx + 50)) / 45;
+      v.push({ x, y: clampY(base + depth * Math.cos(t * Math.PI / 2)) });
+    }
+    for (let x = cx + 95; x <= endX; x += 14) v.push({ x, y: base });
+    return v;
+  },
+
+  sine_swell_run(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const amp = 25 + diff * 50, waves = 3;
+    const greenStart = sx + dist * 0.78;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= greenStart; x += 12) {
+      const t = (x - sx) / (greenStart - sx);
+      const y = base + amp * Math.sin(t * waves * Math.PI * 2) + 30 * t;
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base + 30);
+    v.push({ x: greenStart, y: gy });
+    v.push({ x: greenStart + 40, y: gy });
+    v.push({ x: (greenStart + endX) / 2, y: gy, cup: true });
+    v.push({ x: endX - 40, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  washboard_humps(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const amp = 14 + diff * 26, humps = 8;
+    const greenStart = sx + dist * 0.82;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= greenStart; x += 10) {
+      const t = (x - sx) / (greenStart - sx);
+      const y = base + amp * (1 - Math.cos(t * humps * Math.PI * 2)) / 2 + 40 * t;
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base + 40);
+    v.push({ x: greenStart, y: gy });
+    v.push({ x: greenStart + 40, y: gy });
+    v.push({ x: (greenStart + endX) / 2, y: gy, cup: true });
+    v.push({ x: endX - 40, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  smooth_s_curve(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const amp = 40 + diff * 70;
+    const greenStart = sx + dist * 0.8;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= greenStart; x += 12) {
+      const t = (x - sx) / (greenStart - sx);
+      const y = base + amp * Math.sin(t * Math.PI * 1.5) * (1 - t) + 50 * t;
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base + 50);
+    v.push({ x: greenStart, y: gy });
+    v.push({ x: greenStart + 40, y: gy });
+    v.push({ x: (greenStart + endX) / 2, y: gy, cup: true });
+    v.push({ x: endX - 40, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  amphitheater_hollow(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 100 + diff * 110;
+    const cx = sx + dist * 0.6;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= cx - 55; x += 12) {
+      const t = (x - sx) / (cx - 55 - sx);
+      v.push({ x, y: clampY(base + depth * Math.pow(t, 1.6)) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx - 45, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 45, y: gy });
+    v.push({ x: cx + 55, y: gy });
+    for (let x = cx + 55; x <= endX; x += 12) {
+      const t = (x - (cx + 55)) / (endX - (cx + 55));
+      v.push({ x, y: clampY(base + depth * (1 - Math.pow(t, 1.4))) });
+    }
+    return v;
+  },
+
+  cloverleaf_bowls(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const d = 45 + diff * 60, dc = 75 + diff * 95;
+    const lobes = [sx + dist * 0.22, sx + dist * 0.5, sx + dist * 0.78];
+    const ridge = clampY(base + 18);
+    const v = [{ x: sx, y: base }];
+    const scoop = (xa, xb, depth, centerCup) => {
+      for (let x = xa; x <= (xa + xb) / 2 - (centerCup ? 50 : 0); x += 12) {
+        const t = (x - xa) / ((xb - xa) / 2);
+        v.push({ x, y: clampY(lerp(ridge, base + depth, Math.sin(Math.min(t, 1) * Math.PI / 2))) });
+      }
+      const gy = clampY(base + depth);
+      const mid = (xa + xb) / 2;
+      if (centerCup) {
+        v.push({ x: mid - 50, y: gy });
+        v.push({ x: mid, y: gy, cup: true });
+        v.push({ x: mid + 50, y: gy });
+      } else {
+        v.push({ x: mid, y: gy });
+      }
+      for (let x = mid + (centerCup ? 50 : 12); x <= xb; x += 12) {
+        const t = (x - mid) / ((xb - xa) / 2);
+        v.push({ x, y: clampY(lerp(base + depth, ridge, Math.sin(Math.min(t, 1) * Math.PI / 2))) });
+      }
+    };
+    scoop(sx, lobes[1] - 40, d, false);
+    scoop(lobes[1] - 40, lobes[2] - 40, dc, true);
+    scoop(lobes[2] - 40, endX, d, false);
+    return v;
+  },
+
+  spiral_gather(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const cx = sx + dist * 0.5;
+    const depth = 90 + diff * 100;
+    const v = [{ x: sx, y: base }];
+    const steps = 5;
+    for (let i = 0; i < steps; i++) {
+      const xa = sx + (cx - 55 - sx) * (i / steps);
+      const xb = sx + (cx - 55 - sx) * ((i + 1) / steps);
+      const ya = clampY(base + depth * (i / steps));
+      const yb = clampY(base + depth * ((i + 1) / steps));
+      for (let x = xa; x <= xb; x += 12) {
+        const t = (x - xa) / (xb - xa);
+        v.push({ x, y: clampY(lerp(ya, yb, t) + Math.sin(t * Math.PI) * 8 * (1 - i / steps)) });
+      }
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    for (let x = cx + 55; x <= endX; x += 13) {
+      const t = (x - (cx + 55)) / (endX - (cx + 55));
+      v.push({ x, y: clampY(base + depth * (1 - Math.sin(t * Math.PI / 2))) });
+    }
+    return v;
+  },
+
+  quilted_dunes(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const greenStart = sx + dist * 0.8;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= greenStart; x += 11) {
+      const t = (x - sx) / (greenStart - sx);
+      const y = base
+        + (18 + diff * 22) * Math.sin(t * Math.PI * 2 * 2.5)
+        + (10 + diff * 14) * Math.sin(t * Math.PI * 2 * 5.5 + 1.3);
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base);
+    v.push({ x: greenStart, y: gy });
+    v.push({ x: greenStart + 40, y: gy });
+    v.push({ x: (greenStart + endX) / 2, y: gy, cup: true });
+    v.push({ x: endX - 40, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  bermed_basin(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 80 + diff * 100, berm = 25 + diff * 25;
+    const cx = sx + dist * 0.5;
+    const bermY = clampY(base - berm);
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= sx + 60; x += 14) {
+      const t = (x - sx) / 60;
+      v.push({ x, y: clampY(base - berm * Math.sin(t * Math.PI / 2)) });
+    }
+    v.push({ x: sx + 60, y: bermY });
+    for (let x = sx + 60; x <= cx - 55; x += 12) {
+      const t = (x - (sx + 60)) / (cx - 55 - (sx + 60));
+      v.push({ x, y: clampY(lerp(bermY, base + depth, Math.sin(t * Math.PI / 2))) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    for (let x = cx + 55; x <= endX - 60; x += 12) {
+      const t = (x - (cx + 55)) / (endX - 60 - (cx + 55));
+      v.push({ x, y: clampY(lerp(base + depth, bermY, Math.sin(t * Math.PI / 2))) });
+    }
+    v.push({ x: endX - 60, y: bermY });
+    v.push({ x: endX, y: bermY });
+    return v;
+  },
+
+  river_valley(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 70 + diff * 90;
+    const cx = sx + dist * 0.5;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= cx - 60; x += 12) {
+      const t = (x - sx) / (cx - 60 - sx);
+      const y = base + depth * (t * t * (3 - 2 * t)) + 14 * Math.sin(t * Math.PI * 3);
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 60, y: gy });
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 50, y: gy });
+    v.push({ x: cx + 60, y: gy });
+    for (let x = cx + 60; x <= endX; x += 12) {
+      const t = (x - (cx + 60)) / (endX - (cx + 60));
+      const y = base + depth * (1 - t * t * (3 - 2 * t)) + 14 * Math.sin((1 - t) * Math.PI * 3);
+      v.push({ x, y: clampY(y) });
+    }
+    return v;
+  },
+
+  caldera_dish(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 110 + diff * 110, rim = 30 + diff * 30;
+    const cx = sx + dist * 0.5;
+    const rimY = clampY(base - rim);
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= sx + 70; x += 13) {
+      const t = (x - sx) / 70;
+      v.push({ x, y: clampY(base - rim * (t * t * (3 - 2 * t))) });
+    }
+    v.push({ x: sx + 70, y: rimY });
+    for (let x = sx + 70; x <= cx - 55; x += 12) {
+      const t = (x - (sx + 70)) / (cx - 55 - (sx + 70));
+      v.push({ x, y: clampY(lerp(rimY, base + depth, 1 - Math.cos(t * Math.PI / 2))) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    for (let x = cx + 55; x <= endX - 70; x += 12) {
+      const t = (x - (cx + 55)) / (endX - 70 - (cx + 55));
+      v.push({ x, y: clampY(lerp(base + depth, rimY, Math.sin(t * Math.PI / 2))) });
+    }
+    v.push({ x: endX - 70, y: rimY });
+    for (let x = endX - 70; x <= endX; x += 13) {
+      const t = (x - (endX - 70)) / 70;
+      v.push({ x, y: clampY(rimY + rim * (t * t * (3 - 2 * t))) });
+    }
+    return v;
+  },
+
+  terraced_bowl(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const cx = sx + dist * 0.5;
+    const rings = 3;
+    const depth = 95 + diff * 100;
+    const v = [{ x: sx, y: base }];
+    const half = cx - 55 - sx;
+    for (let i = 0; i < rings; i++) {
+      const xa = sx + half * (i / rings);
+      const xb = sx + half * ((i + 1) / rings);
+      const treadY = clampY(base + depth * (i / rings));
+      v.push({ x: xa, y: treadY });
+      v.push({ x: xb - 14, y: treadY });
+      const nextY = clampY(base + depth * ((i + 1) / rings));
+      v.push({ x: xb, y: nextY });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    for (let i = rings - 1; i >= 0; i--) {
+      const xa = cx + 55 + half * ((rings - 1 - i) / rings);
+      const treadY = clampY(base + depth * (i / rings));
+      v.push({ x: xa, y: clampY(base + depth * ((i + 1) / rings)) });
+      v.push({ x: xa + 14, y: treadY });
+      v.push({ x: cx + 55 + half * ((rings - i) / rings) - 1, y: treadY });
+    }
+    v.push({ x: endX, y: base });
+    return v;
+  },
+
+  scoop_catch(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 100 + diff * 110;
+    const toe = sx + dist * 0.72;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= toe - 55; x += 12) {
+      const t = (x - sx) / (toe - 55 - sx);
+      v.push({ x, y: clampY(base + depth * (t * t * (3 - 2 * t))) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: toe - 55, y: gy });
+    v.push({ x: toe - 45, y: gy });
+    v.push({ x: toe, y: gy, cup: true });
+    v.push({ x: toe + 45, y: gy });
+    v.push({ x: toe + 55, y: gy });
+    const lipY = clampY(base - 20);
+    for (let x = toe + 55; x <= toe + 120; x += 13) {
+      const t = (x - (toe + 55)) / 65;
+      v.push({ x, y: clampY(base + depth - (depth + 20) * Math.sin(t * Math.PI / 2)) });
+    }
+    v.push({ x: toe + 120, y: lipY });
+    v.push({ x: endX, y: lipY });
+    return v;
+  },
+
+  rolling_moguls(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const amp = 28 + diff * 42, bumps = 5;
+    const greenStart = sx + dist * 0.8;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= greenStart; x += 11) {
+      const t = (x - sx) / (greenStart - sx);
+      const y = base + amp * Math.abs(Math.sin(t * bumps * Math.PI)) + 20 * t;
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base + 20);
+    v.push({ x: greenStart, y: gy });
+    v.push({ x: greenStart + 40, y: gy });
+    v.push({ x: (greenStart + endX) / 2, y: gy, cup: true });
+    v.push({ x: endX - 40, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  damped_ripple(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const amp = 55 + diff * 70;
+    const greenStart = sx + dist * 0.82;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= greenStart; x += 11) {
+      const t = (x - sx) / (greenStart - sx);
+      const y = base + amp * Math.exp(-2.4 * t) * Math.sin(t * Math.PI * 2 * 3.2) + 35 * t;
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base + 35);
+    v.push({ x: greenStart, y: gy });
+    v.push({ x: greenStart + 40, y: gy });
+    v.push({ x: (greenStart + endX) / 2, y: gy, cup: true });
+    v.push({ x: endX - 40, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  funnel_chute(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 110 + diff * 110;
+    const cx = sx + dist * 0.5;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= cx - 45; x += 12) {
+      const t = (x - sx) / (cx - 45 - sx);
+      v.push({ x, y: clampY(base + depth * Math.pow(t, 1.3)) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 45, y: gy });
+    v.push({ x: cx - 40, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 40, y: gy });
+    v.push({ x: cx + 45, y: gy });
+    for (let x = cx + 45; x <= endX; x += 12) {
+      const t = (x - (cx + 45)) / (endX - (cx + 45));
+      v.push({ x, y: clampY(base + depth * Math.pow(1 - t, 1.3)) });
+    }
+    return v;
+  },
+
+  ocean_groundswell(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const amp = 20 + diff * 30;
+    const greenStart = sx + dist * 0.83;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= greenStart; x += 12) {
+      const t = (x - sx) / (greenStart - sx);
+      const phase = t * Math.PI * 2 * 3;
+      const y = base + amp * Math.sin(phase + 0.5 * Math.sin(phase)) + 55 * t;
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base + 55);
+    v.push({ x: greenStart, y: gy });
+    v.push({ x: greenStart + 40, y: gy });
+    v.push({ x: (greenStart + endX) / 2, y: gy, cup: true });
+    v.push({ x: endX - 40, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  lilypad_pockets(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const cx = sx + dist * 0.62;
+    const depth = 95 + diff * 100;
+    const v = [{ x: sx, y: base }];
+    const pads = 3;
+    const span = cx - 55 - sx;
+    for (let i = 0; i < pads; i++) {
+      const padY = clampY(base + depth * ((i + 0.5) / pads) * 0.7);
+      const xa = sx + span * (i / pads);
+      const xb = sx + span * ((i + 1) / pads);
+      for (let x = xa; x <= xa + 16; x += 8) {
+        const t = (x - xa) / 16;
+        const prev = i === 0 ? base : clampY(base + depth * ((i - 0.5) / pads) * 0.7);
+        v.push({ x, y: clampY(lerp(prev, padY, t)) });
+      }
+      v.push({ x: xb - 6, y: padY });
+    }
+    for (let x = sx + span; x <= cx - 55; x += 10) {
+      const t = (x - (sx + span)) / 55;
+      const prev = clampY(base + depth * ((pads - 0.5) / pads) * 0.7);
+      v.push({ x, y: clampY(lerp(prev, base + depth, Math.sin(t * Math.PI / 2))) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    for (let x = cx + 55; x <= endX; x += 12) {
+      const t = (x - (cx + 55)) / (endX - (cx + 55));
+      v.push({ x, y: clampY(base + depth * (1 - Math.sin(t * Math.PI / 2))) });
+    }
+    return v;
+  },
+
+  corduroy_flat(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const amp = 8 + diff * 16, ripples = 11;
+    const greenStart = sx + dist * 0.82;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= greenStart; x += 10) {
+      const t = (x - sx) / (greenStart - sx);
+      const y = base + amp * Math.sin(t * ripples * Math.PI * 2);
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base);
+    v.push({ x: greenStart, y: gy });
+    v.push({ x: greenStart + 40, y: gy });
+    v.push({ x: (greenStart + endX) / 2, y: gy, cup: true });
+    v.push({ x: endX - 40, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  crescent_dune_bay(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const crest = 45 + diff * 50, depth = 75 + diff * 90;
+    const cx = sx + dist * 0.6;
+    const crestX = sx + dist * 0.2;
+    const crestY = clampY(base - crest);
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= crestX; x += 12) {
+      const t = (x - sx) / (crestX - sx);
+      v.push({ x, y: clampY(base - crest * Math.sin(t * Math.PI / 2)) });
+    }
+    v.push({ x: crestX, y: crestY });
+    for (let x = crestX; x <= cx - 55; x += 12) {
+      const t = (x - crestX) / (cx - 55 - crestX);
+      v.push({ x, y: clampY(lerp(crestY, base + depth, t * t)) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    for (let x = cx + 55; x <= endX; x += 12) {
+      const t = (x - (cx + 55)) / (endX - (cx + 55));
+      v.push({ x, y: clampY(lerp(base + depth, base, Math.sin(t * Math.PI / 2))) });
+    }
+    return v;
+  },
+
+  chirp_swells(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const amp = 26 + diff * 38;
+    const greenStart = sx + dist * 0.8;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= greenStart; x += 11) {
+      const t = (x - sx) / (greenStart - sx);
+      const phase = (6.0 - 4.0 * t) * t * Math.PI * 2;
+      const y = base + amp * (1 - 0.4 * t) * Math.sin(phase) + 30 * t;
+      v.push({ x, y: clampY(y) });
+    }
+    const gy = clampY(base + 30);
+    v.push({ x: greenStart, y: gy });
+    v.push({ x: greenStart + 40, y: gy });
+    v.push({ x: (greenStart + endX) / 2, y: gy, cup: true });
+    v.push({ x: endX - 40, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  twin_lobe_valley(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const depth = 85 + diff * 100;
+    const l1 = sx + dist * 0.3, l2 = sx + dist * 0.72;
+    const islandY = clampY(base + 22);
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= l1; x += 12) {
+      const t = (x - sx) / (l1 - sx);
+      v.push({ x, y: clampY(lerp(base, base + depth * 0.85, Math.sin(t * Math.PI / 2))) });
+    }
+    for (let x = l1; x <= (l1 + l2) / 2; x += 12) {
+      const t = (x - l1) / ((l1 + l2) / 2 - l1);
+      v.push({ x, y: clampY(lerp(base + depth * 0.85, islandY, Math.sin(t * Math.PI / 2))) });
+    }
+    for (let x = (l1 + l2) / 2; x <= l2 - 55; x += 12) {
+      const t = (x - (l1 + l2) / 2) / (l2 - 55 - (l1 + l2) / 2);
+      v.push({ x, y: clampY(lerp(islandY, base + depth, Math.sin(t * Math.PI / 2))) });
+    }
+    const gy = clampY(base + depth);
+    v.push({ x: l2 - 55, y: gy });
+    v.push({ x: l2, y: gy, cup: true });
+    v.push({ x: l2 + 55, y: gy });
+    for (let x = l2 + 55; x <= endX; x += 12) {
+      const t = (x - (l2 + 55)) / (endX - (l2 + 55));
+      v.push({ x, y: clampY(lerp(base + depth, base, Math.sin(t * Math.PI / 2))) });
+    }
+    return v;
+  },
+
+  billowing_hills(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const amp = 45 + diff * 60;
+    const cupX = sx + dist * 0.5;
+    const v = [{ x: sx, y: base }];
+    for (let x = sx; x <= cupX - 55; x += 12) {
+      const t = (x - sx) / (cupX - 55 - sx);
+      v.push({ x, y: clampY(base + amp * (1 - Math.cos(t * Math.PI)) / 2 + amp) });
+    }
+    const gy = clampY(base + amp);
+    v.push({ x: cupX - 55, y: gy });
+    v.push({ x: cupX - 45, y: gy });
+    v.push({ x: cupX, y: gy, cup: true });
+    v.push({ x: cupX + 45, y: gy });
+    v.push({ x: cupX + 55, y: gy });
+    for (let x = cupX + 55; x <= endX; x += 12) {
+      const t = (x - (cupX + 55)) / (endX - (cupX + 55));
+      v.push({ x, y: clampY(base + amp + amp * Math.sin(t * Math.PI) * 0.8) });
+    }
+    return v;
+  },
+  slot_canyon_carry(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const gapW = lerp(70, 180, diff);
+    const depth = clampY(base + lerp(120, 240, diff));
+    const teeRun = sx + dist * 0.30;
+    const gapL = teeRun, gapR = teeRun + gapW;
+    v.push({ x: sx, y: base });
+    v.push({ x: gapL - 40, y: base });
+    v.push({ x: gapL, y: base });
+    v.push({ x: gapL + 10, y: depth });
+    v.push({ x: (gapL + gapR) / 2, y: depth });
+    v.push({ x: gapR - 10, y: depth });
+    v.push({ x: gapR, y: clampY(base + 20) });
+    const gy = clampY(base + 25);
+    const cx = (gapR + endX) / 2;
+    v.push({ x: gapR + 30, y: gy });
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 50, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  archipelago_hop(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const sea = clampY(base + lerp(110, 210, diff));
+    const span = dist;
+    v.push({ x: sx, y: base });
+    v.push({ x: sx + span * 0.16, y: base });
+    v.push({ x: sx + span * 0.18, y: sea });
+    const i1 = sx + span * 0.30;
+    v.push({ x: i1 - 8, y: sea });
+    v.push({ x: i1 - 6, y: clampY(base + 30) });
+    v.push({ x: i1 + 30, y: clampY(base + 30) });
+    v.push({ x: i1 + 38, y: sea });
+    const i2 = sx + span * 0.52;
+    v.push({ x: i2 - 8, y: sea });
+    v.push({ x: i2 - 6, y: clampY(base + 30) });
+    v.push({ x: i2 + 36, y: clampY(base + 30) });
+    v.push({ x: i2 + 44, y: sea });
+    const i3 = sx + span * 0.74;
+    const gy = clampY(base + 25);
+    v.push({ x: i3 - 8, y: sea });
+    v.push({ x: i3 - 6, y: gy });
+    const cx = (i3 + endX) / 2;
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  broken_bridge_pillar(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const chasm = clampY(base + lerp(140, 250, diff));
+    const gL = sx + dist * 0.28, gR = sx + dist * 0.72;
+    v.push({ x: sx, y: base });
+    v.push({ x: gL - 30, y: base });
+    v.push({ x: gL, y: base });
+    v.push({ x: gL + 10, y: chasm });
+    const pc = (gL + gR) / 2;
+    v.push({ x: pc - 22, y: chasm });
+    v.push({ x: pc - 14, y: clampY(base + 35) });
+    v.push({ x: pc + 14, y: clampY(base + 35) });
+    v.push({ x: pc + 22, y: chasm });
+    v.push({ x: gR - 10, y: chasm });
+    v.push({ x: gR, y: clampY(base + 15) });
+    const gy = clampY(base + 18);
+    const cx = (gR + endX) / 2;
+    v.push({ x: gR + 30, y: gy });
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 50, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  moat_ringed_plateau(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const moat = clampY(base + lerp(100, 190, diff));
+    const top = clampY(base - lerp(20, 70, diff));
+    const mL = sx + dist * 0.30, mR = sx + dist * 0.46;
+    v.push({ x: sx, y: base });
+    v.push({ x: mL - 20, y: base });
+    v.push({ x: mL, y: base });
+    v.push({ x: mL + 10, y: moat });
+    v.push({ x: mR - 10, y: moat });
+    v.push({ x: mR, y: top });
+    const gy = top;
+    const cx = (mR + endX) / 2;
+    v.push({ x: mR + 40, y: gy });
+    v.push({ x: cx - 60, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 60, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  double_chasm_rest(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const deep = clampY(base + lerp(130, 230, diff));
+    const g1L = sx + dist * 0.22, g1R = sx + dist * 0.36;
+    const g2L = sx + dist * 0.56, g2R = sx + dist * 0.70;
+    v.push({ x: sx, y: base });
+    v.push({ x: g1L, y: base });
+    v.push({ x: g1L + 10, y: deep });
+    v.push({ x: g1R - 10, y: deep });
+    v.push({ x: g1R, y: clampY(base + 20) });
+    v.push({ x: g1R + 25, y: clampY(base + 20) });
+    v.push({ x: g2L - 25, y: clampY(base + 20) });
+    v.push({ x: g2L, y: clampY(base + 20) });
+    v.push({ x: g2L + 10, y: deep });
+    v.push({ x: g2R - 10, y: deep });
+    v.push({ x: g2R, y: clampY(base + 25) });
+    const gy = clampY(base + 28);
+    const cx = (g2R + endX) / 2;
+    v.push({ x: g2R + 30, y: gy });
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 50, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  fjord_crossing(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const floor = clampY(base + lerp(150, 260, diff));
+    const wL = sx + dist * 0.34, wR = sx + dist * 0.58;
+    v.push({ x: sx, y: base });
+    v.push({ x: wL - 30, y: base });
+    v.push({ x: wL, y: base });
+    v.push({ x: wL + 12, y: clampY(base + (floor - base) * 0.5) });
+    v.push({ x: wL + 24, y: floor });
+    v.push({ x: (wL + wR) / 2, y: floor });
+    v.push({ x: wR - 24, y: floor });
+    v.push({ x: wR - 12, y: clampY(base + (floor - base) * 0.5) });
+    v.push({ x: wR, y: clampY(base + 10) });
+    const gy = clampY(base + 12);
+    const cx = (wR + endX) / 2;
+    v.push({ x: wR + 35, y: gy });
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  catwalk_pads(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const voidY = clampY(base + lerp(140, 250, diff));
+    const pads = 4;
+    const startGap = sx + dist * 0.18;
+    v.push({ x: sx, y: base });
+    v.push({ x: startGap, y: base });
+    v.push({ x: startGap + 8, y: voidY });
+    const stepW = (dist * 0.60) / pads;
+    let px = startGap + 8;
+    for (let i = 0; i < pads; i++) {
+      const padL = px + stepW * 0.45;
+      const padR = padL + stepW * 0.30;
+      v.push({ x: padL, y: voidY });
+      v.push({ x: padL + 6, y: clampY(base + 35) });
+      v.push({ x: padR - 6, y: clampY(base + 35) });
+      v.push({ x: padR, y: voidY });
+      px = padR;
+    }
+    const gy = clampY(base + 30);
+    v.push({ x: px + 12, y: voidY });
+    v.push({ x: px + 20, y: gy });
+    const cx = (px + 20 + endX) / 2;
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 50, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  leapfrog_risers(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const voidY = clampY(base + lerp(120, 220, diff));
+    v.push({ x: sx, y: base });
+    v.push({ x: sx + dist * 0.16, y: base });
+    v.push({ x: sx + dist * 0.18, y: voidY });
+    const steps = 3;
+    const segW = (dist * 0.55) / steps;
+    let px = sx + dist * 0.18;
+    for (let i = 0; i < steps; i++) {
+      const top = clampY(base - i * lerp(8, 30, diff));
+      const padL = px + segW * 0.40;
+      const padR = padL + segW * 0.40;
+      v.push({ x: padL, y: voidY });
+      v.push({ x: padL + 6, y: top });
+      v.push({ x: padR - 6, y: top });
+      v.push({ x: padR, y: voidY });
+      px = padR;
+    }
+    const gy = clampY(base - steps * lerp(8, 30, diff) + 10);
+    v.push({ x: px + 12, y: voidY });
+    v.push({ x: px + 20, y: gy });
+    const cx = (px + 20 + endX) / 2;
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 50, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  land_bridge_neck(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const voidY = clampY(base + lerp(130, 230, diff));
+    const g1 = sx + dist * 0.22, neckL = sx + dist * 0.40, neckR = sx + dist * 0.52, g2 = sx + dist * 0.70;
+    v.push({ x: sx, y: base });
+    v.push({ x: g1, y: base });
+    v.push({ x: g1 + 10, y: voidY });
+    v.push({ x: neckL - 8, y: voidY });
+    v.push({ x: neckL, y: clampY(base + 25) });
+    v.push({ x: neckR, y: clampY(base + 25) });
+    v.push({ x: neckR + 8, y: voidY });
+    v.push({ x: g2 - 10, y: voidY });
+    v.push({ x: g2, y: clampY(base + 15) });
+    const gy = clampY(base + 18);
+    const cx = (g2 + endX) / 2;
+    v.push({ x: g2 + 30, y: gy });
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  sinkhole_off_tee(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const pit = clampY(base + lerp(120, 220, diff));
+    const pL = sx + dist * 0.12, pR = pL + lerp(60, 150, diff);
+    v.push({ x: sx, y: base });
+    v.push({ x: pL, y: base });
+    v.push({ x: pL + 10, y: pit });
+    v.push({ x: (pL + pR) / 2, y: pit });
+    v.push({ x: pR - 10, y: pit });
+    v.push({ x: pR, y: clampY(base + 10) });
+    const gy = clampY(base + 12);
+    const cx = (pR + endX) / 2 + dist * 0.05;
+    v.push({ x: pR + 40, y: gy });
+    v.push({ x: cx - 60, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 60, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  crevasse_to_clifftop(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const deep = clampY(base + lerp(120, 210, diff));
+    const top = clampY(base - lerp(15, 60, diff));
+    const cL = sx + dist * 0.28, cR = sx + dist * 0.50;
+    v.push({ x: sx, y: base });
+    v.push({ x: cL, y: base });
+    v.push({ x: cL + 10, y: deep });
+    v.push({ x: cR - 10, y: deep });
+    v.push({ x: cR, y: clampY(base + (deep - base) * 0.4) });
+    v.push({ x: cR + 14, y: clampY(base - 5) });
+    v.push({ x: cR + 26, y: top });
+    const gy = top;
+    const cx = (cR + 26 + endX) / 2;
+    v.push({ x: cR + 50, y: gy });
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  twin_slot_mesa(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const slot = clampY(base + lerp(120, 210, diff));
+    const s1L = sx + dist * 0.20, s1R = sx + dist * 0.30;
+    const mL = s1R, mR = sx + dist * 0.52;
+    const s2L = mR, s2R = sx + dist * 0.62;
+    v.push({ x: sx, y: base });
+    v.push({ x: s1L, y: base });
+    v.push({ x: s1L + 10, y: slot });
+    v.push({ x: s1R - 10, y: slot });
+    v.push({ x: mL, y: clampY(base - 15) });
+    v.push({ x: mR, y: clampY(base - 15) });
+    v.push({ x: s2L + 10, y: slot });
+    v.push({ x: s2R - 10, y: slot });
+    v.push({ x: s2R, y: clampY(base + 10) });
+    const gy = clampY(base + 12);
+    const cx = (s2R + endX) / 2;
+    v.push({ x: s2R + 35, y: gy });
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  drawbridge_leap(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const voidY = clampY(base + lerp(140, 240, diff));
+    const lip = sx + dist * 0.40, far = sx + dist * 0.62;
+    v.push({ x: sx, y: base });
+    v.push({ x: sx + dist * 0.14, y: clampY(base + 10) });
+    v.push({ x: sx + dist * 0.28, y: clampY(base + 35) });
+    v.push({ x: lip, y: clampY(base + 50) });
+    v.push({ x: lip + 10, y: voidY });
+    v.push({ x: far - 10, y: voidY });
+    v.push({ x: far, y: clampY(base + 45) });
+    v.push({ x: far + dist * 0.10, y: clampY(base + 15) });
+    const gy = clampY(base + 12);
+    v.push({ x: far + dist * 0.16, y: gy });
+    const cx = (far + dist * 0.16 + endX) / 2;
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  keyhole_canyon(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const deep = clampY(base + lerp(130, 230, diff));
+    const gL = sx + dist * 0.24, gR = sx + dist * 0.50;
+    const notchL = sx + dist * 0.55, notchR = sx + dist * 0.62;
+    v.push({ x: sx, y: base });
+    v.push({ x: gL, y: base });
+    v.push({ x: gL + 10, y: deep });
+    v.push({ x: gR - 10, y: deep });
+    v.push({ x: gR, y: clampY(base + 40) });
+    v.push({ x: notchL, y: clampY(base + 5) });
+    v.push({ x: notchR, y: clampY(base + 5) });
+    const gy = clampY(base + 8);
+    const cx = (notchR + endX) / 2;
+    v.push({ x: notchR + 30, y: gy });
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  valley_of_steps(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const steps = 3 + Math.round(diff * 2);
+    const stepH = lerp(18, 34, diff);
+    const half = dist * 0.42;
+    const stepW = half / steps;
+    v.push({ x: sx, y: base });
+    let y = base, x = sx + dist * 0.06;
+    v.push({ x: x, y: y });
+    for (let i = 0; i < steps; i++) {
+      y = clampY(y + stepH);
+      v.push({ x: x + 8, y: y });
+      x += stepW;
+      v.push({ x: x, y: y });
+    }
+    v.push({ x: x + 30, y: y });
+    x += 30;
+    for (let i = 0; i < steps; i++) {
+      y = clampY(y - stepH);
+      x += stepW;
+      v.push({ x: x - 8, y: y });
+      v.push({ x: x, y: y });
+    }
+    const gy = y;
+    const cx = (x + endX) / 2;
+    v.push({ x: x + 30, y: gy });
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  switchback_ramp(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const rise = lerp(60, 150, diff);
+    const top = clampY(base - rise);
+    const b1 = sx + dist * 0.10;
+    v.push({ x: sx, y: base });
+    v.push({ x: b1, y: base });
+    v.push({ x: sx + dist * 0.34, y: clampY(base - rise * 0.45) });
+    v.push({ x: sx + dist * 0.42, y: clampY(base - rise * 0.45) });
+    v.push({ x: sx + dist * 0.66, y: clampY(base - rise * 0.90) });
+    v.push({ x: sx + dist * 0.74, y: top });
+    const gy = top;
+    const cx = (sx + dist * 0.74 + endX) / 2;
+    v.push({ x: sx + dist * 0.80, y: gy });
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  rice_paddy_terraces(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const tiers = 4 + Math.round(diff * 2);
+    const stepH = lerp(12, 26, diff);
+    const tierW = (dist * 0.78) / tiers;
+    v.push({ x: sx, y: base });
+    let y = base, x = sx + dist * 0.05;
+    v.push({ x: x, y: y });
+    for (let i = 0; i < tiers; i++) {
+      v.push({ x: x + tierW * 0.78, y: y });
+      y = clampY(y + stepH);
+      v.push({ x: x + tierW * 0.78 + 8, y: y });
+      x += tierW;
+    }
+    const gy = y;
+    const cx = (x + endX) / 2;
+    v.push({ x: x + 20, y: gy });
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  zigzag_ledge_climb(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const ledges = 4;
+    const stepH = lerp(20, 40, diff);
+    const ledgeW = (dist * 0.72) / ledges;
+    v.push({ x: sx, y: base });
+    let y = base, x = sx + dist * 0.06;
+    v.push({ x: x, y: y });
+    for (let i = 0; i < ledges; i++) {
+      v.push({ x: x + ledgeW * 0.62, y: y });
+      y = clampY(y - stepH);
+      v.push({ x: x + ledgeW * 0.62 + 12, y: y });
+      x += ledgeW;
+    }
+    const gy = y;
+    const cx = (x + endX) / 2;
+    v.push({ x: x + 20, y: gy });
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  stepped_mesa_tier2(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const stepH = lerp(24, 46, diff);
+    const t1 = clampY(base - stepH);
+    const t2 = clampY(base - stepH * 2);
+    const t3 = clampY(base - stepH * 3);
+    v.push({ x: sx, y: base });
+    v.push({ x: sx + dist * 0.16, y: base });
+    v.push({ x: sx + dist * 0.20, y: t1 });
+    v.push({ x: sx + dist * 0.36, y: t1 });
+    v.push({ x: sx + dist * 0.40, y: t2 });
+    const cx = sx + dist * 0.58;
+    v.push({ x: cx - 55, y: t2 });
+    v.push({ x: cx, y: t2, cup: true });
+    v.push({ x: cx + 55, y: t2 });
+    v.push({ x: sx + dist * 0.78, y: t2 });
+    v.push({ x: sx + dist * 0.82, y: t3 });
+    v.push({ x: endX, y: t3 });
+    return v;
+  },
+
+  sunken_stadium(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const steps = 3 + Math.round(diff * 2);
+    const stepH = lerp(16, 30, diff);
+    const downW = (dist * 0.32) / steps;
+    v.push({ x: sx, y: base });
+    let y = base, x = sx + dist * 0.06;
+    v.push({ x: x, y: y });
+    for (let i = 0; i < steps; i++) {
+      v.push({ x: x + downW * 0.7, y: y });
+      y = clampY(y + stepH);
+      v.push({ x: x + downW * 0.7 + 8, y: y });
+      x += downW;
+    }
+    const stageY = y;
+    const cx = (x + sx + dist * 0.68) / 2;
+    v.push({ x: x + 20, y: stageY });
+    v.push({ x: cx - 50, y: stageY });
+    v.push({ x: cx, y: stageY, cup: true });
+    v.push({ x: cx + 50, y: stageY });
+    const stageR = sx + dist * 0.68;
+    v.push({ x: stageR, y: stageY });
+    for (let i = 0; i < steps; i++) {
+      y = clampY(y - stepH);
+      const sx2 = stageR + (i + 1) * downW;
+      v.push({ x: sx2 - 8, y: clampY(y + stepH) });
+      v.push({ x: sx2, y: y });
+    }
+    v.push({ x: endX, y: y });
+    return v;
+  },
+
+  temple_grand_staircase(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const steps = 5 + Math.round(diff * 3);
+    const stepH = lerp(14, 28, diff);
+    const stairW = (dist * 0.66) / steps;
+    v.push({ x: sx, y: base });
+    let y = base, x = sx + dist * 0.06;
+    v.push({ x: x, y: y });
+    for (let i = 0; i < steps; i++) {
+      v.push({ x: x + stairW * 0.6, y: y });
+      y = clampY(y - stepH);
+      v.push({ x: x + stairW * 0.6 + 10, y: y });
+      x += stairW;
+    }
+    const gy = y;
+    const cx = (x + endX) / 2;
+    v.push({ x: x + 20, y: gy });
+    v.push({ x: cx - 60, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 60, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  dropped_shelf_cascade(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const shelves = 3 + Math.round(diff * 2);
+    const dropH = lerp(22, 44, diff);
+    const shelfW = (dist * 0.74) / shelves;
+    v.push({ x: sx, y: base });
+    let y = base, x = sx + dist * 0.05;
+    v.push({ x: x, y: y });
+    for (let i = 0; i < shelves; i++) {
+      v.push({ x: x + shelfW * 0.7, y: y });
+      y = clampY(y + dropH);
+      v.push({ x: x + shelfW * 0.7 + 10, y: y });
+      x += shelfW;
+    }
+    const gy = y;
+    const cx = (x + endX) / 2;
+    v.push({ x: x + 20, y: gy });
+    v.push({ x: cx - 60, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 60, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  stair_up_cliff_down(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const steps = 3 + Math.round(diff * 2);
+    const stepH = lerp(18, 34, diff);
+    const upW = (dist * 0.42) / steps;
+    v.push({ x: sx, y: base });
+    let y = base, x = sx + dist * 0.05;
+    v.push({ x: x, y: y });
+    for (let i = 0; i < steps; i++) {
+      v.push({ x: x + upW * 0.6, y: y });
+      y = clampY(y - stepH);
+      v.push({ x: x + upW * 0.6 + 10, y: y });
+      x += upW;
+    }
+    v.push({ x: x + 20, y: y });
+    const low = clampY(base + lerp(20, 70, diff));
+    v.push({ x: x + 34, y: low });
+    const gy = low;
+    const cx = (x + 34 + endX) / 2;
+    v.push({ x: x + 60, y: gy });
+    v.push({ x: cx - 55, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 55, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+
+  split_level_benches(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const drop = lerp(30, 70, diff);
+    const upper = base;
+    const lower = clampY(base + drop);
+    v.push({ x: sx, y: upper });
+    v.push({ x: sx + dist * 0.30, y: upper });
+    v.push({ x: sx + dist * 0.46, y: lower });
+    const cx = sx + dist * 0.66;
+    v.push({ x: cx - 60, y: lower });
+    v.push({ x: cx, y: lower, cup: true });
+    v.push({ x: cx + 60, y: lower });
+    v.push({ x: endX, y: lower });
+    return v;
+  },
+
+  pyramid_step_apex(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const steps = 4 + Math.round(diff * 2);
+    const stepH = lerp(16, 30, diff);
+    const climbW = (dist * 0.56) / steps;
+    v.push({ x: sx, y: base });
+    let y = base, x = sx + dist * 0.06;
+    v.push({ x: x, y: y });
+    for (let i = 0; i < steps; i++) {
+      v.push({ x: x + climbW * 0.55, y: y });
+      y = clampY(y - stepH);
+      v.push({ x: x + climbW * 0.55 + 9, y: y });
+      x += climbW;
+    }
+    const gy = y;
+    const apexL = x + 14;
+    const cx = (apexL + sx + dist * 0.82) / 2;
+    v.push({ x: apexL, y: gy });
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 50, y: gy });
+    const apexR = sx + dist * 0.82;
+    v.push({ x: apexR, y: gy });
+    v.push({ x: apexR + 12, y: clampY(gy + stepH) });
+    v.push({ x: endX, y: clampY(gy + stepH * 1.5) });
+    return v;
+  },
+
+  descending_sump_stairs(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const steps = 4 + Math.round(diff * 3);
+    const stepH = lerp(16, 30, diff);
+    const downW = (dist * 0.72) / steps;
+    v.push({ x: sx, y: base });
+    let y = base, x = sx + dist * 0.05;
+    v.push({ x: x, y: y });
+    for (let i = 0; i < steps; i++) {
+      v.push({ x: x + downW * 0.62, y: y });
+      y = clampY(y + stepH);
+      v.push({ x: x + downW * 0.62 + 9, y: y });
+      x += downW;
+    }
+    const gy = y;
+    const cx = (x + endX) / 2;
+    v.push({ x: x + 18, y: gy });
+    v.push({ x: cx - 60, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 60, y: gy });
+    v.push({ x: endX - 12, y: gy });
+    v.push({ x: endX, y: clampY(gy - 18) });
+    return v;
+  },
+
+  staircase_gap_staircase(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [];
+    const stepH = lerp(16, 30, diff);
+    const voidY = clampY(base + lerp(110, 190, diff));
+    const steps = 3;
+    const upW = (dist * 0.28) / steps;
+    v.push({ x: sx, y: base });
+    let y = base, x = sx + dist * 0.05;
+    v.push({ x: x, y: y });
+    for (let i = 0; i < steps; i++) {
+      v.push({ x: x + upW * 0.6, y: y });
+      y = clampY(y - stepH);
+      v.push({ x: x + upW * 0.6 + 9, y: y });
+      x += upW;
+    }
+    v.push({ x: x + 20, y: y });
+    v.push({ x: x + 30, y: voidY });
+    const farL = sx + dist * 0.60;
+    v.push({ x: farL - 10, y: voidY });
+    v.push({ x: farL, y: y });
+    let y2 = y;
+    let x2 = farL;
+    const upW2 = (dist * 0.20) / steps;
+    for (let i = 0; i < steps; i++) {
+      v.push({ x: x2 + upW2 * 0.6, y: y2 });
+      y2 = clampY(y2 - stepH);
+      v.push({ x: x2 + upW2 * 0.6 + 9, y: y2 });
+      x2 += upW2;
+    }
+    const gy = y2;
+    const cx = (x2 + endX) / 2;
+    v.push({ x: x2 + 18, y: gy });
+    v.push({ x: cx - 50, y: gy });
+    v.push({ x: cx, y: gy, cup: true });
+    v.push({ x: cx + 50, y: gy });
+    v.push({ x: endX, y: gy });
+    return v;
+  },
+  rock_arch_bridge(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const floor = clampY(base + 30);
+    const ax = sx + dist*0.30, bx = sx + dist*0.70;
+    v.push({x:sx+dist*0.14, y:clampY(base+18)});
+    v.push({x:ax-60, y:floor});
+    const cx = (ax+bx)/2;
+    v.push({x:cx-55, y:floor});
+    v.push({x:cx-45, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+45, y:floor});
+    v.push({x:cx+55, y:floor});
+    v.push({x:bx+60, y:floor});
+    v.push({x:endX-dist*0.10, y:clampY(base+10)});
+    v.push({x:endX, y:base});
+    const roofY = clampY(floor - (BALL_RADIUS*4 + 22) - 30*diff);
+    const crown = clampY(roofY - 34 - 30*diff);
+    _emitOverhang([
+      {x:ax-30, y:roofY},
+      {x:cx-30, y:crown},
+      {x:cx+30, y:crown},
+      {x:bx+30, y:roofY},
+      {x:bx+30, y:clampY(roofY-40)},
+      {x:ax-30, y:clampY(roofY-40)},
+    ]);
+    return v;
+  },
+
+  slot_grotto(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const lipX = sx + dist*0.42;
+    const floor = clampY(base + 70 + 50*diff);
+    v.push({x:sx+dist*0.20, y:clampY(base+12)});
+    v.push({x:lipX-10, y:clampY(base+20)});
+    v.push({x:lipX+6, y:clampY(base+50)});
+    v.push({x:lipX+16, y:floor});
+    const cx = sx + dist*0.58;
+    v.push({x:cx-48, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+48, y:floor});
+    v.push({x:cx+62, y:clampY(floor-40)});
+    v.push({x:cx+76, y:clampY(base+18)});
+    v.push({x:endX, y:base});
+    const roofY = clampY(floor - (BALL_RADIUS*4 + 22));
+    _emitOverhang([
+      {x:lipX+2, y:roofY},
+      {x:cx+50, y:roofY},
+      {x:cx+50, y:clampY(roofY-30)},
+      {x:lipX+2, y:clampY(roofY-46)},
+    ]);
+    return v;
+  },
+
+  colonnade_cloister(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const floor = clampY(base + 24);
+    v.push({x:sx+dist*0.10, y:floor});
+    const n = 3 + Math.round(diff*2);
+    const spanStart = sx + dist*0.18, spanEnd = sx + dist*0.62;
+    const step = (spanEnd-spanStart)/n;
+    for (let i=0;i<n;i++){
+      const px = spanStart + i*step;
+      const ph = clampY(floor - 36 - 26*diff);
+      v.push({x:px, y:floor});
+      v.push({x:px+8, y:ph});
+      v.push({x:px+step*0.32, y:ph});
+      v.push({x:px+step*0.32+8, y:floor});
+    }
+    const cx = sx + dist*0.80;
+    v.push({x:cx-50, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+50, y:floor});
+    v.push({x:endX, y:floor});
+    const roofY = clampY(floor - (BALL_RADIUS*4 + 22));
+    _emitOverhang([
+      {x:cx-58, y:roofY},
+      {x:cx+58, y:roofY},
+      {x:cx+58, y:clampY(roofY-22)},
+      {x:cx-58, y:clampY(roofY-22)},
+    ]);
+    return v;
+  },
+
+  halfpipe_tube(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const cx = sx + dist*0.55;
+    const floor = clampY(base + 80 + 50*diff);
+    const lipX = sx + dist*0.20;
+    for (let x=sx; x<=cx; x+=14){
+      const t=(x-sx)/(cx-sx);
+      v.push({x, y:clampY(lerp(base, floor, t*t))});
+    }
+    v.push({x:cx-45, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+45, y:floor});
+    for (let x=cx+45; x<=endX; x+=14){
+      const t=(x-(cx+45))/(endX-(cx+45));
+      v.push({x, y:clampY(lerp(floor, base, t*t))});
+    }
+    v.push({x:endX, y:base});
+    const roofY = clampY(floor - (BALL_RADIUS*4 + 22) - 20);
+    _emitOverhang([
+      {x:lipX, y:clampY(base+20)},
+      {x:cx-20, y:roofY},
+      {x:cx-20, y:clampY(roofY-26)},
+      {x:lipX, y:clampY(base-4)},
+    ]);
+    return v;
+  },
+
+  aqueduct_arches(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const deck = clampY(base + 8);
+    const ground = clampY(base + 90 + 30*diff);
+    v.push({x:sx+dist*0.06, y:deck});
+    const n = 3 + Math.round(diff*2);
+    const aS = sx+dist*0.12, aE = sx+dist*0.70;
+    const w = (aE-aS)/n;
+    for (let i=0;i<n;i++){
+      const px=aS+i*w;
+      v.push({x:px, y:deck});
+      v.push({x:px+10, y:ground});
+      v.push({x:px+w*0.30, y:ground});
+      v.push({x:px+w*0.34, y:clampY(ground-30)});
+      v.push({x:px+w*0.50, y:deck});
+      v.push({x:px+w*0.66, y:clampY(ground-30)});
+      v.push({x:px+w*0.70, y:ground});
+      v.push({x:px+w-10, y:ground});
+      v.push({x:px+w, y:deck});
+    }
+    const cx = sx + dist*0.86;
+    v.push({x:cx-50, y:deck});
+    v.push({x:cx, y:deck, cup:true});
+    v.push({x:cx+50, y:deck});
+    v.push({x:endX, y:deck});
+    return v;
+  },
+
+  ziggurat_chamber(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const ground = clampY(base + 40);
+    v.push({x:sx+dist*0.08, y:ground});
+    const tiers = 3;
+    let x = sx+dist*0.10, y = ground;
+    const tw = dist*0.10, th = 30+18*diff;
+    for (let i=0;i<tiers;i++){
+      y=clampY(y-th);
+      v.push({x:x, y:clampY(y+th)});
+      v.push({x:x+10, y});
+      v.push({x:x+tw, y});
+      x+=tw;
+    }
+    const topX=x;
+    v.push({x:topX, y});
+    const floor = clampY(ground - 6);
+    const cx = sx + dist*0.66;
+    v.push({x:topX+14, y:clampY(y+20)});
+    v.push({x:cx-50, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+50, y:floor});
+    v.push({x:cx+70, y:clampY(floor-30)});
+    v.push({x:cx+90, y:ground});
+    v.push({x:endX, y:ground});
+    const roofY = clampY(floor - (BALL_RADIUS*4 + 22));
+    _emitOverhang([
+      {x:cx-56, y:roofY},
+      {x:cx+56, y:roofY},
+      {x:cx+56, y:clampY(roofY-26)},
+      {x:cx-56, y:clampY(roofY-26)},
+    ]);
+    return v;
+  },
+
+  mushroom_rock(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const floor = clampY(base + 40);
+    v.push({x:sx+dist*0.18, y:floor});
+    const cx = sx + dist*0.55;
+    v.push({x:cx-50, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+50, y:floor});
+    v.push({x:cx+70, y:floor});
+    v.push({x:cx+82, y:clampY(floor-50)});
+    v.push({x:cx+96, y:clampY(base)});
+    v.push({x:endX, y:base});
+    const roofY = clampY(floor - (BALL_RADIUS*4 + 22) - 10);
+    const capCx = cx + 78;
+    _emitOverhang([
+      {x:cx-70, y:roofY},
+      {x:capCx-10, y:clampY(roofY-30)},
+      {x:capCx+30, y:clampY(roofY-30)},
+      {x:capCx+30, y:clampY(roofY-58)},
+      {x:cx-70, y:clampY(roofY-50)},
+    ]);
+    return v;
+  },
+
+  cantilever_ledge(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const towerY = clampY(base - 50 - 40*diff);
+    v.push({x:sx+dist*0.14, y:clampY(base-10)});
+    v.push({x:sx+dist*0.28, y:towerY});
+    const boardY = clampY(towerY);
+    v.push({x:sx+dist*0.30, y:boardY});
+    const cx = sx + dist*0.55;
+    v.push({x:cx-45, y:boardY});
+    v.push({x:cx, y:boardY, cup:true});
+    v.push({x:cx+45, y:boardY});
+    v.push({x:cx+58, y:boardY});
+    v.push({x:cx+70, y:clampY(boardY+90)});
+    const lowY = clampY(base + 60);
+    v.push({x:cx+84, y:lowY});
+    v.push({x:endX, y:lowY});
+    return v;
+  },
+
+  sea_arch_lagoon(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const water = clampY(base + 60 + 30*diff);
+    v.push({x:sx+dist*0.16, y:clampY(base+24)});
+    v.push({x:sx+dist*0.30, y:water});
+    const cx = sx + dist*0.50;
+    v.push({x:cx-52, y:water});
+    v.push({x:cx, y:water, cup:true});
+    v.push({x:cx+52, y:water});
+    v.push({x:cx+74, y:water});
+    v.push({x:cx+86, y:clampY(water-50)});
+    v.push({x:cx+100, y:clampY(base+10)});
+    v.push({x:endX, y:base});
+    const roofY = clampY(water - (BALL_RADIUS*4 + 22) - 14);
+    const crown = clampY(roofY - 40);
+    _emitOverhang([
+      {x:sx+dist*0.30, y:roofY},
+      {x:cx, y:crown},
+      {x:cx+90, y:roofY},
+      {x:cx+90, y:clampY(roofY-30)},
+      {x:cx, y:clampY(crown-30)},
+      {x:sx+dist*0.30, y:clampY(roofY-30)},
+    ]);
+    return v;
+  },
+
+  crystal_cluster(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const floor = clampY(base + 50);
+    v.push({x:sx+dist*0.10, y:floor});
+    const cS = sx+dist*0.16, cE = sx+dist*0.50;
+    let x=cS, i=0;
+    while (x < cE){
+      const h = 30 + (i%3)*22 + 30*diff;
+      v.push({x:x, y:floor});
+      v.push({x:x+9, y:clampY(floor-h)});
+      v.push({x:x+18, y:floor});
+      x+=24; i++;
+    }
+    const cx = sx + dist*0.72;
+    v.push({x:cx-52, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+52, y:floor});
+    v.push({x:cx+66, y:clampY(floor-44)});
+    v.push({x:cx+80, y:floor});
+    v.push({x:endX, y:floor});
+    return v;
+  },
+
+  honeycomb_pockets(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const top = clampY(base + 10);
+    v.push({x:sx+dist*0.06, y:top});
+    const n = 4 + Math.round(diff*2);
+    const s = sx+dist*0.10, e = sx+dist*0.78;
+    const w = (e-s)/n;
+    let cupCell = Math.floor(n*0.7);
+    for (let i=0;i<n;i++){
+      const px=s+i*w;
+      const depth = 30 + (i===cupCell ? 30 : i*4) + 24*diff;
+      const cellFloor = clampY(top+depth);
+      v.push({x:px, y:top});
+      if (i===cupCell){
+        v.push({x:px+w*0.18, y:cellFloor});
+        v.push({x:px+w*0.30, y:cellFloor});
+        v.push({x:px+w*0.50, y:cellFloor, cup:true});
+        v.push({x:px+w*0.70, y:cellFloor});
+        v.push({x:px+w*0.82, y:cellFloor});
+      } else {
+        v.push({x:px+w*0.22, y:cellFloor});
+        v.push({x:px+w*0.78, y:cellFloor});
+      }
+      v.push({x:px+w, y:top});
+    }
+    v.push({x:endX, y:top});
+    return v;
+  },
+
+  derelict_hull_ramp(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    v.push({x:sx+dist*0.10, y:clampY(base-30-20*diff)});
+    const holdY = clampY(base + 70 + 40*diff);
+    v.push({x:sx+dist*0.20, y:clampY(base-30-20*diff)});
+    v.push({x:sx+dist*0.55, y:holdY});
+    const cx = sx + dist*0.72;
+    v.push({x:cx-50, y:holdY});
+    v.push({x:cx, y:holdY, cup:true});
+    v.push({x:cx+50, y:holdY});
+    v.push({x:cx+64, y:holdY});
+    v.push({x:cx+74, y:clampY(holdY-50)});
+    v.push({x:cx+86, y:clampY(base-10)});
+    v.push({x:endX, y:clampY(base-10)});
+    return v;
+  },
+
+  radio_dish(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const cx = sx + dist*0.50;
+    const floor = clampY(base + 100 + 40*diff);
+    for (let x=sx; x<=cx; x+=12){
+      const t=(x-sx)/(cx-sx);
+      v.push({x, y:clampY(lerp(base, floor, t*t))});
+    }
+    v.push({x:cx-44, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+44, y:floor});
+    for (let x=cx+44; x<=endX; x+=12){
+      const t=(x-(cx+44))/(endX-(cx+44));
+      v.push({x, y:clampY(lerp(floor, base, t*t))});
+    }
+    v.push({x:endX, y:base});
+    return v;
+  },
+
+  pyramid_temple(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const ground = clampY(base + 20);
+    v.push({x:sx+dist*0.08, y:ground});
+    const steps = 4 + Math.round(diff*2);
+    const sw = (dist*0.40)/steps, sh = 24+10*diff;
+    let x=sx+dist*0.10, y=ground;
+    for (let i=0;i<steps;i++){
+      v.push({x:x, y});
+      y=clampY(y-sh);
+      v.push({x:x+10, y});
+      x+=sw;
+      v.push({x:x, y});
+    }
+    const cx = x + dist*0.06;
+    v.push({x:cx-46, y});
+    v.push({x:cx, y, cup:true});
+    v.push({x:cx+46, y});
+    x=cx+46;
+    for (let i=0;i<steps;i++){
+      v.push({x:x, y});
+      y=clampY(y+sh);
+      v.push({x:x+10, y});
+      x+=sw;
+      v.push({x:x, y});
+    }
+    v.push({x:endX, y:ground});
+    return v;
+  },
+
+  pylon_base(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const ground = clampY(base + 20);
+    v.push({x:sx+dist*0.06, y:ground});
+    const cx = sx + dist*0.24;
+    v.push({x:cx-52, y:ground});
+    v.push({x:cx, y:ground, cup:true});
+    v.push({x:cx+52, y:ground});
+    const tx = sx + dist*0.55;
+    v.push({x:tx-30, y:ground});
+    v.push({x:tx-8, y:clampY(base-80-60*diff)});
+    v.push({x:tx, y:clampY(base-92-60*diff)});
+    v.push({x:tx+8, y:clampY(base-80-60*diff)});
+    v.push({x:tx+30, y:ground});
+    v.push({x:endX, y:ground});
+    return v;
+  },
+
+  dragon_back(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const ridge = clampY(base - 20);
+    v.push({x:sx+dist*0.06, y:ridge});
+    const n = 5 + Math.round(diff*3);
+    const s=sx+dist*0.10, e=sx+dist*0.70, w=(e-s)/n;
+    for (let i=0;i<n;i++){
+      const px=s+i*w;
+      const arc = Math.sin((i/n)*Math.PI);
+      const h = 24 + arc*(40+40*diff);
+      v.push({x:px, y:clampY(ridge - h)});
+      v.push({x:px+w*0.5, y:clampY(ridge)});
+    }
+    const greenY = clampY(base + 40);
+    v.push({x:e+14, y:clampY(ridge+30)});
+    const cx = sx + dist*0.84;
+    v.push({x:cx-48, y:greenY});
+    v.push({x:cx, y:greenY, cup:true});
+    v.push({x:cx+48, y:greenY});
+    v.push({x:endX, y:greenY});
+    return v;
+  },
+
+  piano_keys(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const low = clampY(base + 30);
+    const high = clampY(base - 20 - 30*diff);
+    v.push({x:sx+dist*0.06, y:low});
+    const n = 5 + Math.round(diff*2);
+    const s=sx+dist*0.08, e=sx+dist*0.72, w=(e-s)/n;
+    for (let i=0;i<n;i++){
+      const px=s+i*w;
+      const top = (i%2===0)? high : low;
+      v.push({x:px, y:low});
+      v.push({x:px+6, y:top});
+      v.push({x:px+w-6, y:top});
+      v.push({x:px+w, y:low});
+    }
+    const cx = sx + dist*0.84;
+    v.push({x:cx-48, y:low});
+    v.push({x:cx, y:low, cup:true});
+    v.push({x:cx+48, y:low});
+    v.push({x:endX, y:low});
+    return v;
+  },
+
+  lightning_zigzag(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const lo = clampY(base + 70 + 40*diff);
+    v.push({x:sx+dist*0.16, y:clampY(base+10)});
+    v.push({x:sx+dist*0.22, y:clampY(base-20)});
+    v.push({x:sx+dist*0.34, y:clampY(base+40)});
+    v.push({x:sx+dist*0.40, y:clampY(base+6)});
+    v.push({x:sx+dist*0.52, y:lo});
+    const cx = sx + dist*0.70;
+    v.push({x:cx-50, y:lo});
+    v.push({x:cx, y:lo, cup:true});
+    v.push({x:cx+50, y:lo});
+    v.push({x:endX, y:lo});
+    return v;
+  },
+
+  y_fork_plateau(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const stem = clampY(base + 10);
+    v.push({x:sx+dist*0.10, y:stem});
+    const junc = clampY(base - 30 - 24*diff);
+    v.push({x:sx+dist*0.34, y:junc});
+    v.push({x:sx+dist*0.42, y:clampY(junc+10)});
+    v.push({x:sx+dist*0.50, y:clampY(junc+50)});
+    v.push({x:sx+dist*0.58, y:clampY(junc+10)});
+    const prong = clampY(junc - 14);
+    const cx = sx + dist*0.78;
+    v.push({x:cx-50, y:prong});
+    v.push({x:cx, y:prong, cup:true});
+    v.push({x:cx+50, y:prong});
+    v.push({x:endX, y:prong});
+    return v;
+  },
+
+  undercut_cliff(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    v.push({x:sx+dist*0.20, y:base});
+    const shelfY = clampY(base + 70 + 40*diff);
+    v.push({x:sx+dist*0.26, y:clampY(base+40)});
+    v.push({x:sx+dist*0.32, y:shelfY});
+    const cx = sx + dist*0.52;
+    v.push({x:cx-52, y:shelfY});
+    v.push({x:cx, y:shelfY, cup:true});
+    v.push({x:cx+52, y:shelfY});
+    v.push({x:cx+72, y:shelfY});
+    v.push({x:endX, y:shelfY});
+    const roofY = clampY(shelfY - (BALL_RADIUS*4 + 22) - 6);
+    _emitOverhang([
+      {x:sx+dist*0.30, y:roofY},
+      {x:cx+60, y:roofY},
+      {x:cx+60, y:clampY(roofY-50)},
+      {x:sx+dist*0.30, y:clampY(roofY-70)},
+    ]);
+    return v;
+  },
+
+  gatehouse_bridge(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const ground = clampY(base + 30);
+    const moat = clampY(base + 80 + 30*diff);
+    v.push({x:sx+dist*0.10, y:ground});
+    v.push({x:sx+dist*0.22, y:ground});
+    v.push({x:sx+dist*0.23, y:clampY(base-50-30*diff)});
+    v.push({x:sx+dist*0.30, y:clampY(base-50-30*diff)});
+    v.push({x:sx+dist*0.31, y:ground});
+    v.push({x:sx+dist*0.36, y:moat});
+    const deck = clampY(moat - 10);
+    const cx = sx + dist*0.55;
+    v.push({x:cx-50, y:deck});
+    v.push({x:cx, y:deck, cup:true});
+    v.push({x:cx+50, y:deck});
+    v.push({x:sx+dist*0.74, y:moat});
+    v.push({x:sx+dist*0.78, y:ground});
+    v.push({x:sx+dist*0.79, y:clampY(base-50-30*diff)});
+    v.push({x:sx+dist*0.86, y:clampY(base-50-30*diff)});
+    v.push({x:sx+dist*0.87, y:ground});
+    v.push({x:endX, y:ground});
+    return v;
+  },
+
+  coral_fan(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const floor = clampY(base + 40);
+    v.push({x:sx+dist*0.10, y:floor});
+    const n = 5 + Math.round(diff*3);
+    const s=sx+dist*0.16, e=sx+dist*0.56, w=(e-s)/n;
+    for (let i=0;i<n;i++){
+      const px=s+i*w;
+      const arc=Math.sin((i/(n-1))*Math.PI);
+      const h=20+arc*(50+50*diff);
+      v.push({x:px, y:floor});
+      v.push({x:px+6, y:clampY(floor-h)});
+      v.push({x:px+12, y:floor});
+    }
+    const cx = sx + dist*0.78;
+    v.push({x:cx-50, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+50, y:floor});
+    v.push({x:endX, y:floor});
+    return v;
+  },
+
+  tunnel_mouth(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const floor = clampY(base + 30);
+    v.push({x:sx+dist*0.12, y:floor});
+    const mouthX = sx + dist*0.30;
+    v.push({x:mouthX, y:floor});
+    const cx = sx + dist*0.55;
+    v.push({x:cx-54, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+54, y:floor});
+    const exitX = sx + dist*0.80;
+    v.push({x:exitX, y:floor});
+    v.push({x:endX, y:floor});
+    const roofY = clampY(floor - (BALL_RADIUS*4 + 22));
+    _emitOverhang([
+      {x:mouthX, y:roofY},
+      {x:exitX, y:roofY},
+      {x:exitX, y:clampY(roofY-24)},
+      {x:mouthX, y:clampY(roofY-24)},
+    ]);
+    return v;
+  },
+
+  solar_gantry(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const ground = clampY(base + 70);
+    const deck = clampY(base - 10 - 20*diff);
+    v.push({x:sx+dist*0.10, y:ground});
+    v.push({x:sx+dist*0.18, y:ground});
+    v.push({x:sx+dist*0.22, y:deck});
+    const cx = sx + dist*0.50;
+    v.push({x:cx-54, y:deck});
+    v.push({x:cx, y:deck, cup:true});
+    v.push({x:cx+54, y:deck});
+    v.push({x:sx+dist*0.70, y:deck});
+    v.push({x:sx+dist*0.74, y:ground});
+    v.push({x:sx+dist*0.80, y:ground});
+    v.push({x:sx+dist*0.84, y:deck});
+    v.push({x:endX, y:deck});
+    return v;
+  },
+
+  accordion_fins(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const floor = clampY(base + 30);
+    v.push({x:sx+dist*0.08, y:floor});
+    const n = 4 + Math.round(diff*2);
+    const s=sx+dist*0.12, e=sx+dist*0.62, w=(e-s)/n;
+    const h = 40+30*diff;
+    for (let i=0;i<n;i++){
+      const px=s+i*w;
+      v.push({x:px, y:floor});
+      v.push({x:px+w*0.45, y:clampY(floor-h)});
+      v.push({x:px+w*0.62, y:clampY(floor-h)});
+      v.push({x:px+w*0.66, y:floor});
+    }
+    const cx = sx + dist*0.82;
+    v.push({x:cx-50, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+50, y:floor});
+    v.push({x:endX, y:floor});
+    return v;
+  },
+
+  clamshell_grotto(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const floor = clampY(base + 70 + 40*diff);
+    for (let x=sx; x<=sx+dist*0.44; x+=14){
+      const t=(x-sx)/(dist*0.44);
+      v.push({x, y:clampY(lerp(base+10, floor, Math.sin(t*Math.PI*0.5)))});
+    }
+    const cx = sx + dist*0.54;
+    v.push({x:cx-46, y:floor});
+    v.push({x:cx, y:floor, cup:true});
+    v.push({x:cx+46, y:floor});
+    for (let x=cx+46; x<=endX; x+=14){
+      const t=(x-(cx+46))/(endX-(cx+46));
+      v.push({x, y:clampY(lerp(floor, base+10, Math.sin(t*Math.PI*0.5)))});
+    }
+    v.push({x:endX, y:base});
+    const roofY = clampY(floor - (BALL_RADIUS*4 + 22) - 18);
+    const crown = clampY(roofY - 30);
+    _emitOverhang([
+      {x:sx+dist*0.30, y:clampY(base+20)},
+      {x:cx, y:crown},
+      {x:cx+70, y:roofY},
+      {x:cx+70, y:clampY(roofY-26)},
+      {x:cx, y:clampY(crown-26)},
+      {x:sx+dist*0.30, y:clampY(base-4)},
+    ]);
+    return v;
+  },
+
+  silo_cluster(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const ground = clampY(base + 30);
+    v.push({x:sx+dist*0.08, y:ground});
+    const sh = 50+30*diff;
+    v.push({x:sx+dist*0.14, y:clampY(ground-sh*0.5)});
+    v.push({x:sx+dist*0.20, y:clampY(ground-sh)});
+    v.push({x:sx+dist*0.26, y:clampY(ground-sh*0.5)});
+    const cx = sx + dist*0.42;
+    const saddleY = clampY(ground-10);
+    v.push({x:cx-48, y:saddleY});
+    v.push({x:cx, y:saddleY, cup:true});
+    v.push({x:cx+48, y:saddleY});
+    v.push({x:sx+dist*0.66, y:clampY(ground-sh*0.5)});
+    v.push({x:sx+dist*0.72, y:clampY(ground-sh)});
+    v.push({x:sx+dist*0.78, y:clampY(ground-sh*0.5)});
+    v.push({x:sx+dist*0.84, y:ground});
+    v.push({x:endX, y:ground});
+    return v;
+  },
+
+  spiral_ramp(sx, sy, dist, cupY, diff) {
+    const endX = sx + dist, base = clampY(sy);
+    const v = [{x:sx, y:base}];
+    const ground = clampY(base + 40);
+    v.push({x:sx+dist*0.08, y:ground});
+    const flights = 3 + Math.round(diff*2);
+    let x=sx+dist*0.12, y=ground;
+    const fw=(dist*0.55)/flights, rise=(ground - clampY(base-60-40*diff))/flights;
+    for (let i=0;i<flights;i++){
+      v.push({x:x, y});
+      y=clampY(y-rise);
+      v.push({x:x+fw*0.7, y});
+      v.push({x:x+fw, y});
+      x+=fw;
+    }
+    const cx = x + dist*0.06;
+    v.push({x:cx-46, y});
+    v.push({x:cx, y, cup:true});
+    v.push({x:cx+46, y});
+    v.push({x:cx+58, y:clampY(y+50)});
+    v.push({x:cx+70, y:ground});
+    v.push({x:endX, y:ground});
+    return v;
+  },
 };
 
 // ── Archetype Selection ──────────────────────────────────────
@@ -1942,9 +4820,17 @@ function pickArchetype(difficulty) {
   if (available.length === 0) {
     available = ARCHETYPE_TABLE;
   }
+  // Pool MULTIPLICITY as a weight lever: a course pool may list an archetype more than once to bias toward
+  // it (P3 uses this so 'complex_composite' grows its share with complexity). Count occurrences in the
+  // course pool (default 1 when no pool / not listed) and scale the base weight by it.
+  const _poolMult = (name) => {
+    if (!courseArchetypes) return 1;
+    let n = 0; for (const a of courseArchetypes) if (a === name) n++;
+    return n > 0 ? n : 1;
+  };
   // Apply anti-repetition: halve weight if archetype was used in last 3 holes
   const weights = available.map(([name, , , w]) =>
-    _recentArchetypes.includes(name) ? w * 0.5 : w
+    (_recentArchetypes.includes(name) ? w * 0.5 : w) * _poolMult(name)
   );
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
   let roll = random() * totalWeight;
@@ -2031,6 +4917,133 @@ ARCHETYPE_TABLE.push(['cloud_deck_ascension', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['cloud_break_landing', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['veil_plume_field', 0.0, 5.0, 1]);
 ARCHETYPE_TABLE.push(['ice_crust_rift', 0.0, 5.0, 1]);
+// P3: the multi-feature complexity spine — feature count + drama scale with difficulty.
+ARCHETYPE_TABLE.push(['complex_composite', 0.0, 5.0, 1]);
+// P4: cave / overhang archetypes (designed heightfield floor + an authored solid roof/lip slab).
+ARCHETYPE_TABLE.push(['cup_under_lip', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['putt_cave', 0.0, 5.0, 1]);
+ARCHETYPE_TABLE.push(['arch_under', 0.0, 5.0, 1]);
+
+// ── P5: register the 100+ new archetypes — wrap each in _monoArch (X-monotone) + add to the pool ──
+const P5_ARCHETYPE_CATS = {
+  jagged_rock_fins: 'PEAK_RIDGE',
+  needle_spire_crown: 'PEAK_RIDGE',
+  twin_tower_gateway: 'STRUCTURE',
+  tilted_flatiron: 'PLATEAU_MESA',
+  stepped_pyramid_notch: 'PLATEAU_MESA',
+  layered_cake_butte: 'PLATEAU_MESA',
+  anvil_rock: 'PEAK_RIDGE',
+  domed_knoll_cluster: 'WAVE_ROLLING',
+  table_mountain_saddle: 'PLATEAU_MESA',
+  serrated_comb: 'PEAK_RIDGE',
+  leaning_tower: 'STRUCTURE',
+  crouching_sphinx: 'PEAK_RIDGE',
+  radiating_ridge_fan: 'PEAK_RIDGE',
+  castle_battlement: 'STRUCTURE',
+  hoodoo_field: 'PEAK_RIDGE',
+  cathedral_spires: 'STRUCTURE',
+  shark_fin_ridge: 'PEAK_RIDGE',
+  double_decker_mesa: 'PLATEAU_MESA',
+  matterhorn_col: 'PEAK_RIDGE',
+  slot_mesa_pocket: 'PLATEAU_MESA',
+  ascending_peak_stair: 'PEAK_RIDGE',
+  undercut_mesa: 'PLATEAU_MESA',
+  molar_ridge: 'PEAK_RIDGE',
+  wedge_ramp_mesa: 'PLATEAU_MESA',
+  knife_edge_arete: 'PEAK_RIDGE',
+  split_mesa_chasm: 'PLATEAU_MESA',
+  volcano_crater_cup: 'PEAK_RIDGE',
+  halfpipe_gather: 'BASIN_BOWL',
+  horseshoe_bay: 'BASIN_BOWL',
+  double_bowl_saddle: 'BASIN_BOWL',
+  shallow_saucer_pin: 'BASIN_BOWL',
+  teacup_saucer: 'BASIN_BOWL',
+  kettle_pond: 'BASIN_BOWL',
+  sine_swell_run: 'WAVE_ROLLING',
+  washboard_humps: 'WAVE_ROLLING',
+  smooth_s_curve: 'WAVE_ROLLING',
+  amphitheater_hollow: 'BASIN_BOWL',
+  cloverleaf_bowls: 'BASIN_BOWL',
+  spiral_gather: 'BASIN_BOWL',
+  quilted_dunes: 'WAVE_ROLLING',
+  bermed_basin: 'BASIN_BOWL',
+  river_valley: 'WAVE_ROLLING',
+  caldera_dish: 'BASIN_BOWL',
+  terraced_bowl: 'BASIN_BOWL',
+  scoop_catch: 'BASIN_BOWL',
+  rolling_moguls: 'WAVE_ROLLING',
+  damped_ripple: 'WAVE_ROLLING',
+  funnel_chute: 'BASIN_BOWL',
+  ocean_groundswell: 'WAVE_ROLLING',
+  lilypad_pockets: 'BASIN_BOWL',
+  corduroy_flat: 'WAVE_ROLLING',
+  crescent_dune_bay: 'BASIN_BOWL',
+  chirp_swells: 'WAVE_ROLLING',
+  twin_lobe_valley: 'BASIN_BOWL',
+  billowing_hills: 'WAVE_ROLLING',
+  slot_canyon_carry: 'GAP_CARRY',
+  archipelago_hop: 'GAP_CARRY',
+  broken_bridge_pillar: 'GAP_CARRY',
+  moat_ringed_plateau: 'GAP_CARRY',
+  double_chasm_rest: 'GAP_CARRY',
+  fjord_crossing: 'GAP_CARRY',
+  catwalk_pads: 'GAP_CARRY',
+  leapfrog_risers: 'GAP_CARRY',
+  land_bridge_neck: 'GAP_CARRY',
+  sinkhole_off_tee: 'GAP_CARRY',
+  crevasse_to_clifftop: 'GAP_CARRY',
+  twin_slot_mesa: 'GAP_CARRY',
+  drawbridge_leap: 'GAP_CARRY',
+  keyhole_canyon: 'GAP_CARRY',
+  valley_of_steps: 'STAIR_TERRACE',
+  switchback_ramp: 'STAIR_TERRACE',
+  rice_paddy_terraces: 'STAIR_TERRACE',
+  zigzag_ledge_climb: 'STAIR_TERRACE',
+  stepped_mesa_tier2: 'STAIR_TERRACE',
+  sunken_stadium: 'STAIR_TERRACE',
+  temple_grand_staircase: 'STAIR_TERRACE',
+  dropped_shelf_cascade: 'STAIR_TERRACE',
+  stair_up_cliff_down: 'STAIR_TERRACE',
+  split_level_benches: 'STAIR_TERRACE',
+  pyramid_step_apex: 'STAIR_TERRACE',
+  descending_sump_stairs: 'STAIR_TERRACE',
+  staircase_gap_staircase: 'STAIR_TERRACE',
+  rock_arch_bridge: 'CAVE_OVERHANG',
+  colonnade_cloister: 'STRUCTURE',
+  halfpipe_tube: 'CAVE_OVERHANG',
+  aqueduct_arches: 'STRUCTURE',
+  ziggurat_chamber: 'CAVE_OVERHANG',
+  mushroom_rock: 'CAVE_OVERHANG',
+  cantilever_ledge: 'STRUCTURE',
+  sea_arch_lagoon: 'CAVE_OVERHANG',
+  crystal_cluster: 'EXOTIC',
+  honeycomb_pockets: 'EXOTIC',
+  derelict_hull_ramp: 'STRUCTURE',
+  radio_dish: 'STRUCTURE',
+  pyramid_temple: 'STRUCTURE',
+  pylon_base: 'STRUCTURE',
+  dragon_back: 'EXOTIC',
+  piano_keys: 'EXOTIC',
+  lightning_zigzag: 'EXOTIC',
+  y_fork_plateau: 'EXOTIC',
+  undercut_cliff: 'CAVE_OVERHANG',
+  gatehouse_bridge: 'STRUCTURE',
+  coral_fan: 'EXOTIC',
+  tunnel_mouth: 'CAVE_OVERHANG',
+  solar_gantry: 'STRUCTURE',
+  accordion_fins: 'EXOTIC',
+  silo_cluster: 'STRUCTURE',
+  spiral_ramp: 'EXOTIC',
+};
+for (const _n in P5_ARCHETYPE_CATS) {
+  if (archetypes[_n]) {
+    archetypes[_n] = _monoArch(archetypes[_n]);            // force X-monotone output
+    ARCHETYPE_TABLE.push([_n, 0.0, 5.0, 1]);               // selectable at every difficulty
+  }
+}
+// expose the category map so courses/curation can pick a varied set by silhouette
+if (typeof window !== 'undefined') window.P5_ARCHETYPE_CATS = P5_ARCHETYPE_CATS;
+
 
 // TEST FIXTURE (NOT in any course pool — force via the lab's "⛰ Terrain-pop test hole" button or
 // setArchetypeOverride('strata_test')). A deliberate WORST CASE for the terrain-strata colour pop: a tall peak
@@ -2193,13 +5206,16 @@ function generateHoleTerrain(holeIndex) {
   const archName = _special || pickArchetype(difficulty);
   const archFunc = archetypes[archName];
   const startX = teeX + 40; // small gap after tee
+  _archOverhangSpecs = [];                    // P4: collect any cave/overhang slabs this archetype emits
   let rawVerts = archFunc(startX, teeY, dist, cupTargetY, difficulty);
 
   // No terrain validation — the autogolfer handles all terrain via simulation.
 
   // Add micro-noise: subdivide long segments with subtle perturbations.
   // FACETED courses (Earth, in this port) skip micro-noise so the long straight facets stay clean.
-  const holeVerts = (currentCourse && currentCourse.gen === 'faceted')
+  // 'composed' (the DREAM pipeline, gated to Tau Ceti) ALSO skips it — the holegen skin pass already owns the
+  // faceted noise/terrace, and micro-noise would corrupt the cave/floating flat pads + drop the cup flag.
+  const holeVerts = (currentCourse && (currentCourse.gen === 'faceted' || currentCourse.gen === 'composed'))
     ? rawVerts.map(v => ({ x: v.x, y: clampY(v.y), mat: v.mat, cup: v.cup }))   // preserve archetype-set materials (gom water) + cup-anywhere flag
     : (currentCourse?.noiseFunction || addMicroNoise)(rawVerts, startX, teeY, difficulty);
 
@@ -2262,12 +5278,19 @@ function generateHoleTerrain(holeIndex) {
   // Now place the cup into the terrain at cupX
   placeCup(holeIndex, cupX, teeX, teeY);
   holes[holeIndex].archetype = archName;
-  // Phase 2: overhang set-pieces (the weird 20%) on complex planets — explicit slabs over the heightfield.
-  if (typeof generateOverhangs === 'function' && currentCourse) {
+  // P4: archetype-AUTHORED caves/overhangs (cup-under-lip, putt-in cave, walk-under cantilever). These are
+  // designed slabs the archetype emitted in absolute coords — convert to hole._overhangs (collision + draw).
+  // When an archetype authors its own overhangs we DON'T also roll the random chasm-floaters (would clutter
+  // the designed cave); a cave archetype owns the hole's overhang space.
+  if (_archOverhangSpecs.length && typeof _spEdges === 'function') {
+    holes[holeIndex]._overhangs = _archOverhangSpecs.map(pts => ({ pts, edges: _spEdges(pts) }));
+  } else if (typeof generateOverhangs === 'function' && currentCourse) {
+    // Phase 2: random overhang set-pieces on complex planets — explicit slabs over the heightfield.
     const _oc = (currentCourse.planetComplexity != null) ? currentCourse.planetComplexity
       : ((currentCourse.gomCaves || currentCourse.overhangs) ? difficulty : null);   // overhangs on the solar tour, scaled by hole difficulty
     if (_oc != null) generateOverhangs(holes[holeIndex], _oc);
   }
+  _archOverhangSpecs = [];
   // Phase W: flat water pools in deep basins (water.js, its own system — not terrain). BEFORE cacti so
   // cactus placement can avoid the pools.
   if (typeof placeWater === 'function') placeWater(holeIndex);

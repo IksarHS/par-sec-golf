@@ -98,11 +98,15 @@
     }
     var c = SC.c;
     var dMin = Math.round(420 + c * 120), dMax = Math.round(640 + c * 200);
+    // DREAM pipeline: when a composed/dream_* archetype is locked, drive the course with gen:'composed' so the
+    // holegen skin pass owns the noise (micro-noise would corrupt the cave/floating flat pads + cup flag).
+    var _lockName = SC.archIdx === 0 ? null : ARCH[SC.archIdx];
+    var _isDream = _lockName && (_lockName === 'composed' || _lockName.indexOf('dream_') === 0);
     var course = {
       name: 'Showcase', worldName: 'Generator Showcase', sky: sky,
       defaultMaterial: mat, materials: [mat],
-      gen: 'faceted',
-      archetypes: pool,
+      gen: _isDream ? 'composed' : 'faceted',
+      archetypes: _isDream ? [_lockName] : pool,
       difficultyRange: [c, c],                   // COMPLEXITY as a flat dial
       holeDistMin: dMin, holeDistMax: dMax, holeCount: 1,
       planetComplexity: c,                       // gate overhang set-pieces on the dramatic end
@@ -277,6 +281,17 @@
       });
     }
     SC.ready = true;
+    // DEV hook (showcase-only): drive the viewer deterministically from the browse tool / scripts.
+    // setC/setArch/setMat/setSeed/setLiquid all force a regen; inert in the shipped game (showcase-gated).
+    window.SC_DEV = {
+      setC: function (c) { SC.c = Math.max(0, Math.min(1, +c)); if (els.cval) els.cval.textContent = SC.c.toFixed(2); regen(); },
+      setSeed: function (s) { SC.seed = s | 0; regen(); },
+      setArch: function (name) { var i = ARCH.indexOf(name); SC.archIdx = i < 0 ? 0 : i; if (els.archSel) els.archSel.value = String(SC.archIdx); regen(); },
+      setMat: function (name) { for (var i = 0; i < TERRAINS.length; i++) if (TERRAINS[i][1] === name) { SC.matIdx = i; break; } regen(); },
+      setLiquid: function (i) { SC.liqIdx = i | 0; if (els.liqSel) els.liqSel.value = String(SC.liqIdx); regen(); },
+      state: function () { return { c: SC.c, seed: SC.seed, arch: ARCH[SC.archIdx], mat: TERRAINS[SC.matIdx][1] }; },
+      archetypes: function () { return ARCH.slice(); },
+    };
   }
 
   function selCss() {
