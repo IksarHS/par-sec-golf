@@ -345,7 +345,7 @@ function drawTravel() {
     ctx.fillText('BOOTING  ' + traveling.name.toUpperCase(), W / 2, H / 2 - 12);
     ctx.shadowBlur = 0;
     ctx.fillStyle = hexA(traveling.accent, 0.95); ctx.font = '12px ' + FONT;
-    ctx.fillText('run.html?course=' + traveling.id, W / 2, H / 2 + 16);
+    ctx.fillText('· ' + traveling.id + ' ·', W / 2, H / 2 + 16);
     ctx.restore();
   }
 }
@@ -368,7 +368,13 @@ function update() {
     traveling.t += 0.018;
     if (traveling.t >= 1.15) {
       // navigate the TOP window (in-game overlay iframe) so the whole game reboots into that course.
-      var url = 'run.html?course=' + traveling.id;
+      // Build the URL from the GAME PAGE's OWN location (the top window), swapping only the query — so it
+      // works on the dev server (run.html) AND the production build (index.html, served at the dir root).
+      // Hardcoding 'run.html' 404'd on GitHub Pages, which has no run.html file.
+      var base;
+      try { var _tl = (window.top && window.top !== window.self) ? window.top.location : location; base = _tl.href.split('#')[0].split('?')[0]; }
+      catch (e) { base = 'index.html'; }
+      var url = base + '?course=' + traveling.id;
       if (window.__STARMAP_NO_NAV) { console.log('[starmap] (nav suppressed) ' + url); traveling = null; }
       else {
         try {
