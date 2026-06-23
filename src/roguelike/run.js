@@ -1706,21 +1706,68 @@
       }
       ctx.restore();
     },
-    // Generic course-summary card (placeholder values; not glued to a scorecard design).
+    // REAL after-planet SCORECARD — drawn during the deep-space travel hold. Pulls the live run's
+    // scoring (RG.holeScores / RG.holePars / finalStrokes / runPar) + the all-time best for this body
+    // (RG._lastPScore, recorded by wrap.onTransitionEnd into RG_SCORES). Shows: per-hole strokes-over-par
+    // grid, total strokes, total-vs-par (coloured), and BEST so far (with a NEW BEST flag on a record).
     _drawTravelSummary(ctx, held) {
       if (!ctx) return;
       var a = Math.min(1, held / 240); if (a <= 0.01) return;
-      var w = 260, h = 110, x = W / 2 - w / 2, y = H * 0.20;
       var _cs = (typeof WORLDS !== 'undefined' && WORLDS['run-world']) ? WORLDS['run-world'].courses : null;
-      var _dep = this._travelSeq && this._travelSeq.departCourse;
+      var _dep = (this._travelSeq && this._travelSeq.departCourse) || this.course;
       var from = (_cs && _dep && _cs[_dep] && _cs[_dep].name) ? _cs[_dep].name.toUpperCase()
         : ((this._travelSeq && this._travelSeq.courseId === 'moon') ? 'EARTH' : 'THE MOON');
+
+      // Live run data (the body we just finished). finalStrokes/runPar are stamped at STATE_COMPLETE.
+      var n = this.holeCount || 9;
+      var scores = this.holeScores || [], pars = this.holePars || [];
+      var total = (this.finalStrokes != null ? this.finalStrokes : 0);
+      var par = (this.runPar != null ? this.runPar : 0);
+      var diff = total - par;
+      var vsStr = diff === 0 ? 'E' : (diff > 0 ? '+' + diff : String(diff));
+      var vsCol = diff < 0 ? '#7ad17a' : (diff === 0 ? '#cdd6f5' : '#e6b84a');
+      var ps = (this._lastPScore && this._lastPScore.course === _dep) ? this._lastPScore : null;
+      var best = ps ? ps.best : total;
+      var isNewBest = !!(ps && ps.isNewBest);
+
+      var w = 296, h = 138, x = W / 2 - w / 2, y = H * 0.16;
       ctx.save(); ctx.globalAlpha = a;
-      ctx.fillStyle = 'rgba(14,12,22,0.55)'; ctx.fillRect(x, y, w, h);
-      ctx.textAlign = 'left'; ctx.fillStyle = '#cdd6f5'; ctx.font = '13px "Departure Mono",monospace'; ctx.fillText('COURSE COMPLETE · ' + from, x + 18, y + 26);
-      ctx.fillStyle = '#7ad17a'; ctx.font = '30px "Departure Mono",monospace'; ctx.fillText('-4', x + 18, y + 64);
-      ctx.fillStyle = '#e6b84a'; ctx.font = '14px "Departure Mono",monospace'; ctx.fillText('+$37', x + 18, y + 94);
-      ctx.fillStyle = '#9aa0ab'; ctx.textAlign = 'right'; ctx.fillText('9 / 9 cups', x + w - 18, y + 94);
+      // card
+      ctx.fillStyle = 'rgba(12,10,20,0.66)'; ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = 'rgba(150,165,210,0.30)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      // header
+      ctx.textAlign = 'left'; ctx.fillStyle = '#cdd6f5'; ctx.font = '12px "Departure Mono",monospace';
+      ctx.fillText('SCORECARD · ' + from, x + 16, y + 22);
+      if (isNewBest) {
+        ctx.textAlign = 'right'; ctx.fillStyle = '#f0c860'; ctx.font = '10px "Departure Mono",monospace';
+        ctx.fillText('★ NEW BEST', x + w - 16, y + 22);
+      }
+      // per-hole grid: small boxes, number = strokes, tint = vs par for that hole
+      var gx0 = x + 16, gy = y + 38, cw = (w - 32) / n;
+      ctx.textAlign = 'center'; ctx.font = '10px "Departure Mono",monospace';
+      for (var i = 0; i < n; i++) {
+        var s = scores[i], p = pars[i] || 3;
+        var cx = gx0 + cw * i + cw / 2;
+        // hole label (1..n)
+        ctx.globalAlpha = a * 0.45; ctx.fillStyle = '#8a93a8';
+        ctx.fillText(String(i + 1), cx, gy);
+        // stroke value, coloured by result
+        var col = '#cdd6f5';
+        if (s != null) { var d = s - p; col = d < 0 ? '#7ad17a' : (d === 0 ? '#cdd6f5' : '#e6b84a'); }
+        ctx.globalAlpha = a; ctx.fillStyle = col; ctx.font = '13px "Departure Mono",monospace';
+        ctx.fillText(s != null ? String(s) : '–', cx, gy + 20);
+        ctx.font = '10px "Departure Mono",monospace';
+      }
+      ctx.globalAlpha = a;
+      // divider
+      ctx.strokeStyle = 'rgba(150,165,210,0.18)'; ctx.beginPath(); ctx.moveTo(x + 16, y + 84); ctx.lineTo(x + w - 16, y + 84); ctx.stroke();
+      // totals row: TOTAL n strokes · PAR n  (left) — vs-par big (centre-ish) — BEST (right)
+      ctx.textAlign = 'left'; ctx.font = '11px "Departure Mono",monospace'; ctx.fillStyle = '#9aa0ab';
+      ctx.fillText('TOTAL ' + total + '  ·  PAR ' + par, x + 16, y + 106);
+      ctx.fillStyle = vsCol; ctx.font = '28px "Departure Mono",monospace';
+      ctx.fillText(vsStr, x + 16, y + 132);
+      ctx.textAlign = 'right'; ctx.fillStyle = '#9aa0ab'; ctx.font = '11px "Departure Mono",monospace';
+      ctx.fillText('BEST ' + best, x + w - 16, y + 132);
       ctx.restore();
     },
     _drawTravelBtn(ctx, held) {

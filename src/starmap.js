@@ -20,21 +20,31 @@ var ITIN = (typeof window.SOLAR_ITINERARY !== 'undefined') ? window.SOLAR_ITINER
 var COURSES = (window.WORLDS && WORLDS['run-world']) ? WORLDS['run-world'].courses : {};
 var MATS = window.MATERIALS || {};
 
-// Group the flat itinerary into its 3 SYSTEMS by id prefix → each becomes a "layer" spreading rightward.
-// Sol bodies have plain ids; TRAPPIST-1 ids start 'trappist' or are its named moons; Barnard the rest.
+// Group the flat itinerary into its 6 SYSTEMS by id → each becomes a "layer" spreading rightward.
+// Sol bodies have plain ids; the rest are tagged by their explicit id lists (in itinerary order).
 var TRAPPIST_IDS = ['trappist1h','trappist1g','geryn','trappist1f','fenra','trappist1e','elai','trappist1d','trappist1c','trappist1b','trappist1'];
 var BARNARD_IDS  = ['barnard_e','barnard_d','veil','hollow','ember','tidewell','solace','barnard_b','barnard_star'];
+var KEPLER_IDS   = ['kepler90b','kepler90c','kepler90i','kepler90d','kepler90e','kepler90f','kepler90g','kepler90h','kepler90'];
+var PROXIMA_IDS  = ['proxima_d','proxima_b','wisp','proxima_c','cinder','proxima'];
+var TAUCETI_IDS  = ['tauceti_g','tauceti_h','liss','tauceti_e','caldra','tauceti_f','vesh','tauceti'];
 function systemOf(id) {
   if (TRAPPIST_IDS.indexOf(id) >= 0) return 1;
   if (BARNARD_IDS.indexOf(id) >= 0) return 2;
+  if (KEPLER_IDS.indexOf(id) >= 0) return 3;
+  if (PROXIMA_IDS.indexOf(id) >= 0) return 4;
+  if (TAUCETI_IDS.indexOf(id) >= 0) return 5;
   return 0;
 }
 // Per-system identity: a label, an accent (the gateway/star tint) and a sky band tone for the layer.
 var SYSTEMS = [
-  { key: 'SOL',         label: 'THE SOLAR SYSTEM',  accent: '#7fb2e0', star: '#ffd27a' },
-  { key: 'TRAPPIST-1',  label: 'TRAPPIST-1',         accent: '#e0834f', star: '#ff7a3a' },
-  { key: 'BARNARD',     label: "BARNARD’S STAR", accent: '#d94a1f', star: '#ff5a30' },
+  { key: 'SOL',         label: 'THE SOLAR SYSTEM', accent: '#7fb2e0', star: '#ffd27a' },
+  { key: 'TRAPPIST-1',  label: 'TRAPPIST-1',       accent: '#e0834f', star: '#ff7a3a' },
+  { key: 'BARNARD',     label: "BARNARD’S STAR",   accent: '#d94a1f', star: '#ff5a30' },
+  { key: 'KEPLER-90',   label: 'KEPLER-90',        accent: '#9ad06a', star: '#ffe27a' },
+  { key: 'PROXIMA',     label: 'PROXIMA CENTAURI', accent: '#e06a8a', star: '#ff5a4a' },
+  { key: 'TAU-CETI',    label: 'TAU CETI',         accent: '#5fd0c0', star: '#ffd060' },
 ];
+var NSYS = SYSTEMS.length;
 
 // Resolve a body's land swatch colour (its terrain material colour) for the node icon.
 function landColor(id) {
@@ -61,7 +71,7 @@ function buildGraph() {
   var idxOf = {};            // id -> node index
 
   // group ids by system, preserving itinerary order
-  var groups = [[], [], []];
+  var groups = []; for (var gi0 = 0; gi0 < NSYS; gi0++) groups.push([]);
   for (var i = 0; i < ITIN.length; i++) groups[systemOf(ITIN[i])].push(ITIN[i]);
 
   // Uniform per-body step (≥ widest label) so name + par/score never collide; bands are laid END-TO-END
@@ -70,9 +80,10 @@ function buildGraph() {
   var STEP = 168;            // horizontal spacing between consecutive bodies
   var sysGapX = 300;         // warp gap between a system's last body and the next system's first
   var ox = startX;
-  for (var s = 0; s < 3; s++) {
+  for (var s = 0; s < NSYS; s++) {
     var ids = groups[s];
     var n = ids.length;
+    if (n === 0) continue;                              // a system with no registered bodies (e.g. Tau Ceti peeled off) → skip
     var sysStartIdx = NODES.length;
     for (var k = 0; k < n; k++) {
       var id = ids[k];
@@ -81,7 +92,7 @@ function buildGraph() {
       var spineY = midY + Math.sin(t * Math.PI * 2.1 + s * 1.3) * 78 + (seed(s * 50 + k) - 0.5) * 44;
       var x = ox + k * STEP + (seed(s * 90 + k * 7) - 0.5) * 14;
       var isStar = (k === n - 1);                       // each system ends on its STAR (the finale)
-      var gateway = isStar && s < 2;                    // the star is also the warp gate to the next system
+      var gateway = isStar && s < NSYS - 1;             // the star is also the warp gate to the next system
       NODES.push({ id: id, name: nameOf(id), sysIdx: s, x: x, y: spineY,
                    r: isStar ? 30 : 23, isStar: isStar, gateway: gateway, parent: -1,
                    ord: NODES.length });
@@ -104,15 +115,14 @@ function buildGraph() {
     var maxX = 0; for (var mi = sysStartIdx; mi < NODES.length; mi++) maxX = Math.max(maxX, NODES[mi].x);
     ox = maxX + sysGapX;
   }
-  // wire the warp gates now that all nodes exist
+  // wire the warp gates now that all nodes exist. A star is a gateway to the NEXT NON-EMPTY system
+  // (so a peeled-off / empty system doesn't break the chain). Re-mark gateway by whether a target exists.
   for (var gi = 0; gi < NODES.length; gi++) {
-    if (NODES[gi].gateway) {
-      // find first node of the next system
-      var ns = NODES[gi].sysIdx + 1;
-      for (var nj = 0; nj < NODES.length; nj++) {
-        if (NODES[nj].sysIdx === ns) { EDGES.push({ a: gi, b: nj, branch: false, warp: true }); break; }
-      }
-    }
+    if (!NODES[gi].isStar) continue;
+    var ns = NODES[gi].sysIdx + 1, target = -1;
+    for (var nj = 0; nj < NODES.length; nj++) { if (NODES[nj].sysIdx >= ns) { target = nj; break; } }
+    if (target >= 0) { NODES[gi].gateway = true; EDGES.push({ a: gi, b: target, branch: false, warp: true }); }
+    else { NODES[gi].gateway = false; }
   }
   // parent = the first node that has an edge INTO this one (used for reveal ordering / line draw)
   for (var e = 0; e < EDGES.length; e++) {
@@ -121,28 +131,62 @@ function buildGraph() {
 }
 buildGraph();
 
-// ── Reveal / unlock state ─────────────────────────────────────────────────────────────────────────
-// unlocked = how many nodes (in itinerary order) are lit. node[0] (Earth) is always unlocked. The
-// "current" (you-are-here) node is the last unlocked one. Reveal animates a brief pop on newly-lit nodes.
-var unlocked = 1;                 // Earth only, to start
+// ── Progress state (REAL when available; dev slider otherwise) ──────────────────────────────────────
+// The map reflects ACTUAL progress from RG_SCORES (profile.js): which bodies have a recorded score
+// (PLAYED), which one is the current frontier (the next unplayed body after the furthest played one),
+// and the per-planet score shown on each played node. When RG_SCORES is absent (the bare prototype),
+// it falls back to the old keyboard reveal-slider so starmap.html still demos standalone.
 var TOTAL = NODES.length;
 var revealAnim = [];              // per-node 0..1 pop timer
-for (var ri = 0; ri < TOTAL; ri++) revealAnim.push(ri < unlocked ? 1 : 0);
+var unlocked = 1;                 // dev-slider count (fallback only)
 
+var REAL = !!(window.RG_SCORES && window.RG_SCORES.all);   // are we wired to real progress?
+var played = {};                  // id -> { par, total, best, plays } (real scores)
+var frontierIdx = 0;              // node index of the current "you are here" frontier
+
+// Recompute played-set + frontier from RG_SCORES. The frontier = the body AFTER the furthest played
+// one (the next to play); if nothing is played, Earth (index 0). Everything up to+including the
+// frontier is "unlocked" (reachable); a PLAYED node is replayable; the rest is locked.
+function refreshProgress() {
+  played = {};
+  var furthest = -1;
+  if (REAL) {
+    var all = window.RG_SCORES.all();
+    for (var i = 0; i < TOTAL; i++) {
+      var id = NODES[i].id;
+      if (all[id]) { played[id] = all[id]; furthest = i; }
+    }
+  }
+  frontierIdx = Math.min(TOTAL - 1, furthest + 1);   // next unplayed body (or Earth at start)
+  if (frontierIdx < 0) frontierIdx = 0;
+  // animate pop on every reachable node the first time we see it
+  for (var j = 0; j < TOTAL; j++) {
+    if (j <= frontierIdx && (revealAnim[j] == null || revealAnim[j] === 0)) revealAnim[j] = 0.001;
+  }
+}
+for (var ri = 0; ri < TOTAL; ri++) revealAnim.push(0);
+
+// "unlocked" (reachable + lit) = up to the frontier (real) or the slider count (fallback).
+function unlockedCount() { return REAL ? (frontierIdx + 1) : unlocked; }
+function isUnlocked(i) { return i < unlockedCount(); }
+function isCurrent(i) { return i === (unlockedCount() - 1); }
+function isPlayed(i) { return REAL ? !!played[NODES[i].id] : (i < unlocked - 1); }
+// A node is CLICKABLE to travel if it's reachable (played → replay; frontier → play next).
+function isTravelable(i) { return isUnlocked(i); }
+
+// Dev fallback slider (standalone prototype only; inert when wired to real progress).
 function setReveal(n) {
   n = Math.max(1, Math.min(TOTAL, Math.round(n)));
-  for (var i = 0; i < TOTAL; i++) { if (i < n && revealAnim[i] === 0) revealAnim[i] = 0.001; }   // start its pop
+  for (var i = 0; i < TOTAL; i++) { if (i < n && revealAnim[i] === 0) revealAnim[i] = 0.001; }
   unlocked = n;
   centerOnCurrent(true);
 }
-function isUnlocked(i) { return i < unlocked; }
-function isCurrent(i) { return i === unlocked - 1; }
 
 // ── Camera (the world is wider than the canvas; we pan to keep the action framed) ────────────────────
 var cam = { x: 0, tx: 0 };
 function worldRightOf(i) { return NODES[i] ? NODES[i].x : 0; }
 function centerOnCurrent(animate) {
-  var cur = NODES[unlocked - 1]; if (!cur) return;
+  var cur = NODES[unlockedCount() - 1]; if (!cur) return;
   // Park the current node ~62% across, so the trailing revealed path has room on the LEFT and its
   // labels don't clip against the canvas edge (the pan-clamp the critic flagged).
   cam.tx = Math.max(0, Math.min(cur.x - W * 0.62, worldWidth() - W));
@@ -185,12 +229,12 @@ function rectFromEvt(e) { var b = cv.getBoundingClientRect(); return { sx: (e.cl
 cv.addEventListener('mousemove', function (e) {
   var p = rectFromEvt(e); mouse.x = p.sx; mouse.y = p.sy;
   var i = nodeAt(p.sx, p.sy);
-  mouse.hover = (i >= 0 && isUnlocked(i)) ? i : -1;
+  mouse.hover = (i >= 0 && isTravelable(i)) ? i : -1;
   cv.style.cursor = mouse.hover >= 0 ? 'pointer' : 'default';
 });
 cv.addEventListener('click', function (e) {
   var p = rectFromEvt(e); var i = nodeAt(p.sx, p.sy);
-  if (i >= 0 && isUnlocked(i)) travelTo(i);
+  if (i >= 0 && isTravelable(i)) travelTo(i);
 });
 
 function travelTo(i) {
@@ -380,6 +424,19 @@ function drawNode(i) {
     ctx.restore();
   }
 
+  // PLAYED (not the current frontier): a small replay ring in the corner → "click to replay"
+  if (on && isPlayed(i) && !cur) {
+    ctx.save();
+    ctx.globalAlpha = (mouse.hover === i) ? 0.95 : 0.5;
+    ctx.strokeStyle = '#9ad6c0'; ctx.lineWidth = 1.4;
+    var rcx = bw / 2 - 7, rcy = -bh / 2 + 7;
+    ctx.beginPath(); ctx.arc(rcx, rcy, 4, 0.5, 5.2); ctx.stroke();
+    // arrowhead
+    ctx.beginPath(); ctx.moveTo(rcx + 3.4, rcy - 3.4); ctx.lineTo(rcx + 5.2, rcy - 1.2); ctx.lineTo(rcx + 1.8, rcy - 1.6); ctx.closePath();
+    ctx.fillStyle = '#9ad6c0'; ctx.fill();
+    ctx.restore();
+  }
+
   // LOCKED: padlock glyph centered
   if (!on) {
     ctx.fillStyle = 'rgba(150,165,185,0.6)';
@@ -400,12 +457,27 @@ function drawNode(i) {
   if (on) {
     ctx.fillStyle = cur ? '#fff6df' : '#dce6f2';
     ctx.font = "11px " + FONT;
-    ctx.fillText(nd.name.toUpperCase(), x, labelY);
-    // par/score placeholder
+    // strip the parenthetical / dotted suffix so the node name stays short ("Tau Ceti g")
+    var shortName = String(nd.name).split(' · ')[0].split(' (')[0];
+    ctx.fillText(shortName.toUpperCase(), x, labelY);
+    // ── REAL per-planet score line ──
     ctx.font = "9px " + FONT;
-    ctx.fillStyle = 'rgba(150,180,215,0.7)';
-    var holes = (COURSES[nd.id] && COURSES[nd.id].holeCount) || 9;
-    ctx.fillText(cur ? '▶ YOU ARE HERE' : ('PAR ' + (holes * 3) + ' · ' + holes + ' HOLES'), x, labelY + 13);
+    var rec = isPlayed(i) ? played[nd.id] : null;
+    if (rec) {
+      // PLAYED: show total-vs-par (coloured) + best. e.g. "+2 · BEST 25"
+      var d = (rec.total != null && rec.par != null) ? (rec.total - rec.par) : 0;
+      var vs = d === 0 ? 'E' : (d > 0 ? '+' + d : String(d));
+      var vc = d < 0 ? 'rgba(122,209,122,0.95)' : (d === 0 ? 'rgba(205,214,245,0.9)' : 'rgba(230,184,74,0.95)');
+      ctx.fillStyle = vc;
+      ctx.fillText(vs + '  ·  BEST ' + (rec.best != null ? rec.best : rec.total), x, labelY + 13);
+    } else if (cur) {
+      ctx.fillStyle = 'rgba(255,224,154,0.9)';
+      ctx.fillText('▶ YOU ARE HERE', x, labelY + 13);
+    } else {
+      ctx.fillStyle = 'rgba(150,180,215,0.7)';
+      var holes = (COURSES[nd.id] && COURSES[nd.id].holeCount) || 9;
+      ctx.fillText(holes + ' HOLES', x, labelY + 13);
+    }
   } else {
     ctx.fillStyle = 'rgba(130,145,165,0.45)';
     ctx.font = "10px " + FONT;
@@ -416,7 +488,7 @@ function drawNode(i) {
 
 // you-are-here marker: a small drifting ship/chevron over the current node
 function drawYouAreHere() {
-  var i = unlocked - 1; var nd = NODES[i]; if (!nd) return;
+  var i = unlockedCount() - 1; var nd = NODES[i]; if (!nd) return;
   var x = nd.x - cam.x, y = nd.y - nd.r - 22 + Math.sin(frame * 0.06) * 3;
   ctx.save();
   ctx.translate(x, y);
@@ -433,17 +505,22 @@ function drawHUD() {
   ctx.fillText('STAR MAP', 22, 18);
   ctx.fillStyle = 'rgba(180,200,225,0.55)';
   ctx.font = "11px " + FONT;
-  ctx.fillText('CLICK A PLANET TO TRAVEL', 22, 42);
-  // progress
+  ctx.fillText(REAL ? 'CLICK A PLAYED PLANET TO REPLAY · ESC TO RESUME' : 'CLICK A PLANET TO TRAVEL', 22, 42);
+  // progress — count of PLAYED bodies when wired to real data
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(180,200,225,0.7)';
   ctx.font = "12px " + FONT;
-  ctx.fillText(unlocked + ' / ' + TOTAL + ' UNLOCKED', W - 22, 20);
+  if (REAL) {
+    var np = 0; for (var pi = 0; pi < TOTAL; pi++) if (isPlayed(pi)) np++;
+    ctx.fillText(np + ' / ' + TOTAL + ' PLAYED', W - 22, 20);
+  } else {
+    ctx.fillText(unlocked + ' / ' + TOTAL + ' UNLOCKED', W - 22, 20);
+  }
   // hint
   ctx.textAlign = 'left';
   ctx.fillStyle = 'rgba(150,165,190,0.4)';
   ctx.font = "10px " + FONT;
-  ctx.fillText('[→]/[←] reveal more  ·  drag-free auto-pan follows you', 22, H - 22);
+  ctx.fillText(REAL ? 'auto-pan follows your frontier' : '[→]/[←] reveal more  ·  drag-free auto-pan follows you', 22, H - 22);
   ctx.restore();
 }
 
@@ -523,9 +600,17 @@ function update() {
   cam.x += (cam.tx - cam.x) * 0.12;                 // smooth pan
   for (var i = 0; i < TOTAL; i++) if (revealAnim[i] > 0 && revealAnim[i] < 1) revealAnim[i] = Math.min(1, revealAnim[i] + 0.06);
   if (traveling) { traveling.t += 0.018; if (traveling.t >= 1.15) {
-    // real travel: navigate to the course. (Kept basic but real.)
+    // real travel: boot the chosen body. When this map runs as the IN-GAME overlay (an iframe inside
+    // run.html), navigate the TOP window so the whole game reboots into that course (replaying it) —
+    // navigating just the iframe would orphan the overlay shell. Standalone → navigate normally.
     var url = 'run.html?course=' + traveling.id;
-    if (!window.__STARMAP_NO_NAV) location.href = url; else { console.log('[starmap] (nav suppressed) ' + url); traveling = null; }
+    if (window.__STARMAP_NO_NAV) { console.log('[starmap] (nav suppressed) ' + url); traveling = null; }
+    else {
+      try {
+        if (window.top && window.top !== window.self) window.top.location.href = url;   // in-game overlay iframe → reboot the parent
+        else location.href = url;                                                       // standalone page
+      } catch (e) { location.href = url; }                                              // cross-origin guard (never here, same origin)
+    }
   } }
 }
 
@@ -544,8 +629,11 @@ function loop() { if (auto) { update(); draw(); } requestAnimationFrame(loop); }
 function reset() {
   buildGraph();
   unlocked = 1; TOTAL = NODES.length;
-  revealAnim = []; for (var i = 0; i < TOTAL; i++) revealAnim.push(i < unlocked ? 1 : 0);
+  revealAnim = []; for (var i = 0; i < TOTAL; i++) revealAnim.push(0);
   traveling = null; frame = 0;
+  refreshProgress();
+  // reveal the reachable frontier immediately (no pop) on a cold open so the map reads "settled"
+  for (var j = 0; j < TOTAL; j++) revealAnim[j] = (j <= (REAL ? frontierIdx : unlocked - 1)) ? 1 : 0;
   makeStars();
   centerOnCurrent(false);
   draw();

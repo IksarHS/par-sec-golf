@@ -23,6 +23,10 @@
      shim that defines WORLDS so planet-gen registers, then reads SOLAR_ITINERARY + course data). -->
 <script src="src/starmap-data.js"></script>
 <script src="src/planet-gen.js"></script>
+<!-- META: the per-planet scores store (RG_SCORES). Reads localStorage directly, so when this map
+     runs (standalone OR as the in-game overlay iframe) it shows the player's REAL scores + frontier.
+     Absent → starmap.js falls back to its dev reveal-slider demo. -->
+<script src="src/roguelike/profile.js"></script>
 <script src="src/starmap.js"></script>
 </body>
 </html>

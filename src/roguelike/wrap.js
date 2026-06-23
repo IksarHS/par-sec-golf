@@ -79,6 +79,18 @@
         }
         // Settle the run's earnings (economy.js): tier payouts per hole slot, $1 repeats.
         if (window.RG_ECON) RG_ECON.settleRun();
+        // ── META: record this body's per-planet score (RG_SCORES) for the scorecard + star map.
+        // Surface runs only (not Vault/Fault). Persists total-vs-par + all-time best to localStorage,
+        // sets the resume point, and mirrors the save to the cloud if a backend is configured.
+        // Captured on RG._lastPScore so the travel scorecard can render real numbers + a NEW BEST flag.
+        if (window.RG_SCORES && !RG.inVault && !RG.inFault && RG._surfaceRunOnly && RG._surfaceRunOnly()) {
+          var _pr = RG_SCORES.record(RG.course, RG.finalStrokes, RG.runPar);
+          if (_pr) {
+            RG._lastPScore = { course: RG.course, total: RG.finalStrokes, par: RG.runPar, best: _pr.rec.best, isNewBest: _pr.isNewBest };
+            RG_SCORES.setItinPos(RG.course);
+          }
+          if (window.RG_PROFILE && RG_PROFILE.syncUp) RG_PROFILE.syncUp();
+        }
       }
       if (window.RG) { RG._lastSafe = null; RG._dropTo = null; } // fresh hole -> water reshoots from this tee; no stale prior-hole shot to drop-replay
       // The rare in-course EVENT NODE: arriving at a new tee MAY land on a small event

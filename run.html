@@ -93,6 +93,13 @@
      CONTENT is gated, by window.RG_MINIMAL. -->
 <script>window.RG_MINIMAL = !/[?&](full|secrets)(=|&|$)/.test(location.search);</script>
 <script src="src/roguelike/save.js"></script>
+<!-- META layer (additive, peel-off-able): per-planet scores store + username login + sync-ready
+     cloud client. localStorage-first (works fully offline); POSTs/GETs the save blob to api/save.js
+     only when a backend URL is configured (?sync=URL / window.RG_SYNC_URL / saved). NO email/password. -->
+<script src="src/roguelike/profile.js"></script>
+<!-- Optional username login overlay (peel-off-able). Shown once on a cold boot; "play as guest"
+     or any deep-link (?course=, ?nologin) skips it. NEVER a gate — base game boots regardless. -->
+<script src="src/roguelike/login-ui.js"></script>
 <script src="src/roguelike/modifiers.js"></script>
 <script src="src/roguelike/run.js"></script>
 <script src="src/roguelike/secrets.js"></script>
@@ -106,6 +113,9 @@
 <script src="src/roguelike/ambient.js"></script>
 <script src="src/roguelike/onboard.js"></script>
 <script src="src/roguelike/travel.js"></script>
+<!-- META: in-game STAR MAP launcher — press M / click ✦ MAP to open the real progression map
+     (starmap.html in an overlay) and click a played planet to travel back + replay. Peelable. -->
+<script src="src/roguelike/starmap-ingame.js"></script>
 <script src="src/roguelike/event.js"></script>
 <script src="src/roguelike/terrain.js"></script>
 <script>
