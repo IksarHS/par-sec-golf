@@ -252,8 +252,38 @@ function collideWithObjects() {
   return collided;
 }
 
+// PORTRAIT vertical framing (peel-off): in the tall frame, sit the hole's terrain band in the LOWER
+// portion so there's generous arc headroom above (the whole point of portrait) without a dead empty sky.
+// Targets the hole's mid terrain Y at ~62% of the screen height; clamps so neither tee nor cup leaves
+// the frame. Inert in landscape (only called from the portrait branch of setHoleCamera).
+function setHoleCameraY(hole) {
+  if (typeof terrainYAt !== 'function') { camera.y = 0; return; }
+  let lo = Infinity, hi = -Infinity;
+  for (let x = hole.teeX; x <= hole.cupX; x += 10) { const y = terrainYAt(x); if (y < lo) lo = y; if (y > hi) hi = y; }
+  const cupY = hole.cupY != null ? hole.cupY : hi;
+  const mid = (lo + Math.max(hi, cupY)) / 2;
+  // place the band's mid at ~0.54H — terrain fills a bit more of the tall frame (less dead sky) while
+  // still leaving generous arc headroom above. Keep the lowest point above the frame bottom + highest below top.
+  let cy = mid - H * 0.54;
+  cy = Math.min(cy, lo - H * 0.10);              // don't push the high ground off the top
+  cy = Math.max(cy, Math.max(hi, cupY) - H * 0.94); // keep the deepest point (and cup) in view
+  camera.y = cy;
+}
+
 // ── Camera ─────────────────────────────────────────────────
 function setHoleCamera(hole) {
+  // PORTRAIT MODE (peel-off, inert by default): the narrow phone frame (W~304) can't afford the 120px
+  // landscape margin (it would leave ~60px of play). Centre the whole tee→cup span with even, frame-
+  // proportional padding so the ball isn't jammed against the left edge and the flag reads in-frame.
+  // Gated entirely on RG._portraitCapture (set only under ?portrait) — landscape is byte-identical.
+  if (typeof window !== 'undefined' && window.RG && window.RG._portraitCapture) {
+    // Centre the tee→cup span, then nudge LEFT a touch so the cup/flag (which renders + flutters to the
+    // RIGHT of cupX) clears the frame edge, and the tee keeps a comfortable left thumb margin.
+    const center = (hole.teeX + hole.cupX) / 2;
+    camera.x = center - W / 2 + 14;        // +14: shift view right → flag clears the right edge
+    setHoleCameraY(hole);                  // portrait-tuned vertical framing (below)
+    return;
+  }
   const margin = 120;
   const teeScreenX = margin;
   camera.x = hole.teeX - teeScreenX;
@@ -286,7 +316,10 @@ function isBallInCup() {
   const hole = holes[currentHole];
   if (!hole || hole.cupFilled) return false;
 
-  const inCupX = Math.abs(ball.x - hole.cupX) < CUP_WIDTH / 2;
+  // Portrait mode (peel-off, inert by default): widen the cup-X capture so the bigger phone ball drops
+  // more forgivingly. RG._portraitCapture is undefined in the landscape game → multiplier 1 (unchanged).
+  const cap = (typeof window !== 'undefined' && window.RG && window.RG._portraitCapture) || 1;
+  const inCupX = Math.abs(ball.x - hole.cupX) < (CUP_WIDTH / 2) * cap;
   const belowRim = ball.y > hole.cupY;
   return inCupX && belowRim;
 }
@@ -894,6 +927,21 @@ MODE = {
       const worldName = currentWorld ? currentWorld.name : 'Desert Planet';
       const courseName = currentCourse ? currentCourse.name : '';
       const holeCount = currentCourse ? (currentCourse.holeCount || '?') : '?';
+
+      // PORTRAIT title (peel-off, gated): the narrow phone frame can't fit the 28px name + a redundant
+      // second line. Show ONE compact name (long "Planet · Subname" reduced to the subname, which is the
+      // distinct part) + the hole count, at a size that fits W~304. Inert in landscape.
+      if (typeof window !== 'undefined' && window.RG && window.RG._portraitCapture) {
+        let name = worldName || courseName || '';
+        if (name.indexOf('·') >= 0) name = name.split('·').pop().trim();   // "Kepler-90b · Verdshoal" → "Verdshoal"
+        ctx.font = "20px 'Departure Mono', monospace";
+        ctx.fillText(name, 16, 30);
+        ctx.font = "13px 'Departure Mono', monospace";
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.fillText(holeCount + ' Holes', 16, 50);
+        ctx.textAlign = 'left';
+        return;
+      }
 
       ctx.font = "28px 'Departure Mono', monospace";
       ctx.fillText(worldName, 20, 34);

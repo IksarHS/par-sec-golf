@@ -119,7 +119,7 @@
   //   · the player already has an active username (returning player — boot straight in,
   //     the overlay would just be friction). They can still re-open it (see RG_LOGIN.open).
   function shouldAutoShow() {
-    if (/[?&](nologin|showcase|edit|galaxy|atlas|watersim|dev)\b/.test(location.search)) return false;
+    if (/[?&](nologin|showcase|edit|galaxy|atlas|watersim|dev|portrait)\b/.test(location.search)) return false;   // ?portrait = mobile feel-out, boot straight into play
     if (/[?&](course|gomoon|mars)\b/.test(location.search)) return false;   // explicit body request
     if (window.RG_PROFILE && RG_PROFILE.loggedIn && RG_PROFILE.loggedIn()) return false;
     return true;
