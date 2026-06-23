@@ -273,6 +273,15 @@ a:active{background:#1c2236}.d{color:#8a93a8;font-size:11px}</style></head>
 fs.writeFileSync(path.join(DIST, 'play.html'), hub);
 log('wrote dist/play.html (hub)');
 
+// ── 7. PWA: copy the web-app manifest + icons so the site is installable (Add to Home Screen → fullscreen
+//      portrait app that launches at ?portrait, no login). iOS uses the apple-* meta + apple-touch-icon. ──
+fs.copyFileSync(path.join(ROOT, 'manifest.webmanifest'), path.join(DIST, 'manifest.webmanifest'));
+fs.mkdirSync(path.join(DIST, 'assets', 'icons'), { recursive: true });
+for (const f of fs.readdirSync(path.join(ROOT, 'assets', 'icons'))) {
+  fs.copyFileSync(path.join(ROOT, 'assets', 'icons', f), path.join(DIST, 'assets', 'icons', f));
+}
+log('copied PWA manifest + icons');
+
 // ── report ──
 const distSize = (() => {
   let total = 0;
