@@ -1,9 +1,20 @@
 // ── Display Setup ──────────────────────────────────────────
 function resizeDisplay() {
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
+  let vw = window.innerWidth;
+  let vh = window.innerHeight;
 
-  // Fill entire viewport, scale uniformly based on height
+  // PORTRAIT (mobile feel-out): constrain the canvas to a PHONE-aspect box so DESKTOP shows EXACTLY what a
+  // phone sees (a tall 9:19.5 frame centred with black bars), instead of the full wide window. Gated on
+  // RG._portraitCapture → completely inert in landscape (fills the viewport exactly as before).
+  if (typeof RG !== 'undefined' && RG && RG._portraitCapture) {
+    const PHONE_AR = 19.5 / 9;               // tall phone aspect (iPhone-ish)
+    let bw = Math.min(vw, vh / PHONE_AR);    // largest phone-shaped box that fits the window
+    let bh = bw * PHONE_AR;
+    if (bh > vh) { bh = vh; bw = bh / PHONE_AR; }
+    vw = bw; vh = bh;
+  }
+
+  // Fill the (portrait box, or whole) viewport, scale uniformly based on height
   const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.round(vw * dpr);
   canvas.height = Math.round(vh * dpr);

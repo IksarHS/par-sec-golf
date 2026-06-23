@@ -148,8 +148,8 @@
       'html,body{background:#05060a;}',
       // the phone frame: 9:16, as tall as the viewport allows (minus safe-area insets), centred.
       '#c{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);',
-      '  height:min(100svh, calc((100vw - env(safe-area-inset-left) - env(safe-area-inset-right)) * 16 / 9));',
-      '  width:calc(var(--ph,0px) * 9 / 16);',
+      '  height:min(100svh, calc((100vw - env(safe-area-inset-left) - env(safe-area-inset-right)) * 19.5 / 9));',
+      '  width:calc(var(--ph,0px) * 9 / 19.5);',
       '  max-width:100vw;max-height:100svh;',
       '  border-radius:18px;box-shadow:0 0 0 2px rgba(255,255,255,0.04),0 24px 60px rgba(0,0,0,0.6);}',
       // HUD: top-of-frame, clear of a notch via safe-area inset; centred-ish for a thumb-held phone.
@@ -158,7 +158,7 @@
       // MAP chip: anchor to the TOP-RIGHT of the centred phone frame (not the desktop viewport corner),
       // give it a real ~44px tap target (padding), and inset from the edge + safe area.
       '#rg-map-chip{top:calc(50% - (var(--ph,0px) / 2) + env(safe-area-inset-top,0px) + 10px) !important;',
-      '  right:calc(50% - (var(--ph,0px) * 9 / 32) + 8px) !important;',
+      '  right:calc(50% - (var(--ph,0px) * 9 / 39) + 18px) !important;',
       '  font-size:12px !important;padding:9px 11px;margin:-9px -11px;border-radius:8px;}',
     ].join('');
     document.head.appendChild(style);
@@ -174,7 +174,7 @@
     function syncFrame() {
       var vh = window.innerHeight;
       var vw = window.innerWidth;
-      var h = Math.min(vh, (vw) * 16 / 9);
+      var h = Math.min(vh, (vw) * 19.5 / 9);
       document.documentElement.style.setProperty('--ph', h + 'px');
       // Realised safe-area-inset-top in CSS px (0 on desktop/headless). The HUD floors this so it always
       // clears a phone status bar even where the inset reads 0 (PWA standalone sometimes reports 0).
