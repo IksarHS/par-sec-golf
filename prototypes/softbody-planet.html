@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="icon" href="data:,">
+<meta charset="utf-8">
+<title>Par Sec — Soft-Body Planet</title>
+<link rel="preload" href="../assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face{font-family:'Departure Mono';
+  src:url('../assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+      url('../assets/fonts/DepartureMono-Regular.woff') format('woff');
+  font-weight:normal;font-style:normal;font-display:swap;}
+html,body{margin:0;background:#0c0e14;overflow:hidden}
+canvas{display:block}
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+//============================================================================
+//  PAR SEC — SOFT-BODY PLANET  (vanilla 2D canvas, flat-faceted art)
+//
+//  BOTH the ball AND the terrain are soft-body jelly.
+//   • Ball  = Verlet ring (spoke + skin springs + internal pressure) — ported
+//             from the weird-golf study. Squashes on impact, jiggles, settles.
+//             Drawn as a smooth Catmull-Rom blob, white + 3 dimples.
+//   • Terrain = a height-field of control points, EACH a 1-D spring-mass:
+//             pulled toward a rest profile, coupled to neighbours (waves),
+//             damped (settles). Poke it and it wobbles; during the hole
+//             transition the whole field goes JELLY and flows to a new shape.
+//   • HOOK: sink the ball -> ball drops & shrinks -> terrain goes jelly,
+//             ripples, and MORPHS to a brand-new hole; cup slides to its new
+//             dip; ball respawns on a fresh tee. The wobbling transition is
+//             the signature moment.
+//============================================================================
+
+var cv = document.getElementById('c'), ctx = cv.getContext('2d'), W = 960, H = 540;
+var FONT = function(px){ return px + "px 'Departure Mono', monospace"; };
+
+// ---- world constants ----
+var N        = 16;          // soft-body ring particles
+var NH       = 23;          // terrain control points — sparse => big visible flat facets
+var WORLD_W  = 200;         // world units the terrain spans
+var STEP     = WORLD_W/(NH-1);
+var BALL_R   = 3.4;         // soft-body rest radius (world units)
+
+// ---- physics tunables (ported / tuned from the study) ----
+var GRAV     = 320;         // gravity: putts arc LOW and land quickly
+var DAMP     = 0.991;       // ring velocity damping
+var SPRING   = 0.40;        // SOFT structural stiffness -> the ring visibly squashes & wobbles
+var PRESS    = 1.55;        // high internal pressure keeps it inflated/round between hits
+var REST     = 0.42;        // restitution (bounce — visible squash on each contact)
+var FRIC     = 0.70;        // tangential retention (roll / grip) — lower = rolls more
+var SUB      = 4;           // physics substeps / frame
+var ITER     = 8;           // fewer iterations -> springier (more jiggle, less rigid)
+var PUTT_MAG = 0.62;        // impulse/substep at full power. NOTE: velocity ≈ mag*SUB*60 u/s,
+                            // so 0.62 -> ~150 u/s full power: short putts that stay near the ground.
+
+// ---- terrain jelly tunables ----
+var T_STIFF  = 120.0;       // pull of each point toward its rest/target height
+var T_COUPLE = 90.0;        // neighbour coupling (wave propagation)
+var T_DAMP   = 4.2;         // velocity damping (so it settles)
+var T_MORPHK = 9.0;         // how fast the *target* slides during normal play
+var T_MORPHK_JELLY = 3.0;   // SLOWER target slide during the morph -> clay flows visibly
+
+// ---- art palette (slate/rock from the spec, deep-space) ----
+var PAL = {
+  fill:'#46505e', shade:'#3a424e', lip:'#5d6a7a',
+  cupDark:'#11161e', pole:'#7888a0', flag:'#e8c840', flagNum:'#4a3520'
+};
+
+var ball, terrain, cam, game, stars, frame, auto;
+
+//----------------------------------------------------------------- terrain
+// height-field where each control point is a 1-D spring-mass (Verlet velocity),
+// pulled toward `target[]`, coupled to its neighbours, and damped. This is what
+// makes the ground WOBBLE when struck and FLOW (with overshoot) during a morph.
+function newTerrain(seed){
+  var t = { h:new Float32Array(NH), v:new Float32Array(NH),
+            rest:new Float32Array(NH), target:new Float32Array(NH),
+            dipX:0.7, dipXTarget:0.7, jelly:0 };       // jelly: 0..1 wobble enable
+  genProfile(t.rest, seed, t);
+  t.h.set(t.rest); t.target.set(t.rest);
+  t.dipXTarget = t.dipX;
+  return t;
+}
+function genProfile(out, seed, meta){
+  // a few sines + a putting "green" dip — the dip is the cup location.
+  var s = seed*12.9898;
+  var r = function(){ s = Math.sin(s)*43758.5453; return s-Math.floor(s); };
+  var a1=8+r()*10, a2=4+r()*7, a3=2+r()*3;
+  var f1=0.5+r()*0.9, f2=1.3+r()*1.4, f3=2.4+r()*2.0;
+  var p1=r()*6.283, p2=r()*6.283, p3=r()*6.283;
+  var base=26+r()*6;
+  var dipX=0.50+r()*0.34, dipW=0.05+r()*0.03, dipD=12+r()*7;
+  // per-vertex angular jitter — gives sharp facet KINKS (flat-faceted house style:
+  // varied straight chords, not a smooth sine). Each control point gets its own kick.
+  var js=seed*7.13+3.7;
+  var jr=function(){ js=Math.sin(js)*43758.5453; return (js-Math.floor(js)); };
+  for(var i=0;i<NH;i++){
+    var tt=i/(NH-1);
+    var h=base + a1*Math.sin(f1*tt*6.283+p1) + a2*Math.sin(f2*tt*6.283+p2) + a3*Math.sin(f3*tt*6.283+p3);
+    var dd=(tt-dipX)/dipW;
+    var nearDip=Math.exp(-dd*dd*0.4);                      // influence radius of the cup
+    h += (jr()-0.5)*7.5*(1-nearDip);                       // angular per-vertex kick (not near cup)
+    // flatten a small SHELF around the cup, then carve the dip into it -> the cup
+    // always sits on level ground (good for the ball AND the carved notch read).
+    var shelfH = base - 4;                                 // shelf reference height
+    h = h*(1-nearDip) + shelfH*nearDip;
+    h -= dipD*Math.exp(-dd*dd);                            // carve the cup dip
+    out[i]=Math.max(7,h);
+  }
+  if(meta) meta.dipX = dipX;
+}
+function terrainHeight(x){
+  // LINEAR interp between control points => flat faceted chords, and physics that
+  // exactly matches what we draw (ball rests ON the visible surface).
+  var fx=Math.min(NH-1,Math.max(0,x/STEP));
+  var i=Math.floor(fx), j=Math.min(i+1,NH-1);
+  var t=fx-i;
+  return terrain.h[i]+(terrain.h[j]-terrain.h[i])*t;
+}
+function terrainField(x,y){
+  var h=terrainHeight(x), e=STEP*0.5;
+  var dhdx=(terrainHeight(x+e)-terrainHeight(x-e))/(2*e);
+  var inv=1/Math.sqrt(1+dhdx*dhdx);
+  return { d:(y-h)*inv, nx:-dhdx*inv, ny:inv };
+}
+// the jelly step: spring toward target + neighbour coupling + damping.
+function stepTerrain(dt){
+  var T=terrain;
+  // slide target toward where we're morphing (the *rest* during play, or a new
+  // profile during a transition). dipX slides with it so the cup follows.
+  // During the jelly morph we slide SLOWER so the clay-flow is visible and the
+  // ground keeps wobbling as it travels to the new shape.
+  var mr=Math.min(1,(T.jelly>0.05?T_MORPHK_JELLY:T_MORPHK)*dt);
+  for(var i=0;i<NH;i++) T.target[i]+=(T.rest[i]-T.target[i])*mr;
+  T.dipX += (T.dipXTarget - T.dipX)*mr;
+
+  var stiff = T_STIFF, couple = T_COUPLE, damp = T_DAMP;
+  // jelly>0 boosts coupling (wobbles spread) AND drops damping (wobbles linger)
+  // so the morph flows like clay and ripples for a beat — the signature moment.
+  couple *= (1 + T.jelly*1.6);
+  damp   *= (1 - T.jelly*0.55);
+  for(var i=0;i<NH;i++){
+    var hl = i>0 ? T.h[i-1] : T.h[i];
+    var hr = i<NH-1 ? T.h[i+1] : T.h[i];
+    var accel = stiff*(T.target[i]-T.h[i])           // pull to target shape
+              + couple*((hl-T.h[i])+(hr-T.h[i]));     // neighbour coupling -> waves
+    T.v[i] += accel*dt;
+    T.v[i] *= Math.exp(-damp*dt);                     // settle
+    T.h[i] += T.v[i]*dt;
+    if(T.h[i]<5){ T.h[i]=5; if(T.v[i]<0) T.v[i]*=-0.3; }
+  }
+  if(T.jelly>0) T.jelly=Math.max(0, T.jelly - dt*0.42);
+}
+// poke the terrain (the ball striking it / impact ripple)
+function pokeTerrain(x, impulse){
+  var fx=Math.min(NH-1,Math.max(0,x/STEP));
+  var ci=Math.round(fx);
+  for(var i=0;i<NH;i++){
+    var dd=Math.abs(i-ci);
+    var fall=Math.exp(-dd*dd*0.10);
+    if(fall>0.01) terrain.v[i] += impulse*fall;
+  }
+}
+
+//----------------------------------------------------------------- soft body ball
+function newBall(x,y){
+  var b={ cx:x,cy:y,pcx:x,pcy:y,
+          rx:new Float32Array(N), ry:new Float32Array(N),
+          px:new Float32Array(N), py:new Float32Array(N),
+          R:BALL_R, restArea:0, restChord:0, spin:0, scale:1, _lx:x,_ly:y,
+          _pvy:0, sq:0, sqv:0, _gx:1, _gy:0 };       // sq=squash amount, sqv=its velocity (jiggle)
+  for(var i=0;i<N;i++){ var a=i/N*Math.PI*2;
+    b.rx[i]=x+Math.cos(a)*b.R; b.ry[i]=y+Math.sin(a)*b.R; b.px[i]=b.rx[i]; b.py[i]=b.ry[i]; }
+  b.restArea=Math.PI*b.R*b.R;
+  b.restChord=2*b.R*Math.sin(Math.PI/N);
+  return b;
+}
+function ballCentroid(b){ var x=0,y=0; for(var i=0;i<N;i++){x+=b.rx[i];y+=b.ry[i];} return {x:x/N,y:y/N}; }
+function ballArea(b){ var A=0; for(var i=0;i<N;i++){var j=(i+1)%N; A+=b.rx[i]*b.ry[j]-b.rx[j]*b.ry[i];} return 0.5*A; }
+function ballSpeed(b){ var c=ballCentroid(b); return Math.hypot(c.x-b._lx, c.y-b._ly); }
+function addImpulse(b,vx,vy){ for(var i=0;i<N;i++){ b.px[i]-=vx; b.py[i]-=vy; } b.pcx-=vx; b.pcy-=vy; }
+
+function collide(b,x,y,px,py){
+  var f=terrainField(x,y);
+  if(f.d<0){
+    x-=f.nx*f.d; y-=f.ny*f.d;
+    var vx=x-px, vy=y-py;
+    var vn=vx*f.nx+vy*f.ny;
+    var tx=vx-vn*f.nx, ty=vy-vn*f.ny;
+    tx*=FRIC; ty*=FRIC;
+    var nb=-REST*vn;
+    vx=tx+nb*f.nx; vy=ty+nb*f.ny;
+    px=x-vx; py=y-vy;
+    // transfer impact into the jelly ground (only meaningful downward hits)
+    if(vn < -0.25) pokeTerrain(x, vn*0.55);
+  }
+  return [x,y,px,py];
+}
+
+function stepBall(b,dt){
+  var g=GRAV;
+  for(var i=0;i<N;i++){
+    var vx=(b.rx[i]-b.px[i])*DAMP, vy=(b.ry[i]-b.py[i])*DAMP;
+    b.px[i]=b.rx[i]; b.py[i]=b.ry[i];
+    b.rx[i]+=vx; b.ry[i]+=vy-g*dt*dt;
+  }
+  { var vx=(b.cx-b.pcx)*DAMP, vy=(b.cy-b.pcy)*DAMP;
+    b.pcx=b.cx; b.pcy=b.cy; b.cx+=vx; b.cy+=vy-g*dt*dt; }
+
+  for(var it=0;it<ITER;it++){
+    // spokes ring<->centre
+    for(var i=0;i<N;i++){
+      var dx=b.rx[i]-b.cx, dy=b.ry[i]-b.cy;
+      var L=Math.hypot(dx,dy)||1e-6, diff=(L-b.R)/L*0.5*SPRING;
+      var ox=dx*diff, oy=dy*diff;
+      b.rx[i]-=ox; b.ry[i]-=oy; b.cx+=ox; b.cy+=oy;
+    }
+    // skin ring<->ring
+    for(var i=0;i<N;i++){
+      var j=(i+1)%N;
+      var dx=b.rx[j]-b.rx[i], dy=b.ry[j]-b.ry[i];
+      var L=Math.hypot(dx,dy)||1e-6, diff=(L-b.restChord)/L*0.5*SPRING;
+      var ox=dx*diff, oy=dy*diff;
+      b.rx[i]+=ox; b.ry[i]+=oy; b.rx[j]-=ox; b.ry[j]-=oy;
+    }
+    // internal pressure (area preservation) -> bouncy inflated feel
+    if(PRESS>0){
+      var defl=(b.restArea-ballArea(b));
+      for(var i=0;i<N;i++){
+        var j=(i+1)%N;
+        var ex=b.rx[j]-b.rx[i], ey=b.ry[j]-b.ry[i];
+        var len=Math.hypot(ex,ey)||1e-6;
+        var nx=ey/len, ny=-ex/len;
+        var fp=defl*PRESS*0.0009*len;
+        b.rx[i]+=nx*fp; b.ry[i]+=ny*fp; b.rx[j]+=nx*fp; b.ry[j]+=ny*fp;
+      }
+    }
+    for(var i=0;i<N;i++){
+      var r=collide(b,b.rx[i],b.ry[i],b.px[i],b.py[i]);
+      b.rx[i]=r[0];b.ry[i]=r[1];b.px[i]=r[2];b.py[i]=r[3];
+    }
+    var rc=collide(b,b.cx,b.cy,b.pcx,b.pcy);
+    b.cx=rc[0];b.cy=rc[1];b.pcx=rc[2];b.pcy=rc[3];
+  }
+  // accumulate roll spin from horizontal travel (for the dimples)
+  var c=ballCentroid(b);
+  var velx=(c.x-b._lx), vely=(c.y-b._ly);
+  b.spin += velx/Math.max(b.R,0.5);
+  // IMPACT SQUASH: when the centroid's downward speed is suddenly arrested by the
+  // ground, kick a squash that then springs back with a decaying jiggle. This is
+  // a render amplifier on top of the real ring deformation — guarantees a juicy splat.
+  var f=terrainField(c.x,c.y);
+  var near = f.d < b.R*1.6;
+  // world Y is up: falling => vely<0. On impact the ground arrests it, so vely
+  // jumps UP (less negative / positive). The size of that jump = impact strength.
+  // Only count it as an impact if the ball WAS moving downward (avoids the launch
+  // impulse and uphill rolls triggering a false squash).
+  var arrest = vely - b._pvy;                          // >0 when downward motion is arrested
+  if(near && b._pvy < -0.02 && arrest > 0.02){
+    b.sqv -= Math.min(0.95, arrest*7.5);               // squash impulse (negative = flatten)
+    b._gx = f.nx; b._gy = f.ny;                        // squash along the surface normal
+  }
+  // squash spring (per substep): sq eases back to 0 with overshoot -> the jiggle.
+  // Soft restoring + light damping so it wobbles for ~3-4 frames, then settles.
+  b.sqv += (0 - b.sq)*0.55;                            // restoring (springy)
+  b.sqv *= 0.90;                                       // light damping -> visible wobbles
+  b.sq  += b.sqv;
+  b.sq   = Math.max(-0.55, Math.min(0.32, b.sq));
+  b._pvy = vely;
+  b._lx=c.x; b._ly=c.y;
+}
+
+//----------------------------------------------------------------- camera
+function newCam(x,y){ return {x:x,y:y,zoom:34,zoomT:34}; }
+function updateCamera(dt){
+  // during the sink/morph the camera holds on the cup so the jelly transition
+  // stays framed (the ball is teleporting/shrinking — don't let it yank zoom).
+  if(game.state==='sinking' || game.state==='jellymorph'){
+    var cup=cupWorld();
+    var k2=1-Math.exp(-3*dt);
+    cam.x+=(cup.x-cam.x)*k2; cam.y+=((cup.y+8)-cam.y)*k2;
+    cam.zoomT=38; cam.zoom+=(cam.zoomT-cam.zoom)*(1-Math.exp(-3*dt));
+    var cc=ballCentroid(ball); cam._lx=cc.x; cam._ly=cc.y;
+    return;
+  }
+  var c=ballCentroid(ball);
+  var vx=c.x-(cam._lx==null?c.x:cam._lx), vy=c.y-(cam._ly==null?c.y:cam._ly);
+  var tx=c.x+vx*7, ty=c.y+vy*5;
+  var k=1-Math.exp(-6*dt);
+  cam.x+=(tx-cam.x)*k; cam.y+=(ty-cam.y)*k;
+  var spd=Math.hypot(vx,vy)/Math.max(dt,1e-4);
+  cam.zoomT=34*(1+0.30*Math.min(1.2,spd*0.006));      // gentle pull-back (keep squash visible)
+  cam.zoom+=(cam.zoomT-cam.zoom)*(1-Math.exp(-4*dt));
+  cam._lx=c.x; cam._ly=c.y;
+}
+// world<->screen (zoom = world units half-height visible-ish; bigger zoom = further out)
+function wToS(wx,wy){
+  var aspect=W/H;
+  var ndcx=(wx-cam.x)/(cam.zoom*aspect), ndcy=(wy-cam.y)/cam.zoom;
+  return { x:(ndcx*0.5+0.5)*W, y:(1-(ndcy*0.5+0.5))*H };
+}
+function sToW(sx,sy){
+  var aspect=W/H;
+  var ndcx=(sx/W)*2-1, ndcy=-((sy/H)*2-1);
+  return { x:cam.x+ndcx*cam.zoom*aspect, y:cam.y+ndcy*cam.zoom };
+}
+function worldScale(){ return (0.5*W)/(cam.zoom*W/H); }  // px per world unit (x)
+
+//----------------------------------------------------------------- game loop
+function cupWorld(){ var hx=terrain.dipX*WORLD_W; return {x:hx, y:terrainHeight(hx)}; }
+
+function reset(){
+  game={ hole:1, par:3, strokes:0, state:'play', t:0, sinkFrom:null,
+         banner:'', bannerT:0, seed:3, msg:'drag back from the ball to putt' };
+  terrain=newTerrain(game.seed);
+  var tee=WORLD_W*0.14;
+  ball=newBall(tee, terrainHeight(tee)+18);
+  cam=newCam(tee, terrainHeight(tee)+6); cam._lx=tee; cam._ly=ball.cy;
+  stars=[]; for(var i=0;i<78;i++) stars.push({x:Math.random(),y:Math.random(),
+    b:(i%5===0)?2:1, c:(i%5===0)?'rgba(190,210,255,0.85)':'rgba(255,255,255,0.45)'});
+  frame=0; aiming=false; aimStart=null; aimNow=null;
+}
+
+function nextHoleSeed(){ game.seed++; return game.seed; }
+
+// ----- SINK -> MORPH -> NEW HOLE sequence -----
+// states: play -> sinking (ball drops/shrinks) -> jellymorph (ground flows) -> play
+function startSink(){
+  if(game.state!=='play') return;
+  game.state='sinking'; game.t=0;
+  var c=ballCentroid(ball); game.sinkFrom={x:c.x,y:c.y};
+  game.banner='SUNK!  hole '+game.hole+' in '+game.strokes+(game.strokes<=game.par?'  ✓':'');
+  game.bannerT=2.4;
+}
+function updateSink(dt){
+  game.t+=dt;
+  var dur=0.55, tt=Math.min(1,game.t/dur), e=tt*tt;
+  var cup=cupWorld();
+  var cx=game.sinkFrom.x+(cup.x-game.sinkFrom.x)*e;
+  var cy=game.sinkFrom.y+((cup.y-ball.R*1.5)-game.sinkFrom.y)*e;
+  ball.cx=cx; ball.cy=cy; ball.pcx=cx; ball.pcy=cy;
+  for(var i=0;i<N;i++){ var a=i/N*Math.PI*2, rr=ball.R*(1-tt*0.85);
+    ball.rx[i]=cx+Math.cos(a)*rr; ball.ry[i]=cy+Math.sin(a)*rr;
+    ball.px[i]=ball.rx[i]; ball.py[i]=ball.ry[i]; }
+  ball.scale=1-tt*0.85;
+  // keep the local ground wobbling as the ball plops in
+  if(tt>0.3 && tt<0.55) pokeTerrain(cup.x, -10);
+  if(tt>=1) startMorph();
+}
+function startMorph(){
+  game.state='jellymorph'; game.t=0;
+  // generate the next hole into rest[] and kick the WHOLE field into jelly:
+  var meta={};
+  genProfile(terrain.rest, nextHoleSeed(), meta);
+  terrain.dipXTarget = meta.dipX;
+  terrain.jelly = 1.0;                                 // boost coupling -> clay flow
+  // a BIG ripple: kick the whole field so the ground heaves and wobbles before
+  // flowing to the new shape — emanating outward from the cup (the signature moment).
+  var ci = Math.round((terrain.dipX*WORLD_W)/STEP);
+  for(var i=0;i<NH;i++){
+    var w = Math.sin(i/(NH-1)*Math.PI);                // dome envelope
+    var d = Math.abs(i-ci);
+    var rip = Math.cos(d*0.55) * Math.exp(-d*0.06);    // radiating ripple from the cup
+    terrain.v[i] += (10 + 26*w)*0.5 + 34*rip;          // heave + travelling wave
+  }
+  game._morphWave2 = 0.28;                             // schedule a second wave for extra life
+}
+function updateMorph(dt){
+  game.t+=dt;
+  // a second travelling wave partway through keeps the clay alive a beat longer.
+  if(game._morphWave2!=null && game.t>=game._morphWave2){
+    game._morphWave2=null;
+    var ci=Math.round((terrain.dipX*WORLD_W)/STEP);
+    for(var i=0;i<NH;i++){ var d=Math.abs(i-ci);
+      terrain.v[i] += Math.cos(d*0.5)*Math.exp(-d*0.07)*20*(d%2?-1:1); }
+  }
+  // finish only once the clay has reached the new shape AND mostly calmed —
+  // and never before a minimum so the reshape always reads as a moment.
+  var maxErr=0, maxVel=0;
+  for(var i=0;i<NH;i++){
+    maxErr=Math.max(maxErr, Math.abs(terrain.h[i]-terrain.rest[i]));
+    maxVel=Math.max(maxVel, Math.abs(terrain.v[i]));
+  }
+  if(game.t>1.7 && maxErr<1.4 && maxVel<7) finishHole();
+  if(game.t>3.4) finishHole();                          // hard cap
+}
+function finishHole(){
+  game.hole++; game.strokes=0; game.state='play';
+  var tee=WORLD_W*0.14;
+  ball=newBall(tee, terrainHeight(tee)+16);
+  cam._lx=tee; cam._ly=ball.cy;
+}
+
+function checkSink(dt){
+  var c=ballCentroid(ball), cup=cupWorld();
+  var dx=cup.x-c.x, dy=cup.y-c.y;
+  var dist=Math.hypot(dx,dy);
+  var spd=ballSpeed(ball)/Math.max(dt,1e-4);
+  // CUP CAPTURE: a slow-ish ball that's near the hole gets gently pulled in
+  // (a real hole lip). Makes putts that get close actually drop — and reliable.
+  if(dist<ball.R*3.5 && spd<70){
+    var pull = (1 - dist/(ball.R*3.5)) * 0.5;       // stronger the closer it is
+    addImpulse(ball, dx*pull*0.04, dy*pull*0.04);
+  }
+  if(dist<ball.R*2.3 && spd<40) game._nearT=(game._nearT||0)+dt; else game._nearT=0;
+  if(game._nearT>0.18) startSink();
+}
+
+//----------------------------------------------------------------- input
+var aiming=false, aimStart=null, aimNow=null;
+cv.addEventListener('pointerdown',function(e){
+  if(game.state!=='play') return;
+  var rect=cv.getBoundingClientRect();
+  var w=sToW((e.clientX-rect.left)*(W/rect.width),(e.clientY-rect.top)*(H/rect.height));
+  var c=ballCentroid(ball);
+  if(Math.hypot(w.x-c.x,w.y-c.y)<ball.R*5){ aiming=true; aimStart=w; aimNow=w; }
+});
+cv.addEventListener('pointermove',function(e){
+  if(!aiming) return;
+  var rect=cv.getBoundingClientRect();
+  aimNow=sToW((e.clientX-rect.left)*(W/rect.width),(e.clientY-rect.top)*(H/rect.height));
+});
+cv.addEventListener('pointerup',function(){
+  if(!aiming) return; aiming=false;
+  if(game.state!=='play') return;
+  var dx=aimStart.x-aimNow.x, dy=aimStart.y-aimNow.y;
+  if(Math.hypot(dx,dy)>0.8){ game.strokes++; addImpulse(ball,dx*0.045,dy*0.045); }
+});
+
+//----------------------------------------------------------------- rendering
+// smooth closed blob through the ring points (Catmull-Rom) -> the metaball look.
+function blobPath(b){
+  var n=N, pts=[];
+  for(var i=0;i<n;i++) pts.push([b.rx[i],b.ry[i]]);
+  ctx.beginPath();
+  var s0=wToS(pts[0][0],pts[0][1]); // start mid first segment
+  var m0=wToS((pts[n-1][0]+pts[0][0])/2,(pts[n-1][1]+pts[0][1])/2);
+  ctx.moveTo(m0.x,m0.y);
+  for(var i=0;i<n;i++){
+    var p1=wToS(pts[i][0],pts[i][1]);
+    var nx=(pts[i][0]+pts[(i+1)%n][0])/2, ny=(pts[i][1]+pts[(i+1)%n][1])/2;
+    var mid=wToS(nx,ny);
+    ctx.quadraticCurveTo(p1.x,p1.y,mid.x,mid.y);        // ring point is the control
+  }
+  ctx.closePath();
+}
+function drawBall(b){
+  var c=ballCentroid(b);
+  var cs=wToS(c.x,c.y);
+  var rpx=ball.R*worldScale()*b.scale;
+  // render-side squash/stretch: flatten ALONG the contact normal, widen across it.
+  // sq<0 = squashed (on impact). The squash axis follows the surface normal so it
+  // flattens correctly on slopes. (world normal y-up -> screen tilt = -slope angle)
+  var sq=b.sq;
+  // screen-space normal direction: world (_gx,_gy) with y flipped for screen
+  var nAng=Math.atan2(-b._gy, b._gx);                 // angle of the surface normal in SCREEN space
+  var along = 1 + sq;                                 // toward ground: <1 when squashed
+  var across= 1 - sq*0.85;                            // perpendicular: bulges out
+  // To scale ALONG nAng: rotate so nAng->x axis, scale x=along y=across, rotate back.
+  function squashTransform(){
+    ctx.translate(cs.x,cs.y);
+    ctx.rotate(nAng); ctx.scale(along, across); ctx.rotate(-nAng);
+    ctx.translate(-cs.x,-cs.y);
+  }
+  ctx.save();
+  squashTransform();
+  blobPath(b);
+  ctx.fillStyle='#fff'; ctx.fill();
+  ctx.restore();
+  // 3 dimples — drawn in the same squashed frame so they ride the deform.
+  ctx.save();
+  squashTransform();
+  ctx.translate(cs.x,cs.y);
+  ctx.rotate(b.spin);
+  ctx.fillStyle='rgba(0,0,0,0.30)';
+  for(var i=0;i<3;i++){ var a=(i/3)*Math.PI*2;
+    ctx.beginPath(); ctx.arc(Math.cos(a)*rpx*0.5, Math.sin(a)*rpx*0.5, rpx*0.18, 0, 6.2832); ctx.fill(); }
+  ctx.restore();
+}
+
+function drawTerrain(){
+  // FLAT-FACETED: straight chords between the actual control points (not a smooth
+  // spline) — so the surface reads as angular facets, our house style. Three tones:
+  //   base fill, a darker side-band just under the lip (depth), a bright lip line.
+  // Sample at each control point that maps on-screen (plus one past each edge).
+  var leftX  = sToW(-12,0).x, rightX = sToW(W+12,0).x;
+  var iL = Math.max(0, Math.floor(leftX/STEP)-1);
+  var iR = Math.min(NH-1, Math.ceil(rightX/STEP)+1);
+  var surf=[];
+  // extend flat past the world's left edge so the planet crust fills the screen
+  if(leftX < 0){ var s0=wToS(leftX, terrain.h[0]); surf.push([s0.x,s0.y]); }
+  for(var i=iL;i<=iR;i++){
+    var wx=i*STEP, wy=terrain.h[i];           // raw control point — gives flat chords
+    var s=wToS(wx,wy);
+    surf.push([s.x,s.y]);
+  }
+  // extend flat past the world's right edge
+  if(rightX > WORLD_W){ var s1=wToS(rightX, terrain.h[NH-1]); surf.push([s1.x,s1.y]); }
+  if(surf.length<2) return;
+
+  // CARVE THE CUP INTO THE SURFACE POLYLINE itself, so the fill AND the bright lip
+  // line both follow the notch (down the left wall, across the floor, up the right
+  // wall). This is what makes it read as cut INTO the rock, not a box stamped on top.
+  if(game.state!=='jellymorph'){
+    var cup=cupWorld();
+    var halfW=ball.R*0.78, cd=Math.max(8, ball.R*1.2*worldScale());
+    var xL=cup.x-halfW, xR=cup.x+halfW;
+    var sL=wToS(xL,terrainHeight(xL)), sR=wToS(xR,terrainHeight(xR));
+    // find where the cup opening sits in the screen polyline and splice the notch in
+    var ns=[];
+    for(var i=0;i<surf.length;i++){
+      var p=surf[i], pn=surf[i+1];
+      ns.push(p);
+      if(pn && p[0]<=sL.x && pn[0]>sL.x){
+        // insert: left rim, down-left wall, floor, up-right wall, right rim
+        ns.push([sL.x, sL.y]);
+        ns.push([sL.x, sL.y+cd]);
+        ns.push([sR.x, sR.y+cd]);
+        ns.push([sR.x, sR.y]);
+        // skip original points that fall inside the cup opening
+        while(i+1<surf.length && surf[i+1][0] < sR.x) i++;
+      }
+    }
+    surf=ns;
+    terrain._cupScreen={sL:sL,sR:sR,cd:cd};   // for the inner-depth pass
+  } else { terrain._cupScreen=null; }
+
+  var BAND=9;                                  // darker side-band thickness (px)
+  function fillBelow(off){
+    ctx.beginPath();
+    ctx.moveTo(surf[0][0], surf[0][1]+off);
+    for(var i=1;i<surf.length;i++) ctx.lineTo(surf[i][0], surf[i][1]+off);
+    ctx.lineTo(surf[surf.length-1][0], H); ctx.lineTo(surf[0][0], H); ctx.closePath();
+  }
+  // darker side band first (sits just beneath the lip), then base fill over it,
+  // leaving the BAND visible as a depth strip right under the surface line.
+  ctx.fillStyle=PAL.shade; fillBelow(0);   ctx.fill();
+  ctx.fillStyle=PAL.fill;  fillBelow(BAND); ctx.fill();
+  // bright top-lip line (flat-faceted chords)
+  ctx.strokeStyle=PAL.lip; ctx.lineWidth=2.5; ctx.lineJoin='miter';
+  ctx.beginPath(); ctx.moveTo(surf[0][0],surf[0][1]);
+  for(var i=1;i<surf.length;i++) ctx.lineTo(surf[i][0],surf[i][1]);
+  ctx.stroke();
+}
+
+function drawCupAndFlag(){
+  var cup=cupWorld();
+  var cs=wToS(cup.x,cup.y);
+  var wpx=worldScale();
+  // The notch geometry + bright lip are already carved INTO the terrain polyline
+  // by drawTerrain (so the lip wraps the walls). Here we only paint the dark
+  // interior + a touch of depth shading, using the screen rect drawTerrain stored.
+  var cscr = terrain._cupScreen;
+  var sL, sR;
+  if(cscr){
+    sL=cscr.sL; sR=cscr.sR; var cd=cscr.cd;
+    ctx.save();
+    // dark interior of the hole (sits above the carved floor, between the walls)
+    ctx.beginPath();
+    ctx.moveTo(sL.x, sL.y);
+    ctx.lineTo(sL.x, sL.y+cd);
+    ctx.lineTo(sR.x, sR.y+cd);
+    ctx.lineTo(sR.x, sR.y);
+    ctx.closePath();
+    ctx.fillStyle=PAL.cupDark; ctx.fill();
+    // DEPTH: a slightly lighter floor band gives the hole volume (not a flat box)
+    var fy=Math.max(sL.y,sR.y)+cd;
+    ctx.fillStyle='rgba(40,48,60,0.9)';
+    ctx.fillRect(sL.x, fy-3, sR.x-sL.x, 3);
+    // near-wall highlight on the sunlit (left) wall
+    ctx.strokeStyle='rgba(150,165,190,0.30)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(sL.x+1.2, sL.y+2); ctx.lineTo(sL.x+1.2, sL.y+cd-2); ctx.stroke();
+    // re-stroke the bright lip down BOTH walls (on top of the dark interior) so the
+    // carve reads at gameplay zoom — the lip clearly turns the corner into the hole.
+    ctx.strokeStyle=PAL.lip; ctx.lineWidth=2.5; ctx.lineJoin='round'; ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(sL.x, sL.y); ctx.lineTo(sL.x, sL.y+cd*0.8);
+    ctx.moveTo(sR.x, sR.y); ctx.lineTo(sR.x, sR.y+cd*0.8);
+    ctx.stroke();
+    ctx.restore();
+  } else {
+    var halfW=ball.R*0.78; sL=wToS(cup.x-halfW,cup.y); sR=wToS(cup.x+halfW,cup.y);
+  }
+  // pole rises from the right rim of the cup
+  var poleH=55, px=sR.x+2;
+  ctx.strokeStyle=PAL.pole; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(px,cs.y); ctx.lineTo(px,cs.y-poleH); ctx.stroke();
+  // pennant (gold pentagon: rect body + triangular point)
+  var fy=cs.y-poleH, bw=22, bh=14, pt=10;
+  ctx.fillStyle=PAL.flag;
+  ctx.beginPath();
+  ctx.moveTo(px,fy);
+  ctx.lineTo(px+bw,fy);
+  ctx.lineTo(px+bw+pt,fy+bh/2);
+  ctx.lineTo(px+bw,fy+bh);
+  ctx.lineTo(px,fy+bh);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle=PAL.flagNum; ctx.font=FONT(10); ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(String(game.hole), px+bw/2, fy+bh/2+0.5);
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+}
+
+function drawAimUI(){
+  if(!(aiming&&aimStart&&aimNow)) return;
+  var c=ballCentroid(ball);
+  var a=wToS(c.x,c.y);
+  var dragX=aimStart.x-aimNow.x, dragY=aimStart.y-aimNow.y;       // launch dir = back from drag
+  // faded start circle
+  ctx.fillStyle='rgba(255,255,255,0.4)';
+  ctx.beginPath(); ctx.arc(a.x,a.y,8,0,6.2832); ctx.fill();
+  // launch line + arrowhead (in the LAUNCH dir)
+  var tip=wToS(c.x+dragX*1.4, c.y+dragY*1.4);
+  ctx.strokeStyle='rgba(255,255,255,0.85)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(tip.x,tip.y); ctx.stroke();
+  var ang=Math.atan2(tip.y-a.y,tip.x-a.x);
+  ctx.beginPath(); ctx.moveTo(tip.x,tip.y);
+  ctx.lineTo(tip.x-Math.cos(ang-0.4)*9, tip.y-Math.sin(ang-0.4)*9);
+  ctx.lineTo(tip.x-Math.cos(ang+0.4)*9, tip.y-Math.sin(ang+0.4)*9);
+  ctx.closePath(); ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.fill();
+  // dark-brown drag dots toward the cursor (DRAG dir)
+  var dn=wToS(aimNow.x,aimNow.y);
+  var ddx=dn.x-a.x, ddy=dn.y-a.y, dl=Math.hypot(ddx,ddy);
+  ctx.fillStyle='rgba(80,70,55,0.5)';
+  for(var d=10; d<dl; d+=10){ var t=d/dl;
+    ctx.beginPath(); ctx.arc(a.x+ddx*t, a.y+ddy*t, 2.5, 0, 6.2832); ctx.fill(); }
+}
+
+function draw(){
+  // deep-space sky
+  var g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#08090f'); g.addColorStop(0.6,'#0f1622'); g.addColorStop(1,'#172534');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  // stars (parallax slower than camera)
+  var px=(cam.x*0.4)%W, py=(cam.y*0.2)%H;
+  for(var i=0;i<stars.length;i++){ var s=stars[i];
+    var x=((s.x*W - px)%W+W)%W, y=((s.y*H + py)%H+H)%H;
+    ctx.fillStyle=s.c; ctx.fillRect(x,y,s.b,s.b);
+  }
+  drawTerrain();
+  drawCupAndFlag();
+  drawBall(ball);
+  drawAimUI();
+
+  // banner (sink / morph)
+  if(game.bannerT>0){
+    ctx.globalAlpha=Math.max(0,Math.min(1,game.bannerT/0.6));
+    ctx.fillStyle='#e8c840'; ctx.font=FONT(26); ctx.textAlign='center';
+    ctx.fillText(game.banner, W/2, H*0.26);
+    ctx.globalAlpha=1; ctx.textAlign='left';
+  }
+  if(game.state==='jellymorph'){
+    ctx.globalAlpha=0.85; ctx.fillStyle='#8ad8a0'; ctx.font=FONT(13); ctx.textAlign='center';
+    ctx.fillText('the planet reshapes…', W/2, H*0.40);
+    ctx.globalAlpha=1; ctx.textAlign='left';
+  }
+
+  // minimal HUD: title + one hint line
+  ctx.fillStyle='#fff'; ctx.font=FONT(13); ctx.textAlign='left';
+  ctx.fillText('PAR SEC · SOFT-BODY PLANET', 20, 26);
+  ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font=FONT(11);
+  ctx.fillText('HOLE '+game.hole+'  ·  PAR '+game.par+'  ·  STROKES '+game.strokes+'   —   '+game.msg, 20, 44);
+}
+
+//----------------------------------------------------------------- step / loop
+function step(){
+  frame++; var dt=1/60;
+  stepTerrain(dt);
+  if(game.state==='sinking'){
+    updateSink(dt);
+  } else if(game.state==='jellymorph'){
+    updateMorph(dt);
+  } else {
+    var sdt=dt/SUB;
+    for(var s=0;s<SUB;s++) stepBall(ball,sdt);
+    checkSink(dt);
+    runAuto();
+  }
+  if(game.bannerT>0) game.bannerT-=dt;
+  updateCamera(dt);
+  draw();
+}
+
+// auto-demo: line up a low putt toward the cup, fire, let it roll & sink, then
+// watch the jelly morph. Calibrated so it usually reaches the cup in 1-2 putts.
+var autoPhase, autoTimer;
+function runAuto(){
+  if(!auto) return;
+  if(autoPhase==null){ autoPhase='wait'; autoTimer=0; }
+  autoTimer++;
+  var c=ballCentroid(ball), cup=cupWorld();
+  var spd=ballSpeed(ball)*60;
+  // safety: if the ball escaped the world (rare), nudge it back toward the tee
+  if(c.x<-10 || c.x>WORLD_W+10 || c.y>200){ var tee=WORLD_W*0.14; ball=newBall(tee,terrainHeight(tee)+14); autoPhase='wait'; autoTimer=0; return; }
+  // demo guarantee: if it's taking too long, tap in so the jelly morph always shows.
+  // teleport the ball onto the cup first so the sink reads naturally.
+  if(game.strokes>=3 && spd<25){
+    var cw=cupWorld(); ball=newBall(cw.x, cw.y+ball.R*1.2);
+    for(var i=0;i<8;i++) for(var s2=0;s2<SUB;s2++) stepBall(ball,(1/60)/SUB);
+    startSink(); autoPhase='wait'; autoTimer=0; return;
+  }
+  if(autoPhase==='wait' && (autoTimer>70 || (autoTimer>26 && spd<6))){
+    var dx=cup.x-c.x;
+    var dir=dx>=0?1:-1, dist=Math.abs(dx);
+    // low launch angle (~22deg) so the ball arcs LOW and rolls to the cup
+    var ang=22;                                      // degrees up from horizontal
+    var pow=Math.min(0.98, 0.34 + dist/150);         // distance-scaled power
+    autoShoot(dir>0?ang:180-ang, pow);
+    autoPhase='rolling'; autoTimer=0;
+  } else if(autoPhase==='rolling'){
+    if(autoTimer>150 || (autoTimer>60 && spd<6)){ autoPhase='wait'; autoTimer=0; }   // settled / retry
+  }
+}
+function autoShoot(angleDeg, power01){
+  var a=angleDeg*Math.PI/180;
+  var mag=power01*PUTT_MAG;
+  game.strokes++;
+  addImpulse(ball, Math.cos(a)*mag, Math.sin(a)*mag);
+}
+
+//----------------------------------------------------------------- headless API
+window.__reset=function(){ reset(); draw(); };
+window.__step=function(){ step(); };
+window.__frame=function(){ return frame; };
+window.__setAuto=function(a){ auto=!!a; if(!auto){autoPhase=null;} };
+window.__shoot=function(angleDeg, power01){
+  if(game.state!=='play') return;
+  var a=angleDeg*Math.PI/180, mag=Math.max(0,Math.min(1,power01))*PUTT_MAG;
+  game.strokes++;
+  addImpulse(ball, Math.cos(a)*mag, Math.sin(a)*mag);
+};
+window.__sink=function(){ startSink(); };
+window.__state=function(){ return game.state; };
+
+//----------------------------------------------------------------- boot
+auto=true;
+reset();          // init BEFORE the loop (else blank first frame)
+draw();
+(function loop(){ if(auto) step(); requestAnimationFrame(loop); })();
+</script>
+</body>
+</html>
+</content>
+</invoke>

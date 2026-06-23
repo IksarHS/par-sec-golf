@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="icon" href="data:,">
+  <meta charset="utf-8">
+  <title>Par Sec — Talking Golf Ball (local LLM caddie)</title>
+  <link rel="preload" href="../assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    @font-face{font-family:'Departure Mono';
+      src:url('../assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+          url('../assets/fonts/DepartureMono-Regular.woff') format('woff');
+      font-weight:normal;font-style:normal;font-display:swap;}
+    html,body{margin:0;background:#0c0e14;overflow:hidden;font-family:'Departure Mono',monospace;color:#cfe0f0}
+    #wrap{position:relative;width:960px;height:540px}
+    canvas{display:block;position:absolute;left:0;top:0}
+    /* HUD overlays */
+    #status{position:absolute;left:14px;top:12px;font-size:11px;line-height:1.5;color:#9fb4cc;
+      white-space:pre;text-shadow:0 1px 2px #000;pointer-events:none}
+    #localbadge{position:absolute;right:14px;top:12px;font-size:11px;color:#2ff07a;text-align:right;
+      text-shadow:0 1px 2px #000;line-height:1.5}
+    /* controls */
+    #ctrls{position:absolute;left:0;bottom:0;width:960px;box-sizing:border-box;padding:12px 14px;
+      display:flex;gap:10px;align-items:center;background:linear-gradient(transparent,rgba(6,8,14,0.86) 38%)}
+    button{font-family:'Departure Mono',monospace;font-size:13px;color:#0c0e14;background:#e8c840;
+      border:0;border-radius:6px;padding:9px 14px;cursor:pointer;letter-spacing:.5px}
+    button:hover{background:#f2d75a}
+    button:disabled{opacity:.4;cursor:default}
+    button.talk{background:#2ff07a}
+    button.talk.rec{background:#ff6a5a;color:#fff}
+    button.ghost{background:#26303c;color:#cfe0f0}
+    #tin{flex:1;font-family:'Departure Mono',monospace;font-size:13px;color:#e8f0fa;background:#161d28;
+      border:1px solid #2a3848;border-radius:6px;padding:9px 11px;outline:none}
+    #tin::placeholder{color:#56697e}
+    #boot{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;
+      width:560px;color:#cfe0f0}
+    #boot h2{font-size:15px;color:#e8c840;margin:0 0 8px;letter-spacing:1px}
+    #boot p{font-size:12px;line-height:1.6;color:#9fb4cc;margin:6px 0}
+    #boot .big{font-size:13px;color:#2ff07a}
+    .bar{width:340px;height:8px;background:#1a2230;border:1px solid #2a3848;border-radius:5px;
+      margin:12px auto 4px;overflow:hidden}
+    .bar > i{display:block;height:100%;width:0%;background:#2ff07a;transition:width .2s}
+    a{color:#7fb0ff}
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c" width="960" height="540"></canvas>
+  <div id="status"></div>
+  <div id="localbadge"></div>
+
+  <div id="boot">
+    <h2>YOUR CADDIE IS LOCAL</h2>
+    <p class="big">No API. No tokens. No cost. The brain runs <b>on your machine</b>.</p>
+    <p>Press <b>LOAD LOCAL BRAIN</b> to download a tiny LLM (WebGPU, cached after first run).<br>
+       Or just start talking — the built-in <b>ball-brain</b> fallback always works.</p>
+    <div class="bar"><i id="bootbar"></i></div>
+    <p id="bootmsg" style="font-size:11px">idle</p>
+  </div>
+
+  <div id="ctrls">
+    <button id="btnLoad" class="ghost">LOAD LOCAL BRAIN</button>
+    <button id="btnTalk" class="talk">HOLD TO TALK</button>
+    <input id="tin" placeholder="…or type to your golf ball and hit Enter">
+    <button id="btnSend" class="ghost">SEND</button>
+  </div>
+</div>
+
+<script>
+/* ───────────────────────────────────────────────────────────────────────────────────────────────
+   PAR SEC — TALKING GOLF BALL (local on-disk LLM caddie)
+   A white dimpled ball CHARACTER in our deep-space, flat-faceted art. It has a face: two eyes that
+   blink, a mouth that animates open/closed while it "speaks", an emotive brow, and an idle bob.
+   Voice loop:  press-to-talk → Web Speech STT → local LLM (WebLLM/WebGPU) → reply → speechSynthesis TTS
+                + a speech bubble.  PERSONALITY: a sassy-but-encouraging caddie golf ball.
+   Graceful fallbacks so it ALWAYS demos:
+     • No WebGPU / model not loaded → built-in rule-based "ball-brain" (canned witty golf banter).
+     • No mic / no SpeechRecognition → the text input box.
+     • speechSynthesis missing → silent, bubble only.
+   Headless hooks for screenshots/GIFs (no mic/model needed):
+     window.__say(text)  – feed text as if spoken; triggers the ball's reply + mouth animation
+     window.__step(n)    – advance n frames (default 1) of the canvas anim
+     window.__frame()     – current frame counter
+     window.__reset()     – reset character + conversation
+     window.__setAuto(b) – enable/disable the rAF loop (false = manual stepping for GIFs)
+     window.__state()     – {speaking, mood, brain, line, frame}
+   ─────────────────────────────────────────────────────────────────────────────────────────────── */
+
+var cv = document.getElementById('c'), ctx = cv.getContext('2d'), W = 960, H = 540;
+var FONT = "'Departure Mono', monospace";
+
+// ── deep-space backdrop (matches _PROTO-SPEC) ──
+var STARS = [];
+(function(){ for(var i=0;i<78;i++){ var b=Math.random()<0.22;
+  STARS.push({x:Math.random()*W, y:Math.random()*H*0.92, r:b?1.6:1,
+    c: b?'rgba(190,210,255,0.85)':'rgba(255,255,255,0.45)', tw:Math.random()*6.283, ts:0.4+Math.random()*0.9}); }
+})();
+
+// ── character / conversation state ──
+var ball, frame, auto, speakQ, speaking, mouthT, blinkT, blinkDur, mood, curLine, bubble;
+var brainMode;      // 'rule' | 'llm-loading' | 'llm'
+var thinking;       // showing a "…" think bubble
+var loadPct, statusMic, statusGPU;
+
+function reset(){
+  ball = { x: W*0.5, y: H*0.50, r: 64, bob: 0, sx:1, sy:1, rot:0 };
+  frame = 0; speakQ = []; speaking = false; mouthT = 0; blinkT = 40; blinkDur = 0;
+  mood = 'happy'; curLine = ''; bubble = {text:'', t:0, full:0};
+  thinking = false;
+  draw();
+}
+
+// ───────────────────────────── THE BALL-BRAIN (rule-based fallback) ─────────────────────────────
+// Sassy-but-encouraging caddie. Keyword-matched canned banter so the proto ALWAYS talks, token-free.
+var BRAIN = {
+  greet:["Well well, look who finally grabbed a club. Let's send one to the next planet, partner.",
+         "Oh good, you're awake. I was getting bored orbiting here. Whaddya need, boss?",
+         "Caddie ball reporting for duty. Point me at the pin and try not to embarrass us."],
+  encourage:["That was almost majestic. ALMOST. Do it again but mean it this time.",
+             "See? You've got hands. Now stop overthinking and let physics do the bragging.",
+             "Beautiful contact. I felt that one in my dimples. Keep that swing, hotshot."],
+  miss:["Ouch. We do not speak of that shot again. Reset, breathe, crush the next one.",
+        "That ball went somewhere brave and stupid. Like you, but we love you. Again.",
+        "Into the void! Bold choice. Wrong, but bold. Let's pretend that was a warm-up."],
+  wind:["Wind's pushing left across the crater — aim a touch right and hit it firm.",
+        "Low gravity out here, partner. Less muscle, more finesse. The ball floats forever."],
+  putt:["Short game, baby. Tap it like you're tipping a robot. Soft hands, soft heart.",
+        "Read the slope, trust the line, and for the love of par, DON'T decelerate."],
+  joke:["Why did the golf ball bring a spacesuit? Same reason you brought that swing — optimism.",
+        "I'd tell you a putting joke but it'd fall just short. Like your last one. Zing."],
+  love:["Aw. I'm a sphere of pure encouragement and mild sarcasm. Now go hit something.",
+        "Stop it, you'll make my dimples blush. Eyes on the pin, sweet-talker."],
+  who:["I'm your caddie ball — half coach, half therapist, fully aerodynamic. And I run RIGHT on your machine. No cloud, no bill.",
+       "Name's Birdie. I live in your browser, I cost zero tokens, and I have opinions about your backswing."],
+  bye:["Go on then. I'll be right here, slowly orbiting and judging gently. Good luck out there.",
+       "Catch you on the back nine, champ. Don't shank it into a black hole."],
+  fallback:["Mm-hm. Sure. Now line it up and swing — talk is cheap, distance is forever.",
+            "I hear you. I also hear the pin calling. Let's make some noise on this rock.",
+            "Bold words for someone who just three-putted a moon. Refocus, partner.",
+            "Love the energy. Channel it into the ball. Big breath — and SEND it."]
+};
+function pick(a){ return a[(Math.random()*a.length)|0]; }
+function ballBrain(t){
+  t = (t||'').toLowerCase();
+  var moodOut = 'happy';
+  function has(){ for(var i=0;i<arguments.length;i++) if(t.indexOf(arguments[i])>=0) return true; return false; }
+  if(has('hi','hello','hey','sup','yo','start')) return r(pick(BRAIN.greet),'happy');
+  if(has('who are you','what are you','your name','who r u','what r u')) return r(pick(BRAIN.who),'proud');
+  if(has('miss','missed','shank','terrible','awful','bad shot','water','sand','out of bounds','ob'))
+    return r(pick(BRAIN.miss),'sad');
+  if(has('nice','great','birdie','eagle','good shot','sweet','perfect','crushed','bomb'))
+    return r(pick(BRAIN.encourage),'proud');
+  if(has('wind','gravity','aim','distance','far','power','how hard')) return r(pick(BRAIN.wind),'think');
+  if(has('putt','green','tap','close','short')) return r(pick(BRAIN.putt),'think');
+  if(has('joke','funny','laugh','make me')) return r(pick(BRAIN.joke),'happy');
+  if(has('love','like you','best','friend','thank','thanks')) return r(pick(BRAIN.love),'happy');
+  if(has('bye','later','quit','stop','done','goodbye')) return r(pick(BRAIN.bye),'sad');
+  if(has('?')) return r("Good question. Answer: hit it hard, hit it true, and trust your caddie. (Me. I'm the caddie.)",'think');
+  return r(pick(BRAIN.fallback),'happy');
+  function r(line,m){ return {text:line, mood:m}; }
+}
+
+// ───────────────────────────── WebLLM (local on-disk LLM) ─────────────────────────────
+var SYSTEM_PROMPT =
+  "You are Birdie, a talking golf ball and the player's personal caddie in a flat-faceted space-golf "+
+  "game called Par Sec. You live ON the player's device — fully local, no internet, no cost. "+
+  "Personality: sassy but genuinely encouraging, warm underneath the snark, quick with a one-liner. "+
+  "You give short, punchy golf-and-space banter. Keep replies to ONE or TWO short sentences, spoken "+
+  "out loud, never use markdown, lists, or emoji. Talk like a wisecracking but loyal coach.";
+var engine = null, llmReady = false, llmBusy = false, history = [];
+
+async function loadLLM(){
+  if(brainMode==='llm-loading' || brainMode==='llm') return;
+  if(!('gpu' in navigator)){ pushBubble("No WebGPU here, partner — sticking with my built-in ball-brain. Still 100% local, still free.", 'think'); return; }
+  brainMode = 'llm-loading';
+  setBoot(true, 'connecting to WebGPU…', 2);
+  document.getElementById('btnLoad').disabled = true;
+  try{
+    var mod = await import('https://esm.run/@mlc-ai/web-llm');
+    // Small model: ~1GB-ish, fully client-side, cached in browser after first download.
+    var MODEL = "Qwen2.5-0.5B-Instruct-q4f16_1-MLC";
+    engine = await mod.CreateMLCEngine(MODEL, {
+      initProgressCallback: function(p){
+        loadPct = p.progress!=null ? Math.round(p.progress*100) : loadPct;
+        setBoot(true, (p.text||'loading model…').slice(0,52), loadPct);
+      }
+    });
+    llmReady = true; brainMode = 'llm';
+    setBoot(false);
+    pushBubble("Local brain online. Genuine neurons, zero dollars. Now let's talk golf, partner.", 'proud');
+  }catch(e){
+    console.warn('WebLLM load failed, using ball-brain:', e && e.message);
+    brainMode = 'rule';
+    setBoot(false);
+    document.getElementById('btnLoad').disabled = false;
+    pushBubble("Couldn't load the big brain — no sweat, my built-in ball-brain's got you. Local and free as ever.", 'happy');
+  }
+}
+
+async function llmReply(userText){
+  history.push({role:'user', content:userText});
+  // keep context short for the tiny model
+  if(history.length>8) history = history.slice(-8);
+  var msgs = [{role:'system', content:SYSTEM_PROMPT}].concat(history);
+  var out = await engine.chat.completions.create({ messages: msgs, temperature: 0.9, max_tokens: 80 });
+  var txt = (out.choices && out.choices[0] && out.choices[0].message.content || '').trim();
+  if(!txt) txt = ballBrain(userText).text;
+  history.push({role:'assistant', content:txt});
+  return txt;
+}
+
+// pick an emotive mood heuristically from the LLM's own words
+function moodFromText(t){
+  t=(t||'').toLowerCase();
+  if(/sorry|ouch|tough|shank|miss|void|drat|oof/.test(t)) return 'sad';
+  if(/nice|great|beautiful|crush|yes|birdie|eagle|proud|let's go/.test(t)) return 'proud';
+  if(/\?|hmm|think|wind|aim|read|slope|consider/.test(t)) return 'think';
+  return 'happy';
+}
+
+// ───────────────────────────── say() — the core interaction ─────────────────────────────
+// Feed it user text. It routes to LLM (if ready) or ball-brain, sets mood, animates the mouth,
+// shows the bubble, and speaks via TTS. Used by mic, by text input, AND by window.__say().
+var saying = false;
+async function say(userText, opts){
+  opts = opts || {};
+  if(!userText) return;
+  // show a quick think bubble
+  thinking = true; mood='think';
+  var replyText, replyMood;
+  if(brainMode==='llm' && llmReady && !llmBusy && !opts.forceRule){
+    llmBusy = true;
+    try { replyText = await llmReply(userText); replyMood = moodFromText(replyText); }
+    catch(e){ var rb=ballBrain(userText); replyText=rb.text; replyMood=rb.mood; }
+    llmBusy = false;
+  } else {
+    var rb = ballBrain(userText); replyText = rb.text; replyMood = rb.mood;
+  }
+  thinking = false;
+  speakLine(replyText, replyMood);
+  speakTTS(replyText);
+}
+
+// queue a spoken line: drives the bubble typewriter + mouth animation
+function speakLine(text, m){
+  mood = m || 'happy';
+  curLine = text;
+  bubble = { text:text, t:0, full: text.length };
+  speaking = true; mouthT = 0;
+  // speaking duration is proportional to text length; tuned so mouth flaps look like speech
+  bubble.speakFrames = Math.max(48, Math.min(280, text.length*2.0));
+  bubble.timer = bubble.speakFrames;
+}
+
+// ───────────────────────────── Web Speech: STT + TTS ─────────────────────────────
+var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+var recog = null, recording = false, ttsOK = ('speechSynthesis' in window);
+function initMic(){
+  if(!SR){ statusMic = 'off (no SpeechRecognition — type instead)'; return false; }
+  recog = new SR(); recog.lang='en-US'; recog.interimResults=false; recog.maxAlternatives=1;
+  recog.onresult = function(ev){ var t = ev.results[0][0].transcript; setTin(t); say(t); };
+  recog.onerror = function(ev){ statusMic = 'mic error: '+ev.error+' (type instead)'; updateStatus(); stopRec(); };
+  recog.onend = function(){ stopRec(); };
+  statusMic = 'ready (hold to talk)';
+  return true;
+}
+function startRec(){ if(!recog) return; try{ recog.start(); recording=true; document.getElementById('btnTalk').classList.add('rec');
+  document.getElementById('btnTalk').textContent='LISTENING…'; mood='think'; }catch(e){} }
+function stopRec(){ recording=false; var b=document.getElementById('btnTalk'); if(b){ b.classList.remove('rec'); b.textContent='HOLD TO TALK'; }
+  try{ recog && recog.stop(); }catch(e){} }
+
+var voicePicked = null;
+function pickVoice(){
+  if(!ttsOK) return; var vs = speechSynthesis.getVoices();
+  // prefer a lively English voice
+  voicePicked = vs.find(v=>/en/i.test(v.lang) && /google|samantha|daniel|zira/i.test(v.name)) || vs.find(v=>/en/i.test(v.lang)) || vs[0] || null;
+}
+function speakTTS(text){
+  if(!ttsOK) return;
+  try{
+    speechSynthesis.cancel();
+    var u = new SpeechSynthesisUtterance(text);
+    if(voicePicked) u.voice = voicePicked;
+    u.rate = 1.06; u.pitch = 1.18;  // a little bright + chirpy for a ball
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+
+// ───────────────────────────── DRAW: the ball character ─────────────────────────────
+function draw(){
+  // sky
+  var g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#08090f'); g.addColorStop(0.5,'#0f1622'); g.addColorStop(1,'#172534');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  // stars
+  for(var i=0;i<STARS.length;i++){ var s=STARS[i];
+    var tw = 0.6 + 0.4*Math.sin(frame*0.03*s.ts + s.tw);
+    ctx.globalAlpha = tw; ctx.fillStyle = s.c;
+    ctx.fillRect(s.x|0, s.y|0, s.r, s.r); }
+  ctx.globalAlpha = 1;
+
+  // a faint flat-faceted horizon arc at the bottom so it sits in OUR world
+  drawHorizon();
+
+  drawBall();
+  drawBubble();
+}
+
+function drawHorizon(){
+  // a slate planet limb curving across the bottom
+  ctx.save();
+  var cy = H + 360, R = 720;
+  ctx.beginPath(); ctx.arc(W/2, cy, R, 0, Math.PI*2);
+  ctx.fillStyle = '#46505e'; ctx.fill();
+  // lighter top lip
+  ctx.beginPath();
+  for(var x=0;x<=W;x+=8){ var dx=x-W/2; var y=cy-Math.sqrt(Math.max(0,R*R-dx*dx)); if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y); }
+  ctx.strokeStyle='#5d6a7a'; ctx.lineWidth=4; ctx.stroke();
+  // a couple of flat facet peaks on the surface
+  ctx.fillStyle='#3a424e';
+  var peaks=[[230,18],[430,12],[610,22],[770,14]];
+  for(var i=0;i<peaks.length;i++){ var px=peaks[i][0], dx=px-W/2, sy=cy-Math.sqrt(Math.max(0,R*R-dx*dx));
+    ctx.beginPath(); ctx.moveTo(px-26,sy); ctx.lineTo(px,sy-peaks[i][1]); ctx.lineTo(px+26,sy); ctx.closePath(); ctx.fill(); }
+  ctx.restore();
+}
+
+function drawBall(){
+  var bx = ball.x, by = ball.y + ball.bob;
+  var R = ball.r;
+  // soft drop shadow on the limb
+  ctx.save();
+  ctx.globalAlpha=0.28; ctx.fillStyle='#000';
+  ctx.beginPath(); ctx.ellipse(bx, by+R+58, R*0.9, R*0.26, 0, 0, 6.2832); ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(bx, by);
+  ctx.scale(ball.sx, ball.sy);
+
+  // body
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath(); ctx.arc(0,0,R,0,6.2832); ctx.fill();
+  // subtle rim shade so it reads round in flat art
+  ctx.save(); ctx.globalAlpha=0.12; ctx.fillStyle='#9fb0c4';
+  ctx.beginPath(); ctx.arc(R*0.22, R*0.22, R, 0, 6.2832); ctx.fill(); ctx.restore();
+
+  // signature dimples — but kept to the edges so they don't fight the face
+  ctx.fillStyle='rgba(0,0,0,0.16)';
+  var dim=[[-0.66,-0.30],[ -0.74,0.22],[0.66,-0.34],[0.74,0.20],[-0.10,0.74],[0.30,0.70],[-0.42,-0.66],[0.46,-0.62]];
+  for(var i=0;i<dim.length;i++){ ctx.beginPath(); ctx.arc(dim[i][0]*R, dim[i][1]*R, R*0.07, 0, 6.2832); ctx.fill(); }
+
+  drawFace(R);
+  ctx.restore();
+}
+
+function drawFace(R){
+  // ── eyes ──
+  var eyeX = R*0.30, eyeY = -R*0.16, eyeR = R*0.115;
+  var blink = blinkDur>0 ? 1 : 0;       // 1 = closed
+  // emotive brow offset by mood
+  var brow = (mood==='sad')? R*0.05 : (mood==='proud')? -R*0.03 : 0;
+  for(var s=-1;s<=1;s+=2){
+    ctx.save(); ctx.translate(s*eyeX, eyeY+brow);
+    if(blink){
+      ctx.strokeStyle='#16202c'; ctx.lineWidth=R*0.05; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(-eyeR,0); ctx.lineTo(eyeR,0); ctx.stroke();
+    } else {
+      // white-of-eye
+      ctx.fillStyle='#1b2530'; ctx.beginPath(); ctx.arc(0,0,eyeR,0,6.2832); ctx.fill();
+      // pupil glances slightly toward center / mood
+      var px = (mood==='think')? -s*eyeR*0.4 : 0, py = (mood==='sad')? eyeR*0.3 : -eyeR*0.1;
+      ctx.fillStyle='#0c0e14'; ctx.beginPath(); ctx.arc(px,py,eyeR*0.55,0,6.2832); ctx.fill();
+      // glint
+      ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.beginPath(); ctx.arc(px-eyeR*0.25,py-eyeR*0.28,eyeR*0.2,0,6.2832); ctx.fill();
+    }
+    ctx.restore();
+  }
+  // ── brows (mood) ──
+  ctx.strokeStyle='#16202c'; ctx.lineWidth=R*0.045; ctx.lineCap='round';
+  for(var s2=-1;s2<=1;s2+=2){
+    ctx.beginPath();
+    var bxL=s2*eyeX - eyeR, bxR=s2*eyeX + eyeR, byTop=eyeY - R*0.30 + brow;
+    if(mood==='proud'){ ctx.moveTo(bxL, byTop+R*0.02); ctx.lineTo(bxR, byTop-R*0.02); }
+    else if(mood==='sad'){ ctx.moveTo(bxL, byTop-R*0.04); ctx.lineTo(bxR, byTop+R*0.05); }
+    else if(mood==='think' && s2<0){ ctx.moveTo(bxL, byTop+R*0.04); ctx.lineTo(bxR, byTop-R*0.05); }
+    else { ctx.moveTo(bxL, byTop); ctx.lineTo(bxR, byTop); }
+    ctx.stroke();
+  }
+
+  // ── mouth ── flaps while speaking; mood shapes the resting curve
+  var my = R*0.34, mw = R*0.34;
+  var open = 0;
+  if(speaking){ open = (0.5 + 0.5*Math.sin(mouthT*0.55)) * R*0.20 + R*0.05; }
+  ctx.fillStyle = '#16202c';
+  ctx.strokeStyle = '#16202c'; ctx.lineWidth=R*0.05; ctx.lineCap='round';
+  if(open>R*0.06){
+    // open mouth — an ellipse, with a tongue dot
+    ctx.beginPath(); ctx.ellipse(0, my, mw*0.8, open, 0, 0, 6.2832); ctx.fill();
+    ctx.fillStyle='#ff7a8a'; ctx.beginPath(); ctx.ellipse(0, my+open*0.35, mw*0.4, open*0.42, 0, 0, 6.2832); ctx.fill();
+  } else {
+    // closed mouth — a curve shaped by mood
+    ctx.beginPath();
+    if(mood==='sad'){ ctx.moveTo(-mw,my+R*0.06); ctx.quadraticCurveTo(0,my-R*0.06,mw,my+R*0.06); }
+    else if(mood==='think'){ ctx.moveTo(-mw*0.6,my); ctx.lineTo(mw*0.5,my-R*0.02); }
+    else { ctx.moveTo(-mw,my-R*0.02); ctx.quadraticCurveTo(0,my+R*0.12,mw,my-R*0.02); } // smile
+    ctx.stroke();
+  }
+
+  // tiny blush when proud/happy
+  if(mood==='proud'||mood==='happy'){
+    ctx.globalAlpha=0.5; ctx.fillStyle='#ff9aa8';
+    ctx.beginPath(); ctx.arc(-R*0.50, R*0.18, R*0.10, 0,6.2832); ctx.fill();
+    ctx.beginPath(); ctx.arc( R*0.50, R*0.18, R*0.10, 0,6.2832); ctx.fill();
+    ctx.globalAlpha=1;
+  }
+}
+
+// ── speech bubble (typewriter) ──
+function wrapText(t, max){
+  var words=t.split(' '), lines=[], cur='';
+  for(var i=0;i<words.length;i++){ var test=cur?cur+' '+words[i]:words[i];
+    if(test.length>max){ if(cur)lines.push(cur); cur=words[i]; } else cur=test; }
+  if(cur)lines.push(cur); return lines;
+}
+function drawBubble(){
+  if(thinking){ drawThink(); return; }
+  if(!bubble.text || bubble.t<=0) return;
+  var shown = bubble.text.slice(0, Math.min(bubble.text.length, Math.ceil(bubble.t)));
+  var lines = wrapText(shown, 30);
+  ctx.font = "15px "+FONT;
+  var pad=14, lh=21, tw=0;
+  for(var i=0;i<lines.length;i++) tw=Math.max(tw, ctx.measureText(lines[i]).width);
+  var bw = tw+pad*2, bh = lines.length*lh + pad*2 - 4;
+  var bx = ball.x + ball.r*1.05, by = ball.y + ball.bob - ball.r - bh*0.5;
+  if(bx+bw > W-16) bx = ball.x - ball.r*1.05 - bw;  // flip to left if off-screen
+  // bubble box
+  roundRect(bx, by, bw, bh, 12); ctx.fillStyle='#f3f7fc'; ctx.fill();
+  ctx.strokeStyle='#26303c'; ctx.lineWidth=2; ctx.stroke();
+  // tail toward ball
+  ctx.beginPath();
+  var tailX = (bx>ball.x)? bx : bx+bw;
+  ctx.moveTo(tailX, by+bh*0.6); ctx.lineTo(ball.x + (bx>ball.x?ball.r*0.6:-ball.r*0.6), ball.y+ball.bob-ball.r*0.2);
+  ctx.lineTo(tailX, by+bh*0.6+16); ctx.closePath(); ctx.fillStyle='#f3f7fc'; ctx.fill(); ctx.stroke();
+  // text
+  ctx.fillStyle='#16202c'; ctx.textBaseline='top';
+  for(var j=0;j<lines.length;j++) ctx.fillText(lines[j], bx+pad, by+pad+j*lh);
+}
+function drawThink(){
+  var bx = ball.x + ball.r*1.05, by = ball.y + ball.bob - ball.r - 34;
+  ctx.font="18px "+FONT; ctx.fillStyle='#f3f7fc';
+  roundRect(bx, by, 64, 34, 12); ctx.fill(); ctx.strokeStyle='#26303c'; ctx.lineWidth=2; ctx.stroke();
+  var n = (frame>>3)%4;
+  ctx.fillStyle='#16202c'; ctx.textBaseline='middle';
+  ctx.fillText('.'.repeat(n+1), bx+16, by+18);
+}
+function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+// ───────────────────────────── STEP (anim tick) ─────────────────────────────
+function step(n){
+  n = n||1;
+  for(var k=0;k<n;k++){
+    frame++;
+    // idle bob + breathing squash
+    ball.bob = Math.sin(frame*0.045)*6;
+    var br = 1 + Math.sin(frame*0.045)*0.012;
+    ball.sx = br; ball.sy = 2-br;
+    // blink cycle
+    if(blinkDur>0){ blinkDur--; }
+    else { blinkT--; if(blinkT<=0){ blinkDur=6; blinkT = 90+((Math.random()*120)|0); } }
+    // speaking mouth + bubble timing
+    if(speaking){
+      mouthT++;
+      // little excited squash while talking
+      ball.sx *= 1+0.02*Math.sin(mouthT*0.55);
+      ball.sy *= 1-0.02*Math.sin(mouthT*0.55);
+      bubble.timer--;
+      if(bubble.t < bubble.full) bubble.t += Math.max(1, bubble.full/Math.max(1,bubble.speakFrames*0.6));
+      if(bubble.timer<=0){ speaking=false; mood = (mood==='think')?'happy':mood; }
+    } else if(bubble.t < bubble.full){ bubble.t = bubble.full; }
+    // bubble lingers after speech, then fades by holding full until next say()
+  }
+  draw();
+  updateStatus();
+}
+
+// ───────────────────────────── status / UI ─────────────────────────────
+function updateStatus(){
+  var gpu = ('gpu' in navigator) ? 'available' : 'OFF (no WebGPU)';
+  var brain = brainMode==='llm' ? ('LOCAL LLM (Qwen2.5-0.5B, cached)')
+            : brainMode==='llm-loading' ? ('loading LLM '+(loadPct||0)+'%')
+            : 'ball-brain (rule-based fallback)';
+  document.getElementById('status').textContent =
+    'BRAIN : '+brain+'\n'+
+    'WebGPU: '+gpu+'\n'+
+    'MIC   : '+(statusMic||'…')+'\n'+
+    'TTS   : '+(ttsOK?'on (speechSynthesis)':'off');
+  document.getElementById('localbadge').innerHTML =
+    '◍ RUNS ON YOUR MACHINE\nNO API · NO TOKENS · $0';
+}
+function setBoot(show, msg, pct){
+  document.getElementById('boot').style.display = show?'block':'none';
+  if(msg!=null) document.getElementById('bootmsg').textContent = msg;
+  if(pct!=null) document.getElementById('bootbar').style.width = pct+'%';
+}
+function pushBubble(text, m){ speakLine(text, m); speakTTS(text); }
+function setTin(t){ document.getElementById('tin').value=t; }
+
+// ───────────────────────────── wiring ─────────────────────────────
+document.getElementById('btnLoad').onclick = loadLLM;
+var bt = document.getElementById('btnTalk');
+bt.onmousedown = function(){ if(SR){ startRec(); } else { document.getElementById('tin').focus(); } };
+bt.onmouseup   = function(){ if(recording) stopRec(); };
+bt.onmouseleave= function(){ if(recording) stopRec(); };
+bt.ontouchstart= function(e){ e.preventDefault(); if(SR) startRec(); };
+bt.ontouchend  = function(e){ e.preventDefault(); if(recording) stopRec(); };
+function sendText(){ var v=document.getElementById('tin').value.trim(); if(!v)return; document.getElementById('tin').value=''; say(v); }
+document.getElementById('btnSend').onclick = sendText;
+document.getElementById('tin').addEventListener('keydown', function(e){ if(e.key==='Enter') sendText(); });
+
+// ───────────────────────────── headless API ─────────────────────────────
+window.__say     = function(t){ say(t); return true; };
+window.__step    = function(n){ step(n||1); return frame; };
+window.__frame   = function(){ return frame; };
+window.__reset   = function(){ history=[]; reset(); setBoot(false); updateStatus(); return true; };
+window.__setAuto = function(b){ auto = !!b; if(auto && !rafOn){ rafOn=true; loop(); } return auto; };
+window.__state   = function(){ return {speaking:speaking, mood:mood, brain:brainMode, line:curLine, frame:frame, bubble:bubble.text}; };
+// expose a deterministic line for screenshots (forces a specific reply without RNG)
+window.__sayLine = function(text, m){ thinking=false; speakLine(text, m||'proud'); speakTTS(text); return true; };
+
+// ───────────────────────────── boot ─────────────────────────────
+var rafOn=false;
+function loop(){ if(!auto){ rafOn=false; return; } step(1); requestAnimationFrame(loop); }
+function boot(){
+  brainMode = 'rule'; loadPct = 0;
+  reset();
+  initMic();
+  if(ttsOK){ pickVoice(); if(speechSynthesis.onvoiceschanged!==undefined) speechSynthesis.onvoiceschanged = pickVoice; }
+  updateStatus();
+  // greeting after a beat
+  setTimeout(function(){ pushBubble(pick(BRAIN.greet), 'happy'); }, 400);
+  auto = true; rafOn=true; loop();
+}
+boot();
+</script>
+</body>
+</html>
