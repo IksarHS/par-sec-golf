@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Par Sec</title>
+<!-- Start the web-font download immediately (before the @font-face rule is parsed) so the
+     loading splash can show its text already in Departure Mono — no fallback->web swap flash. -->
+<link rel="preload" href="assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<!-- Favicon = the in-game ball: white circle + 3 dimples at 0/120/240deg (echoes src/art.js drawBall). -->
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'&gt;&lt;circle cx='8' cy='8' r='6' fill='%23ffffff'/&gt;&lt;circle cx='11.3' cy='8' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='10.86' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='5.14' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;/svg&gt;">
+<style>
+  @font-face {
+    font-family: 'Departure Mono';
+    src: url('assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+         url('assets/fonts/DepartureMono-Regular.woff') format('woff');
+    font-weight: normal; font-style: normal; font-display: swap;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #0e0b12; }
+  body { display: flex; align-items: center; justify-content: center;
+    font-family: 'Departure Mono', monospace; color: #f2ecff; }
+  canvas { display: block; cursor: crosshair; position: relative; z-index: 1; max-width: 100vw; max-height: 100vh; }
+
+  /* ── In-run HUD (top-left; takes over the spot the course title vacates) ── */
+  #rg-hud { position: fixed; top: 16px; left: 22px; z-index: 50; display: none;
+    flex-direction: column; align-items: flex-start; gap: 2px; pointer-events: none; }
+  .rg-hud-hole { font-size: 19px; font-weight: normal; color: rgba(242,236,255,0.82); letter-spacing: 2px;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+  .rg-hud-shards { font-size: 13px; color: #b88cff; text-shadow: 0 1px 3px rgba(0,0,0,0.5); }
+</style>
+</head>
+<body>
+<!-- Loading splash. The dark background paints instantly (no white/blank flash), but the text
+     is held at opacity:0 until Departure Mono is loaded — so it is only ever drawn in the web
+     font, at its final position. No font-display:swap reflow, no font/position jump. -->
+<div id="loading" style="position:fixed;inset:0;background:#0e0b12;z-index:9999;display:flex;align-items:center;justify-content:center;">
+  <span id="loading-text" style="font:48px 'Departure Mono',monospace;color:rgba(242,236,255,0.45);opacity:0;transition:opacity .12s linear;">Loading…</span>
+</div>
+<script>
+  // Reveal the loading text only once the web font is ready (so it never paints in the system
+  // fallback first). A short fallback timer guarantees the text still shows if the font is slow
+  // or unavailable — boot is never blocked on this.
+  (function () {
+    var t = document.getElementById('loading-text');
+    if (!t) return;
+    var shown = false;
+    function show() { if (shown) return; shown = true; t.style.opacity = '1'; }
+    if (document.fonts && document.fonts.load) {
+      document.fonts.load("48px 'Departure Mono'").then(show, show);
+      // Belt-and-suspenders: if the font promise stalls, reveal anyway after 600ms.
+      setTimeout(show, 600);
+    } else {
+      show();
+    }
+  })();
+</script>
+<canvas id="c" style="visibility:hidden;"></canvas>
+
+<!-- In-run HUD (populated by the run controller) -->
+<div id="rg-hud"></div>
+
+
+<!-- ── PRODUCTION BUILD ──────────────────────────────────────────────────────────────────────────
+     Single minified bundle = run.html's runtime scripts concatenated in exact load order (globals
+     preserved; NOT ES-module bundled). Dev-only tooling (editor/lab/perf-hud/cam-debug/showcase/…) is
+     excluded; playtest-bot.js IS kept (RG.bot drives the runtime hole-solvability validator). The flat
+     tour's 2.6 MB sprite PNGs are dropped (unused). All paths RELATIVE → works under a /<repo>/ subpath.
+
+     CLOUD SAVES (optional): set window.RG_SYNC_URL below to your deployed /api/save endpoint to enable
+     cross-device save sync. Unset = localStorage-only (fully playable). See dist/README.md. -->
+<script>
+  // window.RG_SYNC_URL = 'https://<your-app>.vercel.app/api/save';  // ← set to enable cloud saves
+  // RG_MINIMAL: default minimal build (secrets/Codex content gated behind ?full / ?secrets), same as run.html.
+  window.RG_MINIMAL = !/[?&](full|secrets)(=|&|$)/.test(location.search);
+</script>
+<script src="parsec.min.js"></script>
+<script>
+  if (!window.RG_MINIMAL) {
+    document.write('<scr' + 'ipt src="src/roguelike/manual.js"><\/scr' + 'ipt>');
+    document.write('<scr' + 'ipt src="src/roguelike/progression.js"><\/scr' + 'ipt>');
+  }
+</script>
+<!-- Dev shortcut: jump straight to a BASE course (the Moon tiers) for testing. ?course= is otherwise
+     intercepted by the atlas selector (galaxy.js), so this overrides it once RG is ready.
+     SKIPPED under ?showcase — the showcase owns the course (its own dynamic 'showcase' course). -->
+<script>
+(function () {
+  if (/[?&]showcase\b/.test(location.search)) return;   // showcase mode drives its own course; don't autostart Earth
+  var m = /[?&](?:course|gomoon)=([a-z0-9_-]+)/i.exec(location.search);
+  var v = m ? m[1].toLowerCase() : 'earth';   // no ?course -> default to the 3-system tour start (Earth), not the engine's Front Nine
+  var alias = { '1': 'moon', '2': 'moon2', '3': 'moon3' };
+  var course = alias[v] || v;
+  var n = 0;
+  (function go() {
+    if (window.RG && RG.startRun && typeof holes !== 'undefined' && holes.length > 0
+        && WORLDS['run-world'] && WORLDS['run-world'].courses[course]) {   // only override for a REAL base course
+      if (RG.course !== course) setTimeout(function () { try { RG.startRun({ course: course, seed: (RG.rollSeed ? RG.rollSeed() : 12345) }); } catch (e) {} }, 150);   // only switch if the boot didn't already land us here (no double-load flicker)
+    } else if (n++ < 240) setTimeout(go, 50);
+  })();
+})();
+</script>
+
+</body>
+</html>
