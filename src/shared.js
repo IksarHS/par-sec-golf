@@ -116,8 +116,10 @@ const STATE_COMPLETE   = 5;  // course finished — idle end screen
 
 let state = STATE_AIM;
 let transitionTimer = 0;
-let transitionCamStart = 0;   // camera position at start of transition (axis-agnostic)
-let transitionCamEnd   = 0;   // camera position at end of transition
+let transitionCamStart = 0;   // camera X at start of transition
+let transitionCamEnd   = 0;   // camera X at end of transition
+let transitionCamYStart = 0;  // camera Y at start of transition (eased alongside X so verticalCam/portrait
+let transitionCamYEnd   = 0;  //   framing doesn't SNAP between holes — see desert-golfing onTransitionUpdate)
 let transitionBallStartY = 0; // ball's Y when it rested in cup
 let showTitle = true;
 let courseComplete = false;

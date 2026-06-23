@@ -20,7 +20,29 @@
   if (typeof location === 'undefined' || !/[?&]portrait(?:=|&|$)/.test(location.search)) return;  // GATE
   if (typeof window === 'undefined') return;
 
-  window.RG_PORTRAIT = { active: true };
+  window.RG_PORTRAIT = {
+    active: true,
+    safeTopCss: 0,
+    cssToGame: 1,
+    // Game-unit top inset for the canvas-drawn HUD: the realised notch/status-bar inset (floored so it
+    // clears a phone status bar even when the PWA reports 0) + a small breathing gap, converted CSS→game.
+    // Read by _drawScoreHUD (run.js) and the portrait title (desert-golfing.js) so the HUD sits below the
+    // notch instead of jammed under it. ~0 contribution in landscape (this object only exists under ?portrait).
+    hudTopInset: function () {
+      var css = Math.max(this.safeTopCss || 0, 28);   // floor: ~status-bar height even when inset reads 0
+      return (css + 8) * (this.cssToGame || 1) + 6;    // + small gap, converted to game units
+    },
+    // The portrait HUD is scaled DOWN to phone size: landscape draws it at 28/20px, which is huge on a
+    // ~250-game-unit-wide phone frame. ~0.62 brings "HOLE 1 / 5" down to a tidy phone readout.
+    hudScale: 0.62,
+    // Earth's (and other authored intro bodies') holes carry BAKED tee→cup distances (~185-205) that the
+    // procedural _holeDistCap can't shrink — wider than the narrow phone W (~250). So zoom the world OUT a
+    // touch in portrait: at z=0.78 the visible world is W/0.78 (~320) wide — enough to frame the WHOLE hole
+    // (ball + cup + flag) with margins. The portrait camera math (desert-golfing.js) is zoom-aware. Read by
+    // wrap.js applyCameraTransform (RG._zoom); pivot is set on the canvas centre. Inert in landscape.
+    zoom: 0.78,
+  };
+  window.RG_PORTRAIT_ZOOM = window.RG_PORTRAIT.zoom;   // convenience flag the camera math reads directly
 
   // ── 1. PORTRAIT ITINERARY ──────────────────────────────────────────────────────────────────────────
   // Earth (home, gentle green) → Kepler-90b · Verdshoal (jade sea, gentle) → Proxima d · Dawnglass (coral
@@ -48,13 +70,17 @@
   // Mobile-snackable numbers, applied to whatever body startRun is about to build. Tee→cup is squeezed to
   // roughly fit the narrow portrait W (~300 game-px wide visible) so a hole READS in about one screen, with
   // a little vertical play; holeCount is trimmed so a body is a quick session.
+  // W on a real phone (logical width ~390-430px) comes out ~250 game units — NARROWER than the ~304 these
+  // numbers originally assumed, so the old 170-220 holes (cap 230) were as wide as the frame: the ball/tee
+  // got clipped at the left while the cup sat off the right. Squeeze the snack hole to ~120-160 so the
+  // WHOLE hole (ball at ~30% in + cup with a right margin) reads inside W~250 with comfortable padding.
   var SNACK = {
-    holeDistMin: 170,    // was ~440 — fits the narrow frame with comfortable side padding (W~304)
-    holeDistMax: 220,    // was ~760 — cap below W so the flag is ALWAYS in frame at the tee
+    holeDistMin: 120,    // was ~440 — fits the narrow W~250 with the ball anchored ~30% in
+    holeDistMax: 160,    // was ~760 — cap so tee→cup span < W minus both margins (ball + flag both in frame)
     holeCount: 5,        // was 9 — a body is a 5-hole snack
   };
   var PORTRAIT_BALL_RADIUS = 6;   // was 4 — bigger, friendlier, reads on a phone
-  var PORTRAIT_HOLE_DIST_CAP = 230; // inert RG._holeDistCap: hole never wider than ~75% of W → margins both sides
+  var PORTRAIT_HOLE_DIST_CAP = 165; // inert RG._holeDistCap: hole never wider than ~the snack max → always framed
   var PORTRAIT_CAPTURE = 1.7;     // cup-capture X half-width multiplier (read by isBallInCup guard)
 
   // Retune a built course object IN PLACE (called on whatever _buildCourse returns, so it lands no matter
@@ -97,6 +123,15 @@
       window.RG._holeDistCap = PORTRAIT_HOLE_DIST_CAP;
       var r = baseStart(opts);
       window.RG._holeDistCap = PORTRAIT_HOLE_DIST_CAP;   // re-assert (defensive)
+      // Zoom the world OUT so the WHOLE authored hole fits the narrow phone frame (authored intro bodies
+      // carry baked tee→cup distances the _holeDistCap can't shrink). startRun RESETS RG._zoom to 1, so we
+      // assert it AFTER baseStart. The portrait camera math (desert-golfing.js) frames the zoomed viewport,
+      // and setHoleCamera (re-)runs after this on the first hole. Pivot is the canvas centre.
+      window.RG._zoom = window.RG_PORTRAIT.zoom;
+      window.RG._zoomPivot = { x: W / 2, y: H / 2 };
+      // Re-frame the first hole now that zoom is active (baseStart framed it at z=1).
+      if (typeof holes !== 'undefined' && typeof currentHole !== 'undefined' && holes[currentHole]
+          && typeof setHoleCamera === 'function') { try { setHoleCamera(holes[currentHole]); } catch (e) {} }
       return r;
     };
     return true;
@@ -129,11 +164,25 @@
     document.head.appendChild(style);
     // --ph carries the realised pixel height so width can be derived as height*9/16 (CSS can't read its
     // own computed height for a sibling property). Recompute on resize.
+    // Probe the real safe-area-inset-top (notch / status bar). Headless + most desktops report 0, so we
+    // floor it to a sensible status-bar height in portrait — the canvas-drawn HUD reads this (converted to
+    // game units) to sit BELOW the notch instead of jammed under it (the real-device symptom).
+    var insetProbe = document.createElement('div');
+    insetProbe.style.cssText = 'position:fixed;top:0;left:0;width:0;height:env(safe-area-inset-top,0px);'
+      + 'pointer-events:none;visibility:hidden;';
+    document.body && document.body.appendChild(insetProbe);
     function syncFrame() {
       var vh = window.innerHeight;
       var vw = window.innerWidth;
       var h = Math.min(vh, (vw) * 16 / 9);
       document.documentElement.style.setProperty('--ph', h + 'px');
+      // Realised safe-area-inset-top in CSS px (0 on desktop/headless). The HUD floors this so it always
+      // clears a phone status bar even where the inset reads 0 (PWA standalone sometimes reports 0).
+      var insetCss = (insetProbe && insetProbe.getBoundingClientRect().height) || 0;
+      window.RG_PORTRAIT.safeTopCss = insetCss;
+      // Game units per CSS px = H / realised-canvas-height. The canvas CSS height == min(vh, frame), and
+      // the HUD is drawn in game units (H tall), so multiply by H/cssHeight to convert. cssHeight ~= h.
+      window.RG_PORTRAIT.cssToGame = (typeof H !== 'undefined' && h) ? (H / h) : 1;
       if (typeof resizeDisplay === 'function') resizeDisplay();
     }
     window.addEventListener('resize', syncFrame);

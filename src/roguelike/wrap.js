@@ -7,6 +7,7 @@
   if (typeof MODE === 'undefined' || !MODE) return;
   const base = MODE;
   const baseStart = base.onTransitionStart ? base.onTransitionStart.bind(base) : null;
+  const baseUpdate = base.onTransitionUpdate ? base.onTransitionUpdate.bind(base) : null;
   const baseEnd = base.onTransitionEnd ? base.onTransitionEnd.bind(base) : null;
   const baseHUD = base.drawHUD ? base.drawHUD.bind(base) : null;
   const baseRest = base.onRest ? base.onRest.bind(base) : null;
@@ -54,8 +55,10 @@
       }
     },
     onTransitionUpdate(ease, t) {
-      // Ease camera.y to the follow-planet's hole-start anchor over the same eased pan the base uses
-      // for X — so the hole-to-hole move lands on the anchor in both axes and AIM begins framed.
+      // Base eases camera.y for verticalCam / PORTRAIT framing (so it doesn't snap between holes).
+      if (baseUpdate) baseUpdate(ease, t);
+      // Follow-planet override: ease camera.y to the planet's hole-start anchor instead (takes precedence
+      // when armed). Same eased pan the base uses for X → the move lands on the anchor in both axes.
       if (window.RG && RG._tCamY1 != null && typeof camera !== 'undefined' && !courseComplete) {
         camera.y = RG._tCamY0 + (RG._tCamY1 - RG._tCamY0) * ease;
       }
@@ -207,6 +210,33 @@
       // Return true to take over; the base apron-follow is then skipped. Inert by default.
       if (window.RG_ATLAS && RG_ATLAS.camera && RG_ATLAS.camera()) return;
       if (!(window.RG && RG.active) || RG.descending || typeof camera === 'undefined') return;
+      // PORTRAIT FOLLOW-CAM (peel-off, gated on RG._portraitCapture): the narrow phone frame is barely
+      // wider than a hole, so a static camera lets the ball fly off the edge. Ease the camera so the ball
+      // stays anchored ~30% in from the left (portraitCameraX) and re-frame the vertical band so an
+      // airborne ball isn't lost above the frame. Eased (lerp) so it glides, not snaps. Engine drives
+      // updateCamera() only in FLIGHT/OOB; AIM follow is handled in drawWorld below. Inert in landscape.
+      if (window.RG._portraitCapture && typeof portraitCameraX === 'function'
+          && typeof holes !== 'undefined' && typeof currentHole !== 'undefined' && holes[currentHole]) {
+        const hole = holes[currentHole];
+        // Look slightly ahead of a moving ball (in its travel direction) so it doesn't crowd the edge.
+        const vx = (typeof ball !== 'undefined' && ball.vx) || 0;
+        const lead = Math.max(-W * 0.12, Math.min(W * 0.12, vx * 6));
+        const tgtX = portraitCameraX(hole, (typeof ball !== 'undefined' ? ball.x : hole.teeX) + lead);
+        camera.x += (tgtX - camera.x) * 0.16;
+        // Vertical: keep the ball comfortably in frame. If it climbs above ~0.26 of the SCREEN (a high arc),
+        // pan UP to follow it; otherwise hold the per-hole address framing. Zoom-aware (matches the camera
+        // transform). Never pans below the address frame.
+        if (typeof ball !== 'undefined') {
+          const z = (window.RG && RG._zoom) || 1;
+          const ballScreenYFrac = (z * (ball.y - camera.y) + (H / 2) * (1 - z)) / H;
+          if (ballScreenYFrac < 0.26) {
+            // camera.y that puts the ball at screen-fraction 0.26 (invert the transform)
+            const tgtY = ball.y - (0.26 * H - (H / 2) * (1 - z)) / z;
+            camera.y += (tgtY - camera.y) * 0.16;
+          }
+        }
+        return;
+      }
       const sp = window.RG_secret ? RG_secret('ship') : null;
       const lastIdx = RG.holeCount - 1;
       if (!sp || !sp.pos || typeof ball === 'undefined' || currentHole !== lastIdx || !holes[lastIdx]) return;
@@ -274,9 +304,28 @@
       // follow planet, not per-planet. The target is fixed while the ball rests, so the ease settles
       // and stops (no perpetual drift). Inert for the base game (no atlas camera hook), and skipped
       // during descents / bot sims. STATIC holes opt out by having camera() return false.
+      // PORTRAIT zoom keep-alive (gated): startRun + hole-transition paths reset RG._zoom to 1. Re-assert
+      // the portrait zoom-out every frame so the whole authored hole stays framed across transitions.
+      // Inert in landscape (RG_PORTRAIT only exists under ?portrait); skipped if an atlas planet owns zoom.
+      if (window.RG_PORTRAIT && window.RG && RG._portraitCapture && !(window.RG_ATLAS && RG_ATLAS.ownsZoom)) {
+        if (RG._zoom !== RG_PORTRAIT.zoom) { RG._zoom = RG_PORTRAIT.zoom; RG._zoomPivot = { x: W / 2, y: H / 2 }; }
+      }
       if (typeof state !== 'undefined' && state === STATE_AIM
           && !(window.RG && (RG.descending || RG._simulating))
           && window.RG_ATLAS && RG_ATLAS.camera) RG_ATLAS.camera();
+      // PORTRAIT AIM follow (gated): the engine drives updateCamera() only in FLIGHT/OOB, so without this
+      // the portrait camera would freeze wherever the hole-to-hole pan left it and only re-anchor on the
+      // ball once you shot. Drive the same anchor during AIM from the draw pass (the only per-frame tick in
+      // AIM) so the view eases onto the resting ball BEFORE the shot. Target is fixed while the ball rests,
+      // so the ease settles + stops. Inert in landscape (no _portraitCapture) and during descents/bot sims.
+      if (typeof state !== 'undefined' && state === STATE_AIM
+          && window.RG && RG._portraitCapture && !(RG.descending || RG._simulating)
+          && typeof portraitCameraX === 'function'
+          && typeof holes !== 'undefined' && typeof currentHole !== 'undefined' && holes[currentHole]) {
+        const _h = holes[currentHole];
+        const _tx = portraitCameraX(_h, (typeof ball !== 'undefined' ? ball.x : _h.teeX));
+        camera.x += (_tx - camera.x) * 0.16;
+      }
       // Keep mid-run terrain ON-PALETTE: clamp any vertex the engine (re)generated with no mat
       // to the active course default BEFORE the terrain draws, so the no-mat boundary verts never
       // render as DEFAULT_MAT ('sand' = orange) on Earth / tan-crust the Moon. Cheap (~100 verts),

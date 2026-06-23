@@ -252,35 +252,67 @@ function collideWithObjects() {
   return collided;
 }
 
-// PORTRAIT vertical framing (peel-off): in the tall frame, sit the hole's terrain band in the LOWER
-// portion so there's generous arc headroom above (the whole point of portrait) without a dead empty sky.
-// Targets the hole's mid terrain Y at ~62% of the screen height; clamps so neither tee nor cup leaves
-// the frame. Inert in landscape (only called from the portrait branch of setHoleCamera).
+// PORTRAIT vertical framing (peel-off): in the tall phone frame the OLD framing centred the terrain band
+// mid at ~0.54H — but with a low cup the band's TOP rim then sat near mid-screen, leaving the whole upper
+// HALF as dead sky (the real-device symptom). Re-anchor on the band's TOP (the highest terrain over the
+// hole): keep that top rim around ~0.42H so a reasonable arc of sky reads above, and the terrain FILLS the
+// bottom ~58% — no huge empty sky. The deepest point (and the cup) are kept on-screen. Inert in landscape
+// (only called from the portrait branch of setHoleCamera).
+// Map a desired SCREEN fraction (0..1 of W/H) for a WORLD point to the camera offset, accounting for the
+// portrait zoom (applyCameraTransform: sx = z*(wx-camx) + (W/2)(1-z); pivot at canvas centre). z=1 reduces
+// to the plain offset, so this is safe to use unconditionally on the portrait path.
+function _portraitCamForScreen(wx, fracW, isY) {
+  const z = (typeof window !== 'undefined' && window.RG && window.RG._zoom) || 1;
+  const span = isY ? H : W;
+  const pivot = span / 2;                       // pivot is canvas centre on both axes
+  // sx = z*(wx - cam) + pivot*(1-z)  →  cam = wx - (fracW*span - pivot*(1-z)) / z
+  return wx - (fracW * span - pivot * (1 - z)) / z;
+}
+
 function setHoleCameraY(hole) {
   if (typeof terrainYAt !== 'function') { camera.y = 0; return; }
   let lo = Infinity, hi = -Infinity;
   for (let x = hole.teeX; x <= hole.cupX; x += 10) { const y = terrainYAt(x); if (y < lo) lo = y; if (y > hi) hi = y; }
   const cupY = hole.cupY != null ? hole.cupY : hi;
-  const mid = (lo + Math.max(hi, cupY)) / 2;
-  // place the band's mid at ~0.54H — terrain fills a bit more of the tall frame (less dead sky) while
-  // still leaving generous arc headroom above. Keep the lowest point above the frame bottom + highest below top.
-  let cy = mid - H * 0.54;
-  cy = Math.min(cy, lo - H * 0.10);              // don't push the high ground off the top
-  cy = Math.max(cy, Math.max(hi, cupY) - H * 0.94); // keep the deepest point (and cup) in view
+  const deepest = Math.max(hi, cupY);
+  // Zoom-aware vertical framing: place the TOP rim (highest ground = lowest Y) at ~0.46 of the SCREEN, so
+  // terrain fills the lower ~54% and a ~40% arc of sky reads above (headroom for the shot, no dead band).
+  let cy = _portraitCamForScreen(lo, 0.46, true);
+  // Never push the deepest terrain / cup off the bottom of the SCREEN: keep it at/above screen-fraction 0.96.
+  const cyDeep = _portraitCamForScreen(deepest, 0.96, true);
+  cy = Math.max(cy, cyDeep);
   camera.y = cy;
+}
+
+// PORTRAIT horizontal framing (peel-off): the narrow phone frame (W~250) is barely wider than a snack hole
+// (dist ~200), so the OLD static "centre the whole span" left the TEE (and the resting ball) clipped off
+// the left edge — the real-device "ball not visible" symptom. Instead anchor on the BALL: hold it at
+// ~0.30W from the left so you see AHEAD toward the cup, and clamp so the cup/flag still reads on the right.
+// The same anchor is reused by the per-frame follow-cam (wrap.js updateCamera) so the ball is ALWAYS on
+// screen, at address and in flight. Inert in landscape. Optional `target` overrides the ball x (used by the
+// follow-cam to look slightly ahead of a fast ball).
+function portraitCameraX(hole, target) {
+  const bx = (target != null) ? target : (typeof ball !== 'undefined' ? ball.x : hole.teeX);
+  // Ideal: ball at ~30% of the SCREEN width from the left → room to see the cup ahead. Zoom-aware.
+  let cx = _portraitCamForScreen(bx, 0.30, false);
+  // Bounds (zoom-aware): keep the whole FLAG on the right AND the tee on the left. With the portrait zoom
+  // the visible world is wider, so an authored hole fits and these only bind on long flights. Cup-side
+  // takes priority (it's the aim target) if a hole still can't satisfy both.
+  const loForCup = _portraitCamForScreen(hole.cupX + 55, 0.985, false);   // flag pole+pennant ~55px right of cupX, kept just inside the right edge
+  const hiForTee = _portraitCamForScreen(hole.teeX, 0.06, false);          // tee with a small left margin
+  if (hiForTee >= loForCup) cx = Math.max(loForCup, Math.min(cx, hiForTee));  // both fit: clamp into the window
+  else cx = loForCup;                                                          // too wide even zoomed: favour the cup
+  return cx;
 }
 
 // ── Camera ─────────────────────────────────────────────────
 function setHoleCamera(hole) {
-  // PORTRAIT MODE (peel-off, inert by default): the narrow phone frame (W~304) can't afford the 120px
-  // landscape margin (it would leave ~60px of play). Centre the whole tee→cup span with even, frame-
-  // proportional padding so the ball isn't jammed against the left edge and the flag reads in-frame.
-  // Gated entirely on RG._portraitCapture (set only under ?portrait) — landscape is byte-identical.
+  // PORTRAIT MODE (peel-off, inert by default): the narrow phone frame can't afford the 120px landscape
+  // margin, and centring the whole span clipped the ball off-frame. Anchor on the ball (portraitCameraX)
+  // so the resting ball is ~30% in from the left + the flag still reads; the follow-cam keeps it there in
+  // flight. Gated entirely on RG._portraitCapture (set only under ?portrait) — landscape is byte-identical.
   if (typeof window !== 'undefined' && window.RG && window.RG._portraitCapture) {
-    // Centre the tee→cup span, then nudge LEFT a touch so the cup/flag (which renders + flutters to the
-    // RIGHT of cupX) clears the frame edge, and the tee keeps a comfortable left thumb margin.
-    const center = (hole.teeX + hole.cupX) / 2;
-    camera.x = center - W / 2 + 14;        // +14: shift view right → flag clears the right edge
+    camera.x = portraitCameraX(hole);
     setHoleCameraY(hole);                  // portrait-tuned vertical framing (below)
     return;
   }
@@ -795,6 +827,8 @@ MODE = {
 
   onTransitionStart() {
     transitionCamStart = camera.x;
+    transitionCamYStart = (typeof camera.y === 'number') ? camera.y : 0;
+    transitionCamYEnd = transitionCamYStart;   // default: no Y move (landscape, camera.y === 0)
     transitionBallStartY = ball.y;
 
     currentHole++;
@@ -811,12 +845,17 @@ MODE = {
       // Don't compute new camera target — stay put
       transitionCamEnd = camera.x;
     } else {
-      // Compute target camera position for new hole
+      // Compute target camera position for new hole. setHoleCamera mutates BOTH camera.x and (in
+      // portrait / verticalCam) camera.y. Capture both targets, then restore both — the transition
+      // tween eases each axis to its target so neither SNAPS (the portrait camera "pop" was camera.y
+      // jumping here while only camera.x was being animated). camera-Y easing lives in onTransitionUpdate.
       const newHole = holes[currentHole];
-      const savedCamX = camera.x;
+      const savedCamX = camera.x, savedCamY = camera.y;
       setHoleCamera(newHole);
       transitionCamEnd = camera.x;
+      transitionCamYEnd = (typeof camera.y === 'number') ? camera.y : 0;
       camera.x = savedCamX; // restore — we'll animate to target
+      camera.y = savedCamY;
     }
 
     if (currentHole === 1) showTitle = false;
@@ -824,6 +863,15 @@ MODE = {
 
   setCameraPos(val) {
     camera.x = val;
+  },
+
+  // Ease camera.y alongside the X pan so verticalCam / PORTRAIT framing glides into the new hole instead
+  // of snapping (the portrait "pop"). Inert in the base landscape game (start === end === 0 → no change).
+  // The roguelike wrap.js overrides onTransitionUpdate; it calls THIS first so the Y ease always runs.
+  onTransitionUpdate(ease) {
+    if (transitionCamYEnd !== transitionCamYStart) {
+      camera.y = transitionCamYStart + (transitionCamYEnd - transitionCamYStart) * ease;
+    }
   },
 
   getTransitionCupData() {
@@ -934,11 +982,15 @@ MODE = {
       if (typeof window !== 'undefined' && window.RG && window.RG._portraitCapture) {
         let name = worldName || courseName || '';
         if (name.indexOf('·') >= 0) name = name.split('·').pop().trim();   // "Kepler-90b · Verdshoal" → "Verdshoal"
+        // Drop the title BELOW the notch (same inset as the score readout it hands off to) so it isn't
+        // jammed under the status bar. Inset comes from RG_PORTRAIT (exists only under ?portrait).
+        const _pt = window.RG_PORTRAIT;
+        const top = (_pt && _pt.hudTopInset) ? _pt.hudTopInset() : 0;
         ctx.font = "20px 'Departure Mono', monospace";
-        ctx.fillText(name, 16, 30);
+        ctx.fillText(name, 20, top + 18);
         ctx.font = "13px 'Departure Mono', monospace";
         ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        ctx.fillText(holeCount + ' Holes', 16, 50);
+        ctx.fillText(holeCount + ' Holes', 20, top + 38);
         ctx.textAlign = 'left';
         return;
       }

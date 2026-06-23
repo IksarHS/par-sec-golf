@@ -15,6 +15,15 @@
     html, body { margin: 0; background: #08090f; overflow: hidden; }
     body { display: flex; align-items: center; justify-content: center; height: 100vh; }
     canvas { display: block; cursor: pointer; max-width: 100vw; max-height: 100vh; }
+    /* PORTRAIT (phone): the fixed 16:9 canvas, centred, shrank to a thin band stranded mid-screen with huge
+       letterbox bars above + below (the in-game iframe opened on a phone). In a PORTRAIT viewport instead
+       FILL THE WIDTH and pin to the TOP so the map reads as a full-bleed panel (the internal 960x540 layout
+       — which already scrolls — is untouched, so no row reflow / text-overlap risk). Landscape (vw > vh) is
+       byte-identical: this query never matches there. */
+    @media (orientation: portrait) {
+      body { align-items: flex-start; }
+      canvas { width: 100vw; height: auto; max-height: none; }
+    }
   </style>
 </head>
 <body>
