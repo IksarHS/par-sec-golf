@@ -156,17 +156,25 @@ const outPath = path.join(DIST, 'parsec.min.js');
 // so the implicit cross-file global sharing (holes, WORLDS, state, startCourse, …) and the inline boot
 // scripts that read those bare globals keep working. `--format=iife` would WRAP everything in
 // `(()=>{…})()`, trapping those declarations in a function scope and breaking the whole game. Verified.
-execFileSync(ESBUILD, [
-  concatPath,
-  '--minify',
-  '--legal-comments=none',
-  '--keep-names',          // keep function/class names (some code may introspect .name; safety over size)
-  '--target=es2018',
-  '--outfile=' + outPath,
-], { stdio: 'inherit' });
+// Robust minify: prefer the esbuild JS API (local node_modules — `npm i -D esbuild`), fall back to a
+// binary at a couple of stable paths, and if esbuild is missing entirely SHIP THE UNMINIFIED CONCAT so
+// the build NEVER crashes on a toolchain gap (GitHub Pages gzips it either way). No --format (globals preserved).
+let minified = false;
+try {
+  const esbuild = require('esbuild');
+  fs.writeFileSync(outPath, esbuild.transformSync(combined, {
+    minify: true, legalComments: 'none', keepNames: true, target: 'es2018',
+  }).code);
+  minified = true;
+} catch (e) {
+  for (const bin of [process.env.ESBUILD_BIN, path.join(ROOT, 'node_modules', '.bin', 'esbuild'), ESBUILD].filter(Boolean)) {
+    try { execFileSync(bin, [concatPath, '--minify', '--legal-comments=none', '--keep-names', '--target=es2018', '--outfile=' + outPath], { stdio: 'ignore' }); minified = true; break; } catch (_) { /* try next */ }
+  }
+  if (!minified) { fs.copyFileSync(concatPath, outPath); log('WARNING: esbuild not found — shipping UNMINIFIED concat (run `npm i -D esbuild` to minify)'); }
+}
 fs.rmSync(concatPath); // drop the unminified concat from the shippable dir
 const minBytes = fs.statSync(outPath).size;
-log('minified →', (minBytes / 1024).toFixed(0), 'KB');
+log(minified ? 'minified →' : 'concat (unminified) →', (minBytes / 1024).toFixed(0), 'KB');
 
 // ── 4. Copy runtime assets ──
 // Fonts (Departure Mono) — required.

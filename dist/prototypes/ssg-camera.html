@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="icon" href="data:,">
+  <meta charset="utf-8">
+  <title>Par Sec — SSG Camera Study</title>
+  <link rel="preload" href="../assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <style>
+    @font-face {
+      font-family: 'Departure Mono';
+      src: url('../assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+           url('../assets/fonts/DepartureMono-Regular.woff') format('woff');
+      font-weight: normal; font-style: normal; font-display: swap;
+    }
+    html,body{margin:0;background:#0c0e14;overflow:hidden}canvas{display:block}
+  </style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script src="ssg-levels.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PAR SEC — SUPER STICKMAN GOLF CAMERA STUDY
+//  A BIG hand-designed multi-screen 2D puzzle hole (bank off walls + stick to green
+//  surfaces + a cup tucked away). The CAMERA is the hero:
+//    • FIT-TO-REGION at address: frames ball + the relevant next region toward cup.
+//    • FOLLOW + ZOOM-TO-FIT in flight: tracks the ball, zooms out when the live arc
+//      is big/fast, in when slow — never loses the ball.
+//    • DRAG-TO-PEEK: drag to pan freely around the level to plan, clamped to bounds,
+//      smooth snap-back to the ball when you start aiming. Tap-to-recenter affordance.
+//  Drag-BACK aiming with the EXACT deterministic predicted-trajectory preview, ported
+//  from the user's Super Stickman Golf clone (same step()s the live ball AND the line).
+//  Rendered entirely in OUR flat-faceted Par Sec art (white dimpled ball, deep-space
+//  sky + stars, Departure Mono, our flag/cup, Mars-rust walls + glowing green sticky).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+var cv = document.getElementById('c'), ctx = cv.getContext('2d');
+var VW = 960, VH = 540;                 // canvas (viewport) size in screen px
+
+// ── PALETTE (Par Sec) ────────────────────────────────────────────────────────
+var SKY0 = '#08090f', SKY1 = '#0f1622', SKY2 = '#172534';     // deep-space gradient
+var ROCK = '#c45c4a', ROCK_LIP = '#e07e5f', ROCK_SIDE = '#8f3d30';   // Mars-rust wall
+var STICK = '#2fae6a', STICK_LIP = '#7dffb0', STICK_SIDE = '#1f8a52'; // sticky green
+var STICK_GLOW = 'rgba(47,240,122,0.40)';
+var ICE = '#8fc7e6', ICE_LIP = '#e6f6ff', ICE_SIDE = '#5f9ec4';       // slippery ice (cool blue)
+var SAND = '#cBa76a', SAND_LIP = '#e6cf96', SAND_SIDE = '#9c7e44';    // dead sand (dune tan)
+var WATER = '#2f6fae', WATER_LIP = '#5fa8e0', WATER_SIDE = '#1f4f86'; // hazard water
+var CUP_DARK = '#11161e';
+
+// ── DETERMINISTIC PHYSICS (ported from the clone's engine.js — fixed-step) ─────
+// SAME stepBall() drives the live ball AND the predicted preview line, so the
+// dotted aim path is exact. World units = pixels, +y is DOWN.
+var PHYS = {
+  GRAVITY: 2100,
+  SIM_DT: 1 / 120,
+  BALL_R: 11,
+  MAX_LAUNCH: 1850,        // top shot speed (px/s) — big level needs reach
+  AIR_DAMP: 0.9992,
+  BOUNCE_MIN: 55,
+  STOP_SPEED: 22,
+  REST_TIME: 0.24,
+  CAPTURE_R: 12,
+  CAPTURE_SPEED: 620
+};
+// material: rest=restitution, tan=tangential keep, roll=roll decel px/s^2, sticky
+// material: rest=restitution, tan=tangential keep, roll=roll decel px/s^2, sticky
+//   ice  = slippery: lively bank (high rest), almost no roll decel (skates)
+//   sand = dead: kills bounce + run-out fast (plugs the ball)
+//   water= hazard: contact ⇒ +1, reshoot from last rest (handled as 'water' event)
+var MAT = {
+  rock:   { rest: 0.50, tan: 0.74,  roll: 360,  sticky: false },
+  sticky: { rest: 0.00, tan: 0.00,  roll: 0,    sticky: true  },
+  ice:    { rest: 0.62, tan: 0.995, roll: 6,    sticky: false, ice: true  },
+  sand:   { rest: 0.05, tan: 0.18,  roll: 2600, sticky: false, sand: true },
+  water:  { rest: 0.00, tan: 0.00,  roll: 0,    sticky: false, water: true }
+};
+function matOf(name){
+  if (name === 'sticky') return MAT.sticky;
+  if (name === 'ice')    return MAT.ice;
+  if (name === 'sand')   return MAT.sand;
+  if (name === 'water')  return MAT.water;
+  return MAT.rock;   // 'rock', 'bound', default
+}
+
+function clamp(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
+function vlen(x, y){ return Math.hypot(x, y); }
+
+function closestOnSeg(px, py, ax, ay, bx, by){
+  var abx = bx - ax, aby = by - ay;
+  var apx = px - ax, apy = py - ay;
+  var len2 = abx*abx + aby*aby || 1e-9;
+  var t = (apx*abx + apy*aby) / len2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  var cx = ax + abx*t, cy = ay + aby*t;
+  var dx = px - cx, dy = py - cy;
+  return { cx: cx, cy: cy, d2: dx*dx + dy*dy };
+}
+
+// Advance one fixed step. Mutates b. Returns 'holed'|'oob'|'sticky'|null.
+function stepBall(b, lv){
+  var dt = PHYS.SIM_DT;
+  b.vy += PHYS.GRAVITY * dt;
+  b.vx *= PHYS.AIR_DAMP;
+  b.vy *= PHYS.AIR_DAMP;
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
+
+  var contactMat = null;
+  var cols = lv._cols;
+  for (var pass = 0; pass < 3; pass++){
+    var any = false;
+    for (var i = 0; i < cols.length; i++){
+      var s = cols[i];
+      var m = matOf(s.mat);
+      var grab = m.sticky ? (b.r + 1.5) : b.r;
+      var c = closestOnSeg(b.x, b.y, s.ax, s.ay, s.bx, s.by);
+      if (c.d2 >= grab*grab) continue;
+      any = true; contactMat = m;
+      var d = Math.sqrt(c.d2);
+      var nx, ny;
+      if (d > 1e-4){ nx = (b.x - c.cx)/d; ny = (b.y - c.cy)/d; }
+      else {
+        var sx = s.bx - s.ax, sy = s.by - s.ay;
+        var sl = vlen(sx, sy) || 1; sx /= sl; sy /= sl;
+        nx = -sy; ny = sx;
+        if (nx*b.vx + ny*b.vy > 0){ nx = -nx; ny = -ny; }
+        d = 0.001;
+      }
+      var pen = b.r - d;
+      b.x += nx * pen; b.y += ny * pen;
+
+      if (m.water){
+        // WATER hazard — contact ends the shot as a penalty (reshoot from last rest).
+        b.vx = 0; b.vy = 0;
+        return 'water';
+      }
+      if (m.sticky){
+        // STICK DEAD wherever it touched (top, wall, underside) — the SSG hook.
+        b.x += nx * 0.4; b.y += ny * 0.4;
+        b.vx = 0; b.vy = 0; b.resting = true; b.stuck = true;
+        return 'sticky';
+      }
+      var vn = b.vx*nx + b.vy*ny;             // <0 = into surface
+      if (vn < 0){
+        var tvx = b.vx - vn*nx, tvy = b.vy - vn*ny;
+        if (-vn > PHYS.BOUNCE_MIN){
+          var nb = -vn * m.rest;
+          b.vx = tvx*m.tan + nx*nb;
+          b.vy = tvy*m.tan + ny*nb;
+        } else {
+          var tlen = vlen(tvx, tvy);
+          if (tlen > 1e-4){
+            var dec = Math.min(tlen, m.roll*dt);
+            var k = (tlen - dec)/tlen;
+            b.vx = tvx*k; b.vy = tvy*k;
+          } else { b.vx = 0; b.vy = 0; }
+        }
+      }
+    }
+    if (!any) break;
+  }
+
+  var speed = vlen(b.vx, b.vy);
+  b.spin += b.vx * dt * 0.06;
+
+  // cup capture
+  var dcx = b.x - lv.cup.x, dcy = b.y - lv.cup.y;
+  if (vlen(dcx, dcy) < b.r + PHYS.CAPTURE_R && speed < PHYS.CAPTURE_SPEED){
+    b.x = lv.cup.x; b.y = lv.cup.y; b.vx = b.vy = 0; b.resting = true;
+    return 'holed';
+  }
+  // out of bounds
+  if (b.x < -120 || b.x > lv.w + 120 || b.y > lv.h + 200) return 'oob';
+
+  if (contactMat && speed < PHYS.STOP_SPEED){
+    b.low = (b.low||0) + dt;
+    if (b.low >= PHYS.REST_TIME){ b.vx = b.vy = 0; b.resting = true; b.low = 0; }
+  } else b.low = 0;
+  return null;
+}
+
+// Predict the full path of a shot — the EXACT preview (same stepBall).
+function simulatePath(lv, x, y, vx, vy){
+  var g = { x:x, y:y, vx:vx, vy:vy, r:PHYS.BALL_R, resting:false, low:0, spin:0, stuck:false };
+  var pts = [{ x:g.x, y:g.y }];
+  var end = null;
+  for (var i = 0; i < 1600; i++){
+    var ev = stepBall(g, lv);
+    pts.push({ x:g.x, y:g.y });
+    if (ev){ end = ev; break; }
+    if (g.resting){ end = g.stuck ? 'sticky' : 'rest'; break; }
+  }
+  return { pts: pts, end: end, last: { x:g.x, y:g.y } };
+}
+
+// ── LEVEL — a BIG hand-designed multi-screen square puzzle (~3000×2200) ────────
+// Solve (4 shots): from the bottom-left tee,
+//   1. BANK a flat-ish shot off the tall RIGHT WALL — it caroms back LEFT and lands
+//      on the wide mid platform.
+//   2. From the mid platform, LOFT up-left onto the glowing STICKY ledge (stops dead).
+//   3. From the sticky ledge, BANK off the upper-right wall down toward the cup shelf.
+//   4. Short putt across the cup shelf into the pocket (tucked up-right, needs a peek).
+function seg(ax, ay, bx, by, mat){ return { ax:ax, ay:ay, bx:bx, by:by, mat:mat||'rock' }; }
+function rect(x, y, w, h, mat){ return { points:[[x,y],[x+w,y],[x+w,y+h],[x,y+h]], mat:mat||'rock' }; }
+function poly(pts, mat){ var o=[]; for (var i=0;i<pts.length-1;i++) o.push(seg(pts[i][0],pts[i][1],pts[i+1][0],pts[i+1][1],mat)); return o; }
+
+// ── CAMPAIGN — the designed levels come from ssg-levels.js (window.SSG_LEVELS) ──
+// Each level is pure data {name,sub,w,h,par,tee,cup,segments,bodies,solve}. We
+// compile its colliders (every segment + every body edge) once on load.
+function compileLevel(src){
+  // clone so re-loads are clean; keep the data fields, recompute _cols
+  var lv = {
+    name: src.name, sub: src.sub || '', w: src.w, h: src.h, par: src.par || 3,
+    tee: { x: src.tee.x, y: src.tee.y }, cup: { x: src.cup.x, y: src.cup.y },
+    segments: src.segments, bodies: src.bodies, solve: src.solve || [], num: src.num
+  };
+  var cols = [];
+  for (var i=0;i<lv.segments.length;i++){ var s=lv.segments[i]; cols.push({ax:s.ax,ay:s.ay,bx:s.bx,by:s.by,mat:s.mat}); }
+  for (var b=0;b<lv.bodies.length;b++){ var p=lv.bodies[b].points, mt=lv.bodies[b].mat;
+    for (var k=0;k<p.length;k++){ var a=p[k], c=p[(k+1)%p.length]; cols.push({ax:a[0],ay:a[1],bx:c[0],by:c[1],mat:mt}); } }
+  lv._cols = cols;
+  return lv;
+}
+var CAMPAIGN = (window.SSG_LEVELS || []).map(function(s, i){ s.num = i+1; return s; });
+var levelIndex = 0;
+function buildLevel(){ return compileLevel(CAMPAIGN[levelIndex]); }
+var level = buildLevel();
+
+// ── BALL ───────────────────────────────────────────────────────────────────────
+var ball = { x:0, y:0, vx:0, vy:0, r:PHYS.BALL_R, resting:true, stuck:false, low:0, spin:0 };
+var preShot = { x:0, y:0 };
+function resetBall(){
+  ball.x = level.tee.x; ball.y = level.tee.y; ball.vx = 0; ball.vy = 0;
+  ball.resting = true; ball.stuck = false; ball.low = 0; ball.spin = 0;
+  // settle onto the tee
+  for (var s=0; s<200 && !ball.resting; s++) stepBall(ball, level);
+  ball.resting = true; ball.vx = ball.vy = 0;
+  preShot = { x: ball.x, y: ball.y };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  CAMERA — THE HERO.  cam = world-point at screen-centre + a zoom factor.
+//  Screen transform (pivot = viewport centre):
+//     screenX = VW/2 + (wx - cam.x) * cam.zoom
+//  cam.tx/ty/tzoom are TARGETS; the live cam.x/y/zoom ease toward them every frame
+//  with frame-rate-independent smoothing (k = 1 - pow(base, dt)).
+// ═══════════════════════════════════════════════════════════════════════════════
+var cam = { x:0, y:0, zoom:1, tx:0, ty:0, tzoom:1 };
+var peek = { x:0, y:0, active:false };   // manual look-around offset (world px)
+var ZMIN = 0.18, ZMAX = 1.05;            // big level → must zoom way out
+
+function worldToScreen(wx, wy){ return { x: VW/2 + (wx - cam.x)*cam.zoom, y: VH/2 + (wy - cam.y)*cam.zoom }; }
+function screenToWorld(sx, sy){ return { x: cam.x + (sx - VW/2)/cam.zoom, y: cam.y + (sy - VH/2)/cam.zoom }; }
+
+// Given a desired zoom, the half-extents of the visible world from screen centre.
+function halfW(z){ return (VW/2)/z; }
+function halfH(z){ return (VH/2)/z; }
+
+// Clamp a desired camera-centre so the frame never shows past the level edges.
+// If the level is smaller than the view on an axis, centre it.
+function clampCamX(x, z){ var hw = halfW(z); if (level.w >= 2*hw) return clamp(x, hw, level.w - hw); return level.w/2; }
+function clampCamY(y, z){ var hh = halfH(z); if (level.h >= 2*hh) return clamp(y, hh, level.h - hh); return level.h/2; }
+
+// FIT a world AABB (x,y,w,h) into the viewport with margin → a target {x,y,zoom}.
+function fitRect(rx, ry, rw, rh, marginPx){
+  var m = (marginPx == null) ? 90 : marginPx;
+  var availW = Math.max(40, VW - 2*m), availH = Math.max(40, VH - 2*m);
+  var z = Math.min(availW/Math.max(1,rw), availH/Math.max(1,rh));
+  z = clamp(z, ZMIN, ZMAX);
+  return { x: rx + rw/2, y: ry + rh/2, zoom: z };
+}
+
+// AT ADDRESS: fit the ball AND the relevant next region toward the cup so the player
+// can plan the line. We frame an AABB from the ball reaching a bounded distance toward
+// the cup, then bias the ball into the LOWER-THIRD (cup is up & ahead) so the frame's
+// "empty" space is the planning space toward the hole — not dead sky behind the ball.
+function addressTarget(){
+  var bx = ball.x, by = ball.y;
+  var cx = level.cup.x, cy = level.cup.y;
+  var dx = cx - bx, dy = cy - by;
+  var dist = Math.hypot(dx, dy) || 1;
+  // Frame BOTH the ball AND the cup so the player can always see the target to plan
+  // toward — but cap the look distance so a very far cup doesn't shrink the ball to a
+  // speck. When the cup is beyond the cap, frame the ball + a bounded look-point on the
+  // cup line (still pointing the empty space toward the hole).
+  var FAR_CAP = 2000;
+  var tx2, ty2;
+  if (dist <= FAR_CAP){ tx2 = cx; ty2 = cy; }                 // cup is close enough → include it
+  else { tx2 = bx + dx/dist*FAR_CAP; ty2 = by + dy/dist*FAR_CAP; }
+  // AABB of {ball, target}. Extra TOP headroom so a high cup's FLAG (≈70px tall) and any
+  // overhead mechanic (sticky/ice slab) are never clipped at the frame's top edge.
+  var minx = Math.min(bx, tx2), maxx = Math.max(bx, tx2);
+  var miny = Math.min(by, ty2), maxy = Math.max(by, ty2);
+  minx -= 170; maxx += 200; miny -= 200; maxy += 180;          // generous all-round pad
+  var t = fitRect(minx, miny, maxx-minx, maxy-miny, 70);
+  // address must stay legible — never shrink the ball to a corner speck, never blow out.
+  t.zoom = clamp(t.zoom, 0.30, 0.74);
+  // bias the camera centre so the ball sits lower-third and the cup direction fills the
+  // upper part of the frame — but ONLY up to a cap that keeps BOTH ball & cup on-screen.
+  // The cap is the slack between the framed AABB and the actual viewport at this zoom.
+  var z = t.zoom;
+  var midx = (minx+maxx)/2, midy = (miny+maxy)/2;
+  var slackX = Math.max(0, halfW(z) - (maxx-minx)/2);          // free horizontal travel
+  var slackY = Math.max(0, halfH(z) - (maxy-miny)/2);          // free vertical travel
+  var sgnx = dx<0?-1:1, sgny = dy<0?-1:1;
+  t.x = midx + sgnx * Math.min(slackX, (VW*0.16)/z);
+  t.y = midy + sgny * Math.min(slackY, (VH*0.16)/z);
+  return t;
+}
+
+// IN FLIGHT: zoom-to-fit the live action. We frame the AABB of the ball's RECENT
+// path (a short trailing window of where it's been + where it's heading) plus a
+// speed-based outward bias so fast/high arcs stay framed and the ball is never lost.
+var flightTrack = [];   // recent ball positions (world)
+function flightTarget(){
+  // build AABB over the tracked window
+  var minx = ball.x, maxx = ball.x, miny = ball.y, maxy = ball.y;
+  for (var i=0;i<flightTrack.length;i++){
+    var p = flightTrack[i];
+    if (p.x<minx) minx=p.x; if (p.x>maxx) maxx=p.x;
+    if (p.y<miny) miny=p.y; if (p.y>maxy) maxy=p.y;
+  }
+  // lead the frame slightly in the direction of travel so we see where it's going
+  var lead = 0.18;
+  var lx = ball.x + ball.vx*lead, ly = ball.y + ball.vy*lead;
+  if (lx<minx) minx=lx; if (lx>maxx) maxx=lx; if (ly<miny) miny=ly; if (ly>maxy) maxy=ly;
+  // pad — generous so the ball never kisses the frame edge. Extra HEADROOM on the TOP
+  // so a rising lob never clips the HUD strip / top edge (vertical follow can't lag the
+  // apex). Bottom pad is smaller since we mostly look up toward targets.
+  var padX = 210, padTop = 320, padBot = 180;
+  minx -= padX; maxx += padX; miny -= padTop; maxy += padBot;
+  var t = fitRect(minx, miny, maxx-minx, maxy-miny, 56);
+  // never zoom in tighter than this while live (keeps context); allow far out when fast
+  t.zoom = clamp(t.zoom, ZMIN, 0.82);
+  // nudge the camera centre DOWN a touch so the extra top headroom actually shows as
+  // sky above the ball (clamp handles bounds). Scaled by zoom so it's screen-consistent.
+  t.y += (VH*0.06)/t.zoom;
+  return t;
+}
+
+// SNAP-the-camera-now (no easing) — used on load / reset so the first frame is framed.
+function snapCamera(target){
+  cam.tzoom = clamp(target.zoom, ZMIN, ZMAX);
+  cam.tx = clampCamX(target.x, cam.tzoom);
+  cam.ty = clampCamY(target.y, cam.tzoom);
+  cam.zoom = cam.tzoom; cam.x = cam.tx; cam.y = cam.ty;
+}
+
+// ── STARS (parallax, world space) ──────────────────────────────────────────────
+var stars = [];
+function makeStars(){ stars = []; for (var i=0;i<150;i++){ stars.push({ x: Math.random()*level.w, y: Math.random()*level.h, r: Math.random()<0.82?1:2, a: 0.30+Math.random()*0.45, c: Math.random()<0.78 } ); } }
+makeStars();
+
+// ── STATE MACHINE ──────────────────────────────────────────────────────────────
+var STATE_AIM = 0, STATE_FLIGHT = 1, STATE_SUNK = 2;
+var state = STATE_AIM;
+var strokes = 0, sunkTimer = 0;
+var flash = null;     // transient message {text,t}
+
+function shoot(dirx, diry, power){
+  preShot = { x: ball.x, y: ball.y };
+  ball.vx = dirx*power; ball.vy = diry*power;
+  ball.resting = false; ball.stuck = false; ball.low = 0;
+  strokes++;
+  state = STATE_FLIGHT;
+  flightTrack = [{ x: ball.x, y: ball.y }];
+  // starting a shot snaps the peek away (camera returns to the action)
+  peek.x = 0; peek.y = 0; peek.active = false;
+}
+
+// headless: angleDeg (0=right, screen convention, -y is up), power01∈[0,1]
+window.__shoot = function(angleDeg, power01){
+  if (state !== STATE_AIM || !ball.resting) return;
+  var a = angleDeg * Math.PI/180;
+  var power = clamp(power01,0,1) * PHYS.MAX_LAUNCH;
+  shoot(Math.cos(a), Math.sin(a), power);
+};
+
+function resetToSafe(msg){
+  ball.x = preShot.x; ball.y = preShot.y; ball.vx = ball.vy = 0;
+  ball.resting = true; ball.stuck = false; ball.low = 0;
+  strokes++;
+  state = STATE_AIM;
+  flash = { text: msg, t: 1.4 };
+}
+
+// ── PHYSICS STEP (fixed-step accumulator) ───────────────────────────────────────
+var acc = 0;
+function advancePhysics(dt){
+  if (state !== STATE_FLIGHT) return;
+  acc += dt;
+  var steps = Math.min(14, Math.floor(acc / PHYS.SIM_DT));
+  acc -= steps * PHYS.SIM_DT;
+  while (steps-- > 0){
+    var ev = stepBall(ball, level);
+    flightTrack.push({ x: ball.x, y: ball.y });
+    if (flightTrack.length > 90) flightTrack.shift();
+    if (ev === 'holed'){ state = STATE_SUNK; sunkTimer = 0; ball.resting = true; break; }
+    if (ev === 'oob'){ resetToSafe('Out of bounds +1'); break; }
+    if (ev === 'water'){ resetToSafe('Splash +1'); break; }
+    if (ev === 'sticky'){ state = STATE_AIM; preShot = { x: ball.x, y: ball.y }; break; }
+    if (ball.resting){ state = STATE_AIM; preShot = { x: ball.x, y: ball.y }; break; }
+  }
+}
+
+// ── INPUT ────────────────────────────────────────────────────────────────────
+var aim = { active:false, sx:0, sy:0, btn:0 };
+var dragMoved = false;
+function evtPos(e){ var r = cv.getBoundingClientRect(); return { x:(e.clientX-r.left)*(VW/r.width), y:(e.clientY-r.top)*(VH/r.height) }; }
+
+cv.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+cv.addEventListener('mousedown', function(e){
+  auto = false;
+  var p = evtPos(e);
+  if (e.button === 2 || e.button === 1){          // right/middle = PEEK pan
+    aim.active = true; aim.btn = 2; aim.sx = p.x; aim.sy = p.y; dragMoved = false;
+    e.preventDefault(); return;
+  }
+  // LEFT button: if aiming-ready, this is an aim drag-back; else it's a peek pan.
+  if (state === STATE_AIM && ball.resting){
+    aim.active = true; aim.btn = 0; aim.sx = p.x; aim.sy = p.y; dragMoved = false;
+  } else {
+    aim.active = true; aim.btn = 2; aim.sx = p.x; aim.sy = p.y; dragMoved = false;
+  }
+});
+window.addEventListener('mousemove', function(e){
+  if (!aim.active) return;
+  var p = evtPos(e);
+  if (aim.btn === 2){                              // PEEK: pan the camera
+    peek.x -= (p.x - aim.sx)/cam.zoom;
+    peek.y -= (p.y - aim.sy)/cam.zoom;
+    peek.active = true;
+    aim.sx = p.x; aim.sy = p.y; dragMoved = true;
+  } else {
+    aim.sx = p.x; aim.sy = p.y;                    // aim endpoint follows cursor
+    dragMoved = true;
+  }
+});
+window.addEventListener('mouseup', function(e){
+  if (!aim.active) return;
+  var wasAim = aim.btn === 0;
+  aim.active = false;
+  if (wasAim && state === STATE_AIM && ball.resting){
+    var a = currentAim();
+    if (a.len >= 14 && a.t01*PHYS.MAX_LAUNCH >= 60) shoot(a.dx, a.dy, a.power);
+  } else if (!dragMoved){
+    // a tap (no drag) while peeking → recenter on the ball
+    peek.x = 0; peek.y = 0; peek.active = false;
+  }
+});
+cv.addEventListener('wheel', function(e){
+  e.preventDefault(); auto = false;
+  var f = e.deltaY < 0 ? 1.12 : 1/1.12;
+  // manual zoom nudges the target; clamps applied in update
+  manualZoom = clamp((manualZoom||cam.zoom) * f, ZMIN, ZMAX);
+  manualZoomT = 0.8;
+}, { passive:false });
+var manualZoom = null, manualZoomT = 0;
+window.addEventListener('keydown', function(e){
+  var k = e.key.toLowerCase();
+  if (k === 'r'){ auto = false; resetDemo(); }
+  if (k === 'd'){ showDebug = !showDebug; }
+  if (k === ' '){ auto = !auto; }
+  if (k === 'n'){ auto = false; nextLevel(); }
+  if (k === '['){ auto = false; loadLevel(levelIndex-1); }
+  if (k === ']'){ auto = false; loadLevel(levelIndex+1); }
+});
+
+var MAX_DRAG = 230;   // screen px = full power (slingshot drag-back)
+function currentAim(){
+  var bs = worldToScreen(ball.x, ball.y);
+  var dx = bs.x - aim.sx, dy = bs.y - aim.sy;       // pull-back vector (screen)
+  var len = Math.hypot(dx, dy) || 1;
+  var t01 = clamp(len / MAX_DRAG, 0, 1);
+  var power = t01 * PHYS.MAX_LAUNCH;
+  return { dx: dx/len, dy: dy/len, power: power, t01: t01, len: len };
+}
+
+// ── CAMERA UPDATE (per frame) ──────────────────────────────────────────────────
+function updateCamera(dt){
+  var target;
+  if (state === STATE_FLIGHT) target = flightTarget();
+  else target = addressTarget();
+
+  // manual wheel zoom overrides the auto zoom briefly after use
+  var tz = target.zoom;
+  if (manualZoomT > 0){ manualZoomT -= dt; tz = manualZoom; }
+
+  // apply peek offset (world px) to the target centre, then clamp to bounds
+  var tx = target.x + peek.x;
+  var ty = target.y + peek.y;
+
+  cam.tzoom = clamp(tz, ZMIN, ZMAX);
+  cam.tx = clampCamX(tx, cam.tzoom);
+  cam.ty = clampCamY(ty, cam.tzoom);
+
+  // frame-rate-independent easing. Snappier follow in flight, softer at address.
+  // peeking pans crisply (you're dragging directly); snap-back is a touch slower.
+  var posBase, zBase;
+  if (state === STATE_FLIGHT){ posBase = 0.0009; zBase = 0.004; }
+  else { posBase = peek.active ? 0.0000001 : 0.0022; zBase = 0.02; }
+  if (peek.active){ // while actively peeking, follow the drag immediately
+    cam.x = cam.tx; cam.y = cam.ty;
+  } else {
+    var kp = 1 - Math.pow(posBase, dt);
+    cam.x += (cam.tx - cam.x) * kp;
+    cam.y += (cam.ty - cam.y) * kp;
+  }
+  var kz = 1 - Math.pow(zBase, dt);
+  cam.zoom += (cam.tzoom - cam.zoom) * kz;
+}
+
+// ── DRAW ────────────────────────────────────────────────────────────────────
+function drawSky(){
+  var g = ctx.createLinearGradient(0,0,0,VH);
+  g.addColorStop(0, SKY0); g.addColorStop(0.55, SKY1); g.addColorStop(1, SKY2);
+  ctx.fillStyle = g; ctx.fillRect(0,0,VH>0?VW:VW,VH);
+  // stars — parallax slower than camera (×0.4 x, ×0.2 y), drawn in screen space
+  for (var i=0;i<stars.length;i++){
+    var s = stars[i];
+    var sx = VW/2 + (s.x - cam.x*0.4)*cam.zoom*0.5;
+    var sy = VH/2 + (s.y - cam.y*0.2)*cam.zoom*0.5;
+    if (sx < -4 || sx > VW+4 || sy < -4 || sy > VH+4) continue;
+    ctx.globalAlpha = s.a;
+    ctx.fillStyle = s.c ? 'rgba(255,255,255,0.9)' : 'rgba(190,210,255,0.9)';
+    ctx.fillRect(sx, sy, s.r, s.r);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function applyCam(){
+  ctx.setTransform(cam.zoom, 0, 0, cam.zoom, VW/2 - cam.x*cam.zoom, VH/2 - cam.y*cam.zoom);
+}
+function resetCam(){ ctx.setTransform(1,0,0,1,0,0); }
+
+// per-material flat-art palette (fill / side / lip) — keeps the faceted look uniform
+function bodyTones(m){
+  if (m.sticky) return { fill: STICK, side: STICK_SIDE, lip: STICK_LIP };
+  if (m.ice)    return { fill: ICE,   side: ICE_SIDE,   lip: ICE_LIP };
+  if (m.sand)   return { fill: SAND,  side: SAND_SIDE,  lip: SAND_LIP };
+  if (m.water)  return { fill: WATER, side: WATER_SIDE, lip: WATER_LIP };
+  return { fill: ROCK, side: ROCK_SIDE, lip: ROCK_LIP };
+}
+function drawBody(bd){
+  var p = bd.points, m = matOf(bd.mat), tn = bodyTones(m);
+  var minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  for (var q=0;q<p.length;q++){ if(p[q][0]<minX)minX=p[q][0]; if(p[q][0]>maxX)maxX=p[q][0]; if(p[q][1]<minY)minY=p[q][1]; if(p[q][1]>maxY)maxY=p[q][1]; }
+  // sticky glow halo
+  if (m.sticky){ ctx.fillStyle = STICK_GLOW; ctx.fillRect(minX-6, minY-6, (maxX-minX)+12, (maxY-minY)+12); }
+  // body fill
+  ctx.beginPath(); ctx.moveTo(p[0][0],p[0][1]);
+  for (var k=1;k<p.length;k++) ctx.lineTo(p[k][0],p[k][1]);
+  ctx.closePath();
+  ctx.fillStyle = tn.fill; ctx.fill();
+  // darker side face (depth) — right band
+  var sideBand = Math.min(20, (maxX-minX)*0.32);
+  ctx.fillStyle = tn.side;
+  ctx.fillRect(maxX - sideBand, minY+5, sideBand, (maxY-minY)-5);
+  // bright top lip
+  ctx.fillStyle = tn.lip;
+  ctx.fillRect(minX, minY, maxX-minX, m.sticky ? 6 : 5);
+  if (m.sticky){ // sticky also lips the sides so it reads "stick anywhere"
+    ctx.fillRect(minX, minY, 4, maxY-minY);
+    ctx.fillRect(maxX-4, minY, 4, maxY-minY);
+  }
+  // ice gets faint diagonal sheen lines (skate cue); sand gets stipple dots
+  if (m.ice){
+    ctx.save(); ctx.globalAlpha = 0.35; ctx.strokeStyle = ICE_LIP; ctx.lineWidth = 1.5;
+    for (var ix = minX+14; ix < maxX-4; ix += 34){
+      ctx.beginPath(); ctx.moveTo(ix, minY+6); ctx.lineTo(ix-12, Math.min(maxY, minY+18)); ctx.stroke();
+    }
+    ctx.restore();
+  } else if (m.sand){
+    ctx.save(); ctx.globalAlpha = 0.5; ctx.fillStyle = SAND_SIDE;
+    for (var sx = minX+10; sx < maxX-4; sx += 18){
+      for (var sy = minY+9; sy < maxY-3; sy += 13){ ctx.fillRect(sx + ((sy/13|0)%2?6:0), sy, 2, 2); }
+    }
+    ctx.restore();
+  } else if (m.water){
+    ctx.save(); ctx.globalAlpha = 0.5; ctx.strokeStyle = WATER_LIP; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (var wx = minX; wx < maxX; wx += 8){ ctx.lineTo(wx, minY + 3 + Math.sin(wx*0.06)*2); }
+    ctx.stroke(); ctx.restore();
+  }
+}
+var BOUND = '#5e3329', BOUND_LIP = '#7a4838';   // dim boundary-wall rust (distinct from blocks)
+function drawSegment(s){
+  var sm = matOf(s.mat);
+  var isBound = (s.mat === 'bound');
+  var tn = isBound ? { fill: BOUND, lip: BOUND_LIP } : bodyTones(sm);
+  ctx.lineCap = 'round';
+  ctx.lineWidth = isBound ? 9 : 11;
+  ctx.strokeStyle = tn.fill;
+  ctx.beginPath(); ctx.moveTo(s.ax,s.ay); ctx.lineTo(s.bx,s.by); ctx.stroke();
+  ctx.lineWidth = isBound ? 2.5 : 3.5;
+  ctx.strokeStyle = tn.lip;
+  ctx.beginPath(); ctx.moveTo(s.ax,s.ay); ctx.lineTo(s.bx,s.by); ctx.stroke();
+}
+
+function drawCup(){
+  var cx = level.cup.x, cy = level.cup.y;
+  // dark notch carved into the surface
+  ctx.fillStyle = CUP_DARK;
+  ctx.fillRect(cx-14, cy-2, 28, 26);
+  ctx.fillStyle = 'rgba(120,140,170,0.18)';   // faint inner highlight (far wall)
+  ctx.fillRect(cx+11, cy-2, 3, 26);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(cx-14, cy-2, 28, 2);
+  // pole — starts at the cup's right edge +2, height 55
+  var poleX = cx + 14 + 2, sy = cy;
+  ctx.strokeStyle = '#7888a0'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(poleX, sy); ctx.lineTo(poleX, sy-55); ctx.stroke();
+  // gold pentagon pennant
+  var pTop = sy-55, pBot = sy-55+16, pMid=(pTop+pBot)/2, bodyW=22, pointW=10;
+  ctx.fillStyle = '#e8c840';
+  ctx.beginPath();
+  ctx.moveTo(poleX, pTop); ctx.lineTo(poleX+bodyW, pTop);
+  ctx.lineTo(poleX+bodyW+pointW, pMid); ctx.lineTo(poleX+bodyW, pBot);
+  ctx.lineTo(poleX, pBot); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#4a3520'; ctx.font = "10px 'Departure Mono', monospace"; ctx.textAlign='center';
+  ctx.fillText(String(level.num||1), poleX+bodyW/2, pMid+4); ctx.textAlign='left';
+}
+
+function drawBall(){
+  var R = PHYS.BALL_R;
+  // soft shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath(); ctx.ellipse(ball.x, ball.y + R-1, R*0.9, 4, 0, 0, 6.2832); ctx.fill();
+  // body
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, R, 0, 6.2832); ctx.fill();
+  // 3 dimples at 0/120/240, rotating with spin
+  ctx.save(); ctx.translate(ball.x, ball.y); ctx.rotate(ball.spin);
+  ctx.fillStyle = 'rgba(0,0,0,0.32)';
+  for (var i=0;i<3;i++){ var a=(i/3)*Math.PI*2;
+    ctx.beginPath(); ctx.arc(Math.cos(a)*R*0.5, Math.sin(a)*R*0.5, R*0.18, 0, 6.2832); ctx.fill(); }
+  ctx.restore();
+  // stuck indicator: a green ring
+  if (ball.stuck){ ctx.strokeStyle = STICK_LIP; ctx.lineWidth = 2; ctx.globalAlpha=0.9;
+    ctx.beginPath(); ctx.arc(ball.x, ball.y, R+5, 0, 6.2832); ctx.stroke(); ctx.globalAlpha=1; }
+}
+
+function drawAim(){
+  if (!aim.active || aim.btn !== 0 || state !== STATE_AIM || !ball.resting) return;
+  var a = currentAim();
+  if (a.len < 14) return;
+  var power = a.power;
+  var path = simulatePath(level, ball.x, ball.y, a.dx*power, a.dy*power);
+
+  // dotted EXACT predicted path (world space)
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  for (var i=4; i<path.pts.length; i+=4){
+    var p = path.pts[i];
+    var r = 3.0 - 1.6*(i/path.pts.length);
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.2, r), 0, 6.2832); ctx.fill();
+  }
+  // landing/sink marker
+  var last = path.last;
+  ctx.strokeStyle = path.end === 'holed' ? '#e8c840' : (path.end==='sticky' ? STICK_LIP : 'rgba(255,255,255,0.9)');
+  ctx.lineWidth = 2.4;
+  ctx.beginPath(); ctx.arc(last.x, last.y, 8, 0, 6.2832); ctx.stroke();
+
+  // launch line (white) in LAUNCH dir from ball + arrowhead — art.js drawAimUI
+  var al = 36 + a.t01*70;
+  var ex = ball.x + a.dx*al, ey = ball.y + a.dy*al;
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2.4;
+  ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(ex, ey); ctx.stroke();
+  var laAng = Math.atan2(a.dy, a.dx), ah = 11, aa = 0.45;
+  ctx.beginPath();
+  ctx.moveTo(ex, ey); ctx.lineTo(ex - ah*Math.cos(laAng-aa), ey - ah*Math.sin(laAng-aa));
+  ctx.moveTo(ex, ey); ctx.lineTo(ex - ah*Math.cos(laAng+aa), ey - ah*Math.sin(laAng+aa));
+  ctx.stroke();
+  // faded start circle + dark-brown drag dots toward cursor
+  ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, 8, 0, 6.2832); ctx.stroke();
+  var nd = Math.min(Math.floor(a.len/cam.zoom/14), 16);
+  ctx.fillStyle = 'rgba(80,70,55,0.5)';
+  for (var d=1; d<=nd; d++){
+    var dxw = -a.dx*d*14, dyw = -a.dy*d*14;  // toward cursor (opposite launch)
+    ctx.beginPath(); ctx.arc(ball.x+dxw, ball.y+dyw, 2.5, 0, 6.2832); ctx.fill();
+  }
+}
+
+// ── HUD (screen space) ───────────────────────────────────────────────────────
+var showDebug = false;
+function drawHUD(){
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(255,255,255,0.94)'; ctx.font = "20px 'Departure Mono', monospace";
+  var hd = 'HOLE ' + (level.num||1) + ' · ' + (level.name||'') ;
+  ctx.fillText(hd, 26, 36);
+  ctx.fillStyle = 'rgba(180,212,238,0.82)'; ctx.font = "12px 'Departure Mono', monospace";
+  ctx.fillText((level.sub||'') + '   ·   par ' + (level.par||3) + ' · strokes ' + strokes, 26, 56);
+  ctx.fillStyle = 'rgba(140,168,196,0.6)'; ctx.font = "11px 'Departure Mono', monospace";
+  ctx.fillText('drag back to aim · right-drag peek · [ ] level · N next · R reset', 26, 74);
+
+  // peek affordance: when panned away, show a recenter hint
+  if (peek.active && (Math.abs(peek.x)>30 || Math.abs(peek.y)>30)){
+    ctx.fillStyle = 'rgba(232,200,64,0.9)'; ctx.font = "12px 'Departure Mono', monospace"; ctx.textAlign='center';
+    ctx.fillText('◎ tap / aim to recenter', VW/2, VH-24); ctx.textAlign='left';
+  }
+  if (auto && !window.__headless){
+    // OPAQUE dark chip behind the label so it reads identically over sky OR geometry
+    // (a translucent plate let rust blocks bleed through and look like two styles).
+    ctx.fillStyle = '#0c0e14';
+    ctx.fillRect(VW-130, 22, 104, 20);
+    ctx.strokeStyle = 'rgba(108,240,168,0.35)'; ctx.lineWidth = 1;
+    ctx.strokeRect(VW-130.5, 21.5, 104, 21);
+    ctx.fillStyle = 'rgba(108,240,168,0.95)'; ctx.font = "12px 'Departure Mono', monospace"; ctx.textAlign='right';
+    ctx.fillText('AUTO-DEMO', VW-33, 36); ctx.textAlign='left';
+  }
+  if (state === STATE_SUNK){
+    // a dim scrim so the win text reads over any geometry, banner kept HIGH so it
+    // never collides with the cup/flag hardware down at the ball.
+    ctx.fillStyle = 'rgba(8,9,15,0.55)'; ctx.fillRect(0, VH*0.16, VW, 112);
+    ctx.fillStyle = 'rgba(255,255,255,0.96)'; ctx.font = "34px 'Departure Mono', monospace"; ctx.textAlign='center';
+    ctx.fillText('IN THE CUP', VW/2, VH*0.24);
+    var par = level.par||3, rel = strokes - par;
+    var scoreTxt = rel === 0 ? 'PAR' : rel < 0 ? (rel===-1?'BIRDIE':rel===-2?'EAGLE':(rel)+' under') : '+'+rel;
+    ctx.fillStyle = 'rgba(232,200,64,0.92)'; ctx.font = "14px 'Departure Mono', monospace";
+    ctx.fillText(strokes + ' strokes · ' + scoreTxt, VW/2, VH*0.24 + 26);
+    ctx.fillStyle = 'rgba(180,212,238,0.8)'; ctx.font = "12px 'Departure Mono', monospace";
+    var more = levelIndex < CAMPAIGN.length-1;
+    ctx.fillText(more ? 'next hole →' : 'campaign complete · R to replay', VW/2, VH*0.24 + 48);
+    ctx.textAlign='left';
+  }
+  if (flash){ ctx.save(); ctx.globalAlpha = clamp(flash.t,0,1);
+    ctx.fillStyle = '#fff'; ctx.font = "22px 'Departure Mono', monospace"; ctx.textAlign='center';
+    ctx.fillText(flash.text, VW/2, VH*0.30); ctx.restore(); ctx.textAlign='left'; }
+
+  if (showDebug){
+    ctx.fillStyle = 'rgba(120,240,200,0.75)'; ctx.font = "11px 'Departure Mono', monospace"; ctx.textAlign='right';
+    var lines = [
+      'state '+(state===0?'AIM':state===1?'FLIGHT':'SUNK'),
+      'zoom '+cam.zoom.toFixed(3)+' →'+cam.tzoom.toFixed(3),
+      'cam '+Math.round(cam.x)+','+Math.round(cam.y),
+      'ball '+Math.round(ball.x)+','+Math.round(ball.y),
+      'peek '+Math.round(peek.x)+','+Math.round(peek.y),
+      'spd '+Math.round(vlen(ball.vx,ball.vy))
+    ];
+    for (var i=0;i<lines.length;i++) ctx.fillText(lines[i], VW-26, 80+i*15);
+    ctx.textAlign='left';
+  }
+}
+
+function draw(){
+  resetCam();
+  drawSky();
+  applyCam();
+  // world-space content
+  for (var b=0;b<level.bodies.length;b++) drawBody(level.bodies[b]);
+  for (var s=0;s<level.segments.length;s++) drawSegment(level.segments[s]);
+  drawCup();
+  drawBall();
+  drawAim();
+  resetCam();
+  drawHUD();
+}
+
+// ── AUTO-DEMO — multi-shot solve + a camera showcase ───────────────────────────
+// Beat 0: hold at address (fit), then a PRE-SHOT PEEK pan toward the cup + back.
+// Beat 1: SHOT 1 bank off right wall → mid platform (follow+zoom).
+// Beat 2: SHOT 2 loft onto sticky ledge (sticky grab).
+// Beat 3: SHOT 3 bank toward cup shelf.
+// Beat 4: SHOT 4 putt into the cup. Beat 5: hold on IN THE CUP. Loop.
+var auto = true;
+var demoStep = 0, demoTimer = 0;
+var demoShotIdx = 0;   // which shot of the current level's solve[] we're on
+
+function resetDemo(){
+  level = buildLevel();
+  makeStars();
+  resetBall();
+  strokes = 0; state = STATE_AIM; demoStep = 0; demoTimer = 0; sunkTimer = 0;
+  flash = null; peek.x = 0; peek.y = 0; peek.active = false;
+  flightTrack = [];
+  snapCamera(addressTarget());
+}
+// load a specific campaign level (clamped). Stops the auto-demo so it's playable.
+function loadLevel(n){
+  levelIndex = clamp(n, 0, CAMPAIGN.length-1);
+  resetDemo();
+}
+function nextLevel(){ if (levelIndex < CAMPAIGN.length-1) loadLevel(levelIndex+1); else loadLevel(0); }
+
+// AUTO-DEMO — drives each level's own solve[] line, then advances to the next hole
+// and loops the whole campaign. A hands-off showcase of the camera on every level.
+function autoDemoTick(dt){
+  demoTimer++;
+  var solve = level.solve || [];
+  if (demoStep === 0){
+    // hold at address-fit, then a short peek toward the cup region and back
+    if (demoTimer === 30) peek.active = true;
+    if (demoTimer > 30 && demoTimer <= 78){ peek.x += 24; peek.y -= 6; }
+    if (demoTimer > 100 && demoTimer <= 148){ peek.x -= 24; peek.y += 6; }
+    if (demoTimer > 158){ peek.active = false; peek.x = 0; peek.y = 0; demoStep = 1; demoTimer = 0; demoShotIdx = 0; }
+  } else if (demoStep === 1){
+    // fire the next scripted shot once the ball is at rest and aim-ready
+    if (state === STATE_AIM && ball.resting && demoTimer > 26){
+      if (demoShotIdx < solve.length){
+        var sh = solve[demoShotIdx++];
+        window.__shoot(sh[0], sh[1]);
+        demoTimer = 0;
+      } else {
+        // ran out of scripted shots without sinking → just advance the showcase
+        demoStep = 8; demoTimer = 0;
+      }
+    }
+    if (state === STATE_SUNK){ demoStep = 8; demoTimer = 0; }
+    if (demoTimer > 700){ demoStep = 8; demoTimer = 0; }   // safety: never hang a level
+  } else if (demoStep === 8){
+    // hold the result a beat, then advance to the next hole (loop the campaign)
+    if (demoTimer > 130){
+      levelIndex = (levelIndex + 1) % CAMPAIGN.length;
+      resetDemo();
+      demoStep = 0; demoTimer = 0; demoShotIdx = 0;
+    }
+  }
+}
+
+// ── MAIN LOOP / HEADLESS API ───────────────────────────────────────────────────
+var frameCount = 0;
+var FIXED = 1/60;   // headless __step uses a fixed dt so screenshots are deterministic
+function tick(dt){
+  frameCount++;
+  if (auto) autoDemoTick(dt);
+  advancePhysics(dt);
+  if (state === STATE_SUNK){
+    sunkTimer++;
+    // when PLAYING (not the auto-demo), hold the win banner then advance to next hole
+    if (!auto && sunkTimer === 110 && levelIndex < CAMPAIGN.length-1){ nextLevel(); }
+  }
+  if (flash){ flash.t -= dt; if (flash.t <= 0) flash = null; }
+  updateCamera(dt);
+  draw();
+}
+
+window.__step = function(){ tick(FIXED); };           // one deterministic frame
+window.__reset = function(){ resetDemo(); draw(); };
+window.__frame = function(){ return frameCount; };
+window.__setAuto = function(a){ auto = !!a; };
+// load campaign level n (0-based); stops auto-demo so the headless solver drives it.
+window.__setLevel = function(n){ auto = false; loadLevel(n|0); draw(); return levelIndex; };
+window.__levelCount = function(){ return CAMPAIGN.length; };
+window.__levelInfo = function(){ return { index: levelIndex, num: level.num, name: level.name, par: level.par, w: level.w, h: level.h, tee: level.tee, cup: level.cup }; };
+window.__state = function(){
+  return { step: demoStep, state: state, stuck: ball.stuck,
+    strokes: strokes, x: Math.round(ball.x), y: Math.round(ball.y),
+    zoom: +cam.zoom.toFixed(3), camx: Math.round(cam.x), camy: Math.round(cam.y),
+    peekx: Math.round(peek.x), peeky: Math.round(peek.y) };
+};
+window.__peek = function(dx, dy){ peek.active = true; peek.x += dx; peek.y += dy; };  // headless peek
+window.__recenter = function(){ peek.x = 0; peek.y = 0; peek.active = false; };
+
+// real-time loop (rAF) for interactive play; headless uses __step
+var lastT = 0;
+function loop(t){
+  if (!lastT) lastT = t;
+  var dt = Math.min(0.05, (t - lastT)/1000); lastT = t;
+  if (!window.__headless) tick(dt);
+  requestAnimationFrame(loop);
+}
+resetDemo();
+draw();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
