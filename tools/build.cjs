@@ -97,6 +97,8 @@ const SCRIPTS = [
   'src/roguelike/atlas-setpieces.js',
   'src/roguelike/atlas-puzzle-mode.js',
   // src/showcase.js is dev-only (Generator Showcase) — EXCLUDED.
+  // PORTRAIT MOBILE MODE (gated, inert unless ?portrait) — MUST be bundled so ?portrait works in the dist build.
+  'src/roguelike/portrait.js',
   'src/main.js',
 ];
 
