@@ -206,10 +206,13 @@
   // SPECIAL hole (ruins / launchpad / obelisk — "something was here") at one index.
   const SOLAR = [
     // id, name, land, sky, grav, archetypes (WIDE + distinct — variance), [dMin,dMax] (pushed), waterBias|null, surfCol, deepCol, special, atIdx
-    ['earth', 'Earth', 'earthgreen', '#3a6a8a', 1.0, ['gom_smooth', 'gentle_slope', 'gentle_hill', 'rolling_hills', 'downhill', 'uphill', 'punchbowl'], [0.08, 0.5], null, null, null, 'ruins', 4],
-    ['luna', 'Luna', 'stone', '#05050a', 0.55, ['crater', 'deep_pocket', 'fortress', 'mesa', 'stepped_descent', 'twin_peaks', 'narrow_gap', 'ziggurat', 'punchbowl'], [0.35, 0.95], null, null, null, 'launchpad', 5],
-    ['mars', 'Mars', 'crimson', '#c08868', 0.6, ['canyon_cup', 'canyon', 'cenote', 'deep_plunge', 'mesa', 'cliff_drop', 'fortress', 'crater', 'dramatic_ridge'], [0.4, 1.0], 0.25, 'rgba(80,135,150,0.85)', 'rgba(20,45,60,0.96)', 'obelisk', 6],
-    ['phobos', 'Phobos', 'ash', '#08080e', 0.5, ['gauntlet', 'narrow_gap', 'twin_peaks', 'spire_drown', 'deep_plunge', 'fortress', 'cliff_shelf', 'canyon'], [0.45, 1.0], null, null, null, null, 0],
+    // EARLY ON-RAMP: the opening bodies of the tour carry GENTLER difficulty ranges so the first session is
+    // approachable (was earth[0.08,0.5] luna[0.35,0.95] mars[0.4,1.0] phobos[0.45,1.0] — too hard from hole 1).
+    // Later planets keep their authored difficulty. Completability is unaffected (lower drama = easier holes).
+    ['earth', 'Earth', 'earthgreen', '#3a6a8a', 1.0, ['gom_smooth', 'gentle_slope', 'gentle_hill', 'rolling_hills', 'downhill', 'uphill', 'punchbowl'], [0.06, 0.38], null, null, null, 'ruins', 4],
+    ['luna', 'Luna', 'stone', '#05050a', 0.55, ['crater', 'deep_pocket', 'fortress', 'mesa', 'stepped_descent', 'twin_peaks', 'narrow_gap', 'ziggurat', 'punchbowl'], [0.22, 0.7], null, null, null, 'launchpad', 5],
+    ['mars', 'Mars', 'crimson', '#c08868', 0.6, ['canyon_cup', 'canyon', 'cenote', 'deep_plunge', 'mesa', 'cliff_drop', 'fortress', 'crater', 'dramatic_ridge'], [0.28, 0.78], 0.25, 'rgba(80,135,150,0.85)', 'rgba(20,45,60,0.96)', 'obelisk', 6],
+    ['phobos', 'Phobos', 'ash', '#08080e', 0.5, ['gauntlet', 'narrow_gap', 'twin_peaks', 'spire_drown', 'deep_plunge', 'fortress', 'cliff_shelf', 'canyon'], [0.32, 0.82], null, null, null, null, 0],
     ['jupiter', 'Jupiter', 'ember', '#3a2818', 1.2, ['gom_islands', 'gauntlet', 'fortress', 'mesa', 'stepped_descent', 'twin_peaks', 'narrow_gap'], [0.45, 0.95], null, null, null, null, 0],
     ['europa', 'Europa', 'frost', '#1a2838', 0.55, ['island_green', 'sea_stack', 'gom_islands', 'cenote', 'crater', 'deep_pocket', 'gom_lake'], [0.3, 0.9], 0.66, 'rgba(95,175,205,0.9)', 'rgba(10,40,72,0.97)', 'sea_stack', 7],
     ['io', 'Io', 'sulfur', '#241208', 0.55, ['cenote', 'crater', 'canyon_cup', 'deep_plunge', 'canyon', 'fortress', 'dramatic_ridge', 'mesa'], [0.4, 1.0], 0.4, 'rgba(228,95,28,0.93)', 'rgba(112,18,8,0.98)', null, 0],
