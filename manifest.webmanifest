@@ -2,7 +2,7 @@
   "name": "Par Sec",
   "short_name": "Par Sec",
   "description": "Flat-faceted procedural space golf — putt across the solar system.",
-  "start_url": "./?portrait",
+  "start_url": "./?portrait&rogue",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
