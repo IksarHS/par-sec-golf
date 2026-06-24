@@ -5141,7 +5141,13 @@ function generateHoleTerrain(holeIndex) {
     }
   }
 
-  const difficulty = getDifficulty(holeIndex);
+  let difficulty = getDifficulty(holeIndex);
+  // EASY OPENER (portrait / roguelike): the log difficulty ramp barely moves across a 5-hole course, so the
+  // first hole wasn't a clearly gentle start. Cap hole 0's difficulty low so EVERY course opens on the easy
+  // side. Gated on portrait so the landscape game is byte-unchanged.
+  if (holeIndex === 0 && typeof window !== 'undefined' && window.RG_PORTRAIT) {
+    difficulty = Math.min(difficulty, 0.15);
+  }
 
   // Determine tee position
   let teeX, teeY;

@@ -153,6 +153,7 @@
       }
       RUN.lastCourse = course;
       RUN.lastHole = hole;
+      RUN.overall = 0;            // ALWAYS START EVEN PAR on every course — cushion does NOT carry between planets
       RUN.courseStartStrokes = g(function () { return totalStrokes; }, 0);
       RUN._lastCoursePar = 0; RUN._lastCourseStrokes = 0;
       return;
@@ -197,14 +198,11 @@
   function makeHud() {
     hud = document.createElement('div');
     hud.id = 'rg-galaxy-hud';
-    // Full-width top bar that fades out downward, so it reads as intentional UI (not floating text) and
-    // never hard-cuts over the sky. pointer-events:none so it never eats a shot. Rogue OWNS the top now
-    // (the engine's corner HOLE/PAR readout is suppressed below), so there's nothing to overlap.
-    hud.style.cssText = 'position:fixed;left:0;right:0;z-index:60;pointer-events:none;' +
-      "font-family:'Departure Mono',monospace;color:#efeaff;" +
-      'padding:9px 18px 16px;box-sizing:border-box;' +
-      'background:linear-gradient(to bottom,rgba(9,7,18,0.78) 55%,rgba(9,7,18,0));' +
-      'text-shadow:0 1px 3px rgba(0,0,0,0.6);';
+    // Match the PC game's HUD: plain left-aligned monospace, white headline + dim sublines, NO panel/colour.
+    // pointer-events:none so it never eats a shot. (The engine's corner readout is suppressed in tick().)
+    hud.style.cssText = 'position:fixed;left:20px;z-index:60;pointer-events:none;' +
+      "font-family:'Departure Mono',monospace;color:#ffffff;" +
+      'text-shadow:0 1px 3px rgba(0,0,0,0.6);line-height:1.3;white-space:pre;';
     (document.body || document.documentElement).appendChild(hud);
   }
 
@@ -214,35 +212,25 @@
     if (RUN.gameOver) { hud.style.display = 'none'; return; }
     hud.style.display = 'block';
 
-    // Strikes as LIVES: filled dot = a strike still in hand, dim = spent.
-    var pips = '';
-    for (var i = 0; i < 3; i++) {
-      pips += (i < RUN.strikes)
-        ? '<span style="color:#ff5d5d;">●</span>'
-        : '<span style="color:rgba(255,93,93,0.22);">●</span>';
-    }
+    var sc = g(function () { return window.RG_PORTRAIT && RG_PORTRAIT.hudScale; }, 0.62) || 0.62;
+    var px = function (n) { return Math.round(n * sc) + 'px'; };
+    var dim = 'rgba(255,255,255,0.55)';
 
-    // CUSHION = how many over-par strokes you can still absorb before a strike (= |overall| when under par).
-    // 0 (even) = on the edge: the next over-par hole costs a strike. This is the core tension, so it's centred.
-    var ov = RUN.overall, cushVal, cushColor, cushLabel;
-    if (ov < 0) { cushVal = String(Math.abs(ov)); cushColor = '#6ff0a0'; cushLabel = 'CUSHION'; }
-    else { cushVal = '0'; cushColor = '#ffce5e'; cushLabel = 'ON THE EDGE'; }
-
-    var planetNo = RUN.planetsCleared + 1;
     var holeNo = Math.min(curHole() + 1, holeCount());
     var par = g(function () { return RG.holePars[curHole()]; }, null);
+    var curStrokes = g(function () { return strokes; }, 0);   // strokes on the current hole so far
+
+    // course score = overall (cumulative strokes vs par THIS course; starts even, resets even each course).
+    var ov = RUN.overall;
+    var courseTxt = ov < 0 ? (Math.abs(ov) + ' UNDER') : (ov === 0 ? 'EVEN' : ('+' + ov + ' OVER'));
 
     hud.innerHTML =
-      '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-        '<span style="font-size:17px;letter-spacing:5px;">' + pips + '</span>' +
-        '<span style="color:#ffd479;font-size:15px;letter-spacing:1px;">$' + RUN.money + '</span>' +
-      '</div>' +
-      '<div style="text-align:center;margin-top:5px;line-height:1;">' +
-        '<div style="font-size:9px;letter-spacing:2px;color:' + (ov < 0 ? 'rgba(239,234,255,0.5)' : '#ffce5e') + ';">' + cushLabel + '</div>' +
-        '<div style="font-size:23px;font-weight:bold;color:' + cushColor + ';margin-top:1px;">' + (ov < 0 ? cushVal : '·') + '</div>' +
-      '</div>' +
-      '<div style="text-align:center;font-size:10.5px;letter-spacing:1px;color:rgba(239,234,255,0.45);margin-top:4px;">' +
-        'PLANET ' + planetNo + '  ·  HOLE ' + holeNo + '/' + holeCount() + '  ·  PAR ' + (par != null ? par : '?') + '</div>';
+      '<div style="font-size:' + px(28) + ';">HOLE ' + holeNo + ' / ' + holeCount() + '</div>' +
+      '<div style="font-size:' + px(19) + ';color:' + dim + ';">PAR ' + (par != null ? par : '?') +
+        (curStrokes > 0 ? ('   ' + curStrokes + ' STROKE' + (curStrokes > 1 ? 'S' : '')) : '') + '</div>' +
+      '<div style="font-size:' + px(19) + ';margin-top:' + px(10) + ';">LIVES ' + RUN.strikes + '</div>' +
+      '<div style="font-size:' + px(19) + ';color:' + dim + ';">' + courseTxt + ' THIS COURSE</div>' +
+      '<div style="font-size:' + px(16) + ';color:' + dim + ';">$' + RUN.money + '   PLANET ' + (RUN.planetsCleared + 1) + '</div>';
   }
 
   // ── GAME-OVER overlay (full-screen, pointer-events:auto, tap/click to retry) ──
