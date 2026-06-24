@@ -27,7 +27,9 @@ const ESBUILD = process.env.ESBUILD_BIN || '/tmp/shipbuild-tools/node_modules/.b
 
 // ── The runtime script load order (mirrors run.html EXACTLY, minus dev-only tooling) ───────────────
 // Dev-only files EXCLUDED from the production bundle (all are URL-gated / inert in normal play, and are
-// only reachable via ?dev/?edit/?perf/?dbg/?seq/?goto/?showcase deep-links):
+// only reachable via ?dev/?edit/?perf/?dbg/?seq/?goto/?showcase deep-links). EXCLUSION = simply NOT being
+// in the SCRIPTS allow-list below (there is no separate drop list); these are documented here for clarity:
+//   src/debug-menu.js  ← unified DEBUG MENU home base (backtick-toggled) — DEV-ONLY, never ships.
 //   src/lab.js, src/showcase.js, src/cam-debug.js, src/editor.js, src/editor-trace.js,
 //   src/roguelike/lab.js, src/roguelike/feel.js, src/roguelike/perf-hud.js, src/roguelike/seqtest.js,
 //   src/roguelike/testjump.js

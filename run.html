@@ -142,7 +142,10 @@
 <script src="src/roguelike/lab.js"></script>
 <script src="src/roguelike/feel.js"></script>
 <script src="src/roguelike/playtest-bot.js"></script>
-<!-- Live frame-time debug overlay (Shift+D to toggle in any build, or ?perf to start shown). -->
+<!-- UNIFIED DEBUG MENU (dev-only, EXCLUDED from the public build by build.cjs's allow-list). Must load
+     BEFORE the overlay modules so window.DBG exists when they register. Backtick ` opens/closes it. -->
+<script src="src/debug-menu.js"></script>
+<!-- Live frame-time debug overlay (registers `perfHud` with DBG; Shift+D convenience toggle kept). -->
 <script src="src/roguelike/perf-hud.js"></script>
 <!-- Playtest DEBUG OVERLAY (peel-off-able, OFF by default): backtick ` toggles, ?debug starts shown.
      Compact live engine-state read-out (planet/hole/par/strokes/ball/speed/state/surface/dist→cup/zoom/W/fps)

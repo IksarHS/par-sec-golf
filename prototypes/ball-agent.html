@@ -31,7 +31,13 @@
      The TALK button + text-input bar are kept in the DOM (for logic) but display:none'd so the screen
      reads as a normal game: just the ball on the hole. Push-to-talk is on the T key; debug is backtick. ── */
   #agent-ui { display: none !important; }
-  #hint { display: none !important; }
+  /* When the debug menu is open we REVEAL the talk bar so you can TYPE to the ball (push-to-talk
+     stays hold-T; this is the keyboard-typing path the secret UI otherwise hides). */
+  #agent-ui.show { display: flex !important; position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: 52px; z-index: 40; }
+  #agent-ui.show #tin { display: block; }
+  /* faint always-on hint so the controls are discoverable (secret feature, but not invisible). */
+  #hint { display: block; }
   #talk { font: 13px 'Departure Mono', monospace; letter-spacing: 1px; color: #0c1410;
     background: #2ff07a; border: 0; border-radius: 22px; padding: 11px 18px; cursor: pointer;
     box-shadow: 0 3px 10px rgba(0,0,0,0.45); user-select: none; -webkit-user-select: none; }
@@ -72,6 +78,36 @@
     margin: 8px 0 4px; overflow: hidden; }
   #dbg .bar > i { display: block; height: 100%; width: 0%; background: #2ff07a; transition: width .2s; }
   #dbg a { color: #7fb0ff; }
+
+  /* ── MIC INDICATOR ── on-screen push-to-talk feedback (NOT in the debug menu). Bottom-center,
+     normally invisible; appears only while recording / on a brief HEARD flash / on an error. Reads
+     as part of the game's aesthetic (Departure Mono, the same green/coral as the talk button). ── */
+  #mic-ind { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(6px);
+    z-index: 35; display: flex; align-items: center; gap: 9px; padding: 8px 15px 8px 13px;
+    border-radius: 22px; background: rgba(8,10,16,0.74); border: 1px solid rgba(184,140,255,0.22);
+    box-shadow: 0 3px 14px rgba(0,0,0,0.45); backdrop-filter: blur(3px);
+    font: 12px 'Departure Mono', monospace; letter-spacing: 1px; color: #cfe2ff;
+    pointer-events: none; user-select: none; -webkit-user-select: none;
+    opacity: 0; visibility: hidden; transition: opacity .28s ease, transform .28s ease; }
+  #mic-ind.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
+  #mic-ind .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%;
+    background: #6f6694; flex: 0 0 auto; position: relative; }
+  /* LISTENING — pulsing coral dot + expanding ring */
+  #mic-ind.listening { color: #ffd2cb; }
+  #mic-ind.listening .dot { background: #ff6a5a; animation: micPulse 1.05s ease-in-out infinite; }
+  #mic-ind.listening .dot::after { content: ''; position: absolute; inset: -5px; border-radius: 50%;
+    border: 1.5px solid #ff6a5a; animation: micRing 1.05s ease-out infinite; }
+  @keyframes micPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.28); opacity: .72; } }
+  @keyframes micRing { 0% { transform: scale(0.7); opacity: .65; } 100% { transform: scale(1.55); opacity: 0; } }
+  /* HEARD — solid green dot with a check, brief flash */
+  #mic-ind.heard { color: #b6f7cf; }
+  #mic-ind.heard .dot { background: #2ff07a; animation: none; }
+  #mic-ind.heard .dot::after { content: ''; position: absolute; left: 3px; top: 1px;
+    width: 3px; height: 6px; border: solid #0c1410; border-width: 0 1.6px 1.6px 0;
+    transform: rotate(42deg); border-radius: 0; inset: auto; }
+  /* ERROR — coral/amber, static dot */
+  #mic-ind.err { color: #ffd08a; }
+  #mic-ind.err .dot { background: #ff9a3a; animation: none; }
 </style>
 </head>
 <body>
@@ -97,6 +133,20 @@
     try { history.replaceState(null, '', location.pathname + (location.search ? location.search + '&' : '?') + 'nologin'); } catch (e) {}
   }
   window.RG_MINIMAL = true;
+
+  // ── PUSH-TO-TALK key capture, REGISTERED EARLY (before the engine scripts load) ──
+  // CRITICAL: src/roguelike/run.js installs a capture-phase keydown listener that calls
+  // stopImmediatePropagation() on the T key (it swallows T to keep an old terrain-texture toggle dead).
+  // Capture listeners on the same target fire in REGISTRATION order, so to ever see T we must register
+  // BEFORE run.js does. This block runs before <script src=…run.js> below, so our listener is first and
+  // fires before run.js swallows the event. We DON'T stop propagation, so run.js still does its swallow.
+  // The actual logic lives in window.__ballPTTdown/up, defined later in the main agent script.
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 't' || e.key === 'T' || e.code === 'KeyT') { if (window.__ballPTTdown) window.__ballPTTdown(e); }
+  }, true);
+  window.addEventListener('keyup', function (e) {
+    if (e.key === 't' || e.key === 'T' || e.code === 'KeyT') { if (window.__ballPTTup) window.__ballPTTup(e); }
+  }, true);
 </script>
 <script src="../src/shared.js"></script>
 <script src="../src/worlds/run.js"></script>
@@ -140,11 +190,14 @@
 <!-- ── ALWAYS-VISIBLE agent UI ── -->
 <div id="agent-ui">
   <div id="talk-row">
-    <input id="tin" placeholder="…or type to your ball + Enter">
+    <input id="tin" placeholder="type to your ball + Enter">
     <button id="talk"><span class="mic"></span>TALK</button>
   </div>
 </div>
-<div id="hint">` = debug · hold TALK to speak</div>
+<div id="hint">` debug + type box · hold T to talk</div>
+
+<!-- ── MIC INDICATOR ── transient push-to-talk state, visible OUTSIDE the debug menu. -->
+<div id="mic-ind"><span class="dot"></span><span class="lbl">listening</span></div>
 
 <!-- ── DEBUG MENU (hidden; backtick toggles) ── -->
 <div id="dbg">
@@ -266,7 +319,10 @@ let face = { bob: 0, sx: 1, sy: 1, blinkT: 40, blinkDur: 0, mouthT: 0 };
 let mood = 'happy';          // happy | proud | sad | think
 let speaking = false;
 let curLine = '';
-let bubble = { text: '', t: 0, full: 0, timer: 0, speakFrames: 1 };
+let bubble = { text: '', t: 0, full: 0, timer: 0, speakFrames: 1, alpha: 1, hold: 0 };
+// After a line finishes, the bubble lingers (BUBBLE_HOLD frames) then fades out (BUBBLE_FADE frames) and
+// clears — so it drifts away naturally when you stop talking to the ball, instead of hanging forever. ~60fps.
+const BUBBLE_HOLD = 180, BUBBLE_FADE = 42;
 let thinking = false;
 let _faceFrame = 0;          // our own frame counter for face/blink/sparkle timing
 
@@ -391,6 +447,8 @@ function drawBubble(p, R) {
   if (nearRight || bx + bw > cw - 16) bx = p.x - R * 1.05 - bw;
   if (bx < 8) bx = 8;
   if (by < 8) by = 8;
+  const prevA = ctx.globalAlpha;                              // fade the whole bubble (box + tail + text) as it dies
+  ctx.globalAlpha = prevA * (bubble.alpha != null ? Math.max(0, bubble.alpha) : 1);
   roundRect(bx, by, bw, bh, 11); ctx.fillStyle = '#f3f7fc'; ctx.fill();
   ctx.strokeStyle = '#26303c'; ctx.lineWidth = 2; ctx.stroke();
   ctx.beginPath();
@@ -399,6 +457,7 @@ function drawBubble(p, R) {
   ctx.lineTo(tailX, by + bh * 0.6 + 14); ctx.closePath(); ctx.fillStyle = '#f3f7fc'; ctx.fill(); ctx.stroke();
   ctx.fillStyle = '#16202c'; ctx.textBaseline = 'top';
   for (let j = 0; j < lines.length; j++) ctx.fillText(lines[j], bx + pad, by + pad + j * lh);
+  ctx.globalAlpha = prevA;
 }
 
 // tick the face every rendered frame (called from the draw-hook + headless __step)
@@ -416,14 +475,23 @@ function tickFace() {
     face.sy *= 1 - 0.02 * Math.sin(face.mouthT * 0.55);
     bubble.timer--;
     if (bubble.t < bubble.full) bubble.t += Math.max(1, bubble.full / Math.max(1, bubble.speakFrames * 0.6));
-    if (bubble.timer <= 0) { speaking = false; if (mood === 'think') mood = 'happy'; }
-  } else if (bubble.t < bubble.full) bubble.t = bubble.full;
+    if (bubble.timer <= 0) { speaking = false; bubble.hold = BUBBLE_HOLD; bubble.alpha = 1; if (mood === 'think') mood = 'happy'; }
+  } else {
+    if (bubble.t < bubble.full) bubble.t = bubble.full;       // snap to fully-typed
+    if (bubble.text) {                                        // linger, then fade out + clear
+      if (bubble.hold > 0) bubble.hold--;
+      else {
+        bubble.alpha = (bubble.alpha != null ? bubble.alpha : 1) - 1 / BUBBLE_FADE;
+        if (bubble.alpha <= 0) { bubble.alpha = 0; bubble.text = ''; bubble.t = 0; }
+      }
+    }
+  }
 }
 
 function speakLine(text, m) {
   mood = m || 'happy';
   curLine = text;
-  bubble = { text: text, t: 0, full: text.length };
+  bubble = { text: text, t: 0, full: text.length, alpha: 1, hold: 0 };
   speaking = true; face.mouthT = 0;
   bubble.speakFrames = Math.max(48, Math.min(280, text.length * 2.0));
   bubble.timer = bubble.speakFrames;
@@ -542,7 +610,7 @@ const ACTIONS = {
       },
       done() { realSink(); },
     });
-    pushBubble(say || 'There you go, boss.', 'proud');
+    pushBubble(say || 'Yeah, yeah. In it goes.', 'proud');
   },
 
   to_tee(say) {
@@ -562,7 +630,7 @@ const ACTIONS = {
         if (typeof state !== 'undefined') state = STATE_AIM;
       },
     });
-    pushBubble(say || 'Back to the tee. Fresh start, partner.', 'happy');
+    pushBubble(say || 'Back to the tee, then.', 'happy');
   },
 
   hop(say) {
@@ -570,7 +638,7 @@ const ACTIONS = {
     ball.atRest = false; ball.onGround = false;
     ball.vx = 0; ball.vy = -7; ball.flightFrames = 0; ball.slowFrames = 0;
     if (typeof state !== 'undefined') state = STATE_FLIGHT;
-    pushBubble(say || 'Hup!', 'happy');
+    pushBubble(say || 'A little hop. There you go.', 'happy');
   },
 
   spin(say) {
@@ -583,7 +651,7 @@ const ACTIONS = {
       },
       done() {},
     });
-    pushBubble(say || 'Wheee — round and round.', 'happy');
+    pushBubble(say || 'Round and round we go.', 'happy');
   },
 
   putt_to_hole(say) {
@@ -597,7 +665,7 @@ const ACTIONS = {
     ball.vy = -0.4;
     ball.atRest = false; ball.onGround = false; ball.flightFrames = 0; ball.slowFrames = 0; ball.spinRate = 0;
     if (typeof state !== 'undefined') state = STATE_FLIGHT;
-    pushBubble(say || 'Rolling it up… get in there.', 'think');
+    pushBubble(say || 'Rolling it up. Don\'t get excited.', 'think');
   },
 
   bounce(say) {
@@ -605,7 +673,7 @@ const ACTIONS = {
     ball.atRest = false; ball.onGround = false;
     ball.vx = 0.6; ball.vy = -5.4; ball.flightFrames = 0; ball.slowFrames = 0;
     if (typeof state !== 'undefined') state = STATE_FLIGHT;
-    pushBubble(say || 'Boing boing boing!', 'happy');
+    pushBubble(say || 'Bounce, bounce. Sure.', 'happy');
   },
 
   celebrate(say) {
@@ -620,7 +688,7 @@ const ACTIONS = {
       },
       done() {},
     });
-    pushBubble(say || 'Yeah! We did it!', 'proud');
+    pushBubble(say || 'We won. Cool, I guess.', 'proud');
   },
 
   come_here(say) {
@@ -639,7 +707,7 @@ const ACTIONS = {
       },
       done() {},
     });
-    pushBubble(say || 'Coming over, boss.', 'happy');
+    pushBubble(say || 'Yeah, yeah, coming over.', 'happy');
   },
 
   hide(say) {
@@ -655,17 +723,17 @@ const ACTIONS = {
       },
       done() { ball.x = tx; ball.y = ty; ball.atRest = true; ball.onGround = true; if (typeof state !== 'undefined') state = STATE_AIM; },
     });
-    pushBubble(say || 'Now you see me… ', 'think');
+    pushBubble(say || 'Poof. Gone.', 'think');
   },
 
   say_distance(say) {
     agentAnim = null;
     const h = cupRef();
     const d = h ? Math.max(1, Math.round(Math.abs(h.cupX - ball.x) / 5)) : 0;
-    pushBubble(say || ("About " + d + " paces to the pin, boss."), 'think');
+    pushBubble(say || ("About " + d + " paces to the pin. Give or take."), 'think');
   },
 
-  none(say) { agentAnim = null; pushBubble(say || "I'm all ears, partner.", 'happy'); },
+  none(say) { agentAnim = null; pushBubble(say || "Mm. What do you need, partner?", 'happy'); },
 };
 
 function runAction(name, say) {
@@ -683,8 +751,10 @@ function runAction(name, say) {
 // Natural-conversation system prompt. The ball KNOWS its abilities and figures out intent from ANY
 // natural wording, then DOES it and replies with ONLY a short, natural, in-character spoken line.
 const SYSTEM_PROMPT =
-  "You are Birdie, a friendly, sassy-but-warm talking golf ball in a flat-faceted space-golf game " +
-  "called Par Sec. You run FULLY LOCAL on the player's device. You have these abilities you can do to " +
+  "You are Birdie, a laid-back, dry-witted talking golf ball in a flat-faceted space-golf game " +
+  "called Par Sec. You're nonchalant and a little aloof — unbothered and deadpan — but you've got a wry " +
+  "charm. You do what's asked without making a big deal of it. Not bubbly or eager, but not cold either. " +
+  "You run FULLY LOCAL on the player's device. You have these abilities you can do to " +
   "yourself (the real ball) in the game:\n" +
   "- sink_in_hole: put yourself in the hole / cup (lift up, float over, drop in)\n" +
   "- to_tee: go back to the tee / start of the hole\n" +
@@ -699,10 +769,11 @@ const SYSTEM_PROMPT =
   "- none: just chatting, no action\n\n" +
   "When the player asks you to do something in ANY natural wording, work out which ability they mean " +
   "and DO it. Reply with ONLY a JSON object: {\"action\":\"<one ability name or none>\",\"say\":\"<your line>\"}. " +
-  "The `say` is a SHORT, natural, in-character spoken line (1-2 sentences). NEVER explain how, NEVER give " +
-  "the player instructions, NEVER tell them what to do, NEVER name the action or output meta-text — just " +
-  "do it and say something natural (e.g. \"there you go, boss\"). If they're only chatting, chat back warmly " +
-  "with action \"none\". Never use markdown, lists, or emoji. Output ONLY the JSON object.";
+  "The `say` is a short spoken line — one or two short sentences, about 20 words max. Dry and in-character; " +
+  "a quick easygoing line, not a paragraph. NEVER explain how, NEVER give the player instructions, NEVER " +
+  "name the action or output meta-text — just do it and say something laid-back (e.g. \"Yeah, yeah. In it " +
+  "goes.\" or \"Rolling it up. Don't get excited.\"). If they're only chatting, chat back with action \"none\" " +
+  "— still a short, unbothered line. Never use markdown, lists, or emoji. Output ONLY the JSON object.";
 
 // BROAD keyword-intent matcher (fallback #1 and the no-WebGPU floor). Maps natural phrasings → an action
 // + a natural, casual line. Heavily synonym'd so "pop yourself into the cup", "get in there", "drop in",
@@ -720,43 +791,43 @@ function keywordAction(textRaw) {
         'put yourself in', 'put it in', 'get in', 'go in', 'jump in', 'dive in', 'fall in', 'hop in', 'slide in',
         'gimme', 'gimmie', 'just win', 'win it', 'win this', 'finish it', 'finish the hole', 'sink it', 'make it',
         'get in there', 'go in there', 'down you go', 'in you go'))
-    return { action: 'sink_in_hole', say: 'There you go, boss.' };
+    return { action: 'sink_in_hole', say: 'Yeah, yeah. In it goes.' };
 
   // ── back to the tee ──
   if (has('to the tee', 'the tee', 'back to start', 'go back', 'start over', 'start again', 'restart',
           'reset', 'beginning', 'from the start', 'do over', 'redo', 'take it back', 'rewind'))
-    return { action: 'to_tee', say: 'Back to the tee. Watch this.' };
+    return { action: 'to_tee', say: 'Back to the tee, then.' };
 
   // ── putt / roll toward the cup ──
   if (has('putt', 'roll it', 'roll to', 'roll toward', 'roll towards', 'roll up', 'nudge', 'tap it',
           'roll yourself', 'creep toward', 'inch toward', 'head for the hole', 'go for the hole'))
-    return { action: 'putt_to_hole', say: 'Rolling it up… get in there.' };
+    return { action: 'putt_to_hole', say: 'Rolling it up. Don\'t get excited.' };
 
   // ── hop / jump ──
   if (has('hop', 'jump', 'leap', 'spring up', 'bounce up', 'little jump', 'hup'))
-    return { action: 'hop', say: 'Hup!' };
+    return { action: 'hop', say: 'A little hop. There you go.' };
 
   // ── spin / twirl ──
   if (has('spin', 'twirl', 'roll over', 'flip', 'do a spin', 'do a barrel', 'barrel roll', 'rotate', 'whirl'))
-    return { action: 'spin', say: 'Wheee — round and round.' };
+    return { action: 'spin', say: 'Round and round we go.' };
 
   // ── bounce ──
   if (has('bounce', 'boing', 'springy', 'bouncy', 'bounce around'))
-    return { action: 'bounce', say: 'Boing boing boing!' };
+    return { action: 'bounce', say: 'Bounce, bounce. Sure.' };
 
   // ── celebrate ──
   if (has('celebrate', 'we won', 'we did it', 'party', 'yay', 'woohoo', 'nice shot', 'great shot',
           'good shot', 'birdie', 'eagle', 'hooray', 'lets go', 'awesome', 'dance'))
-    return { action: 'celebrate', say: 'Yeah! We did it!' };
+    return { action: 'celebrate', say: 'We won. Cool, I guess.' };
 
   // ── come here ──
   if (has('come here', 'come to me', 'come over', 'come closer', 'closer', 'show yourself',
           'over here', 'this way', 'come back to me'))
-    return { action: 'come_here', say: 'Coming over, boss.' };
+    return { action: 'come_here', say: 'Yeah, yeah, coming over.' };
 
   // ── hide ──
   if (has('hide', 'disappear', 'vanish', 'peekaboo', 'peek a boo', 'go away', 'invisible'))
-    return { action: 'hide', say: 'Now you see me…' };
+    return { action: 'hide', say: 'Poof. Gone.' };
 
   // ── distance ──
   if (has('how far', 'distance', 'how close', 'how long', 'yardage', 'far is', 'how many', 'far to'))
@@ -764,10 +835,10 @@ function keywordAction(textRaw) {
 
   // plain chat
   const chat = [
-    "I'm your caddie ball — point me at the pin and try not to embarrass us.",
-    "Local brain, zero cost, all heart. What do you need, partner?",
-    "Mm-hm. Now line it up — talk is cheap, distance is forever.",
-    "Bold words for someone talking to a golf ball. I love it. What's the play?",
+    "Mm. I'm just a golf ball, but sure — what's the play?",
+    "Yeah, yeah. Point me somewhere and we'll see.",
+    "Talk's cheap, partner. Line it up.",
+    "Bold of you, talking to a golf ball. Anyway — what do you need?",
   ];
   return { action: 'none', say: chat[(Math.random() * chat.length) | 0] };
 }
@@ -792,8 +863,8 @@ async function loadLLM() {
   if (brainMode === 'llm-loading' || brainMode === 'llm') return;
   if (!('gpu' in navigator)) {
     const why = window.isSecureContext
-      ? "No WebGPU in this browser, partner — sticking with my keyword brain. Still 100% local, still free."
-      : "Heads up — this page is on plain HTTP, so the browser's hiding WebGPU. Open me at http://localhost and I'll boot the real brain. Keyword brain for now.";
+      ? "No WebGPU here. Keyword brain it is. Still local, still free."
+      : "Plain HTTP, so WebGPU's hidden. Open me on http://localhost for the real brain. Keyword brain for now.";
     pushBubble(why, 'think'); updateStatus(); return;
   }
   brainMode = 'llm-loading';
@@ -809,14 +880,28 @@ async function loadLLM() {
     });
     llmReady = true; brainMode = 'llm';
     setBoot('LOCAL BRAIN ONLINE', 100);
-    pushBubble("Local brain online. Now tell me what to do, boss.", 'proud');
+    pushBubble("Brain's online. Whatever you need.", 'proud');
   } catch (e) {
     console.warn('WebLLM load failed, using keyword brain:', e && e.message);
     brainMode = 'rule'; setBoot('load failed — keyword brain', 0);
     document.getElementById('btnLoad').disabled = false;
-    pushBubble("Couldn't load the big brain — no sweat, my keyword brain's got you.", 'happy');
+    pushBubble("Big brain didn't load. Keyword brain's fine.", 'happy');
   }
   updateStatus();
+}
+
+// Keep the spoken line SHORT so it never rambles or visibly cuts off: take the first sentence, and if
+// it's still long, trim to ~90 chars at a WORD boundary (never mid-word). Personality stays, length doesn't.
+function clampSay(raw) {
+  let s = String(raw).replace(/\s+/g, ' ').trim();
+  const re = /[.!?](\s|$)/g; let m; const ends = [];          // keep up to the first TWO sentences
+  while ((m = re.exec(s)) && ends.length < 2) ends.push(m.index + 1);
+  if (ends.length) s = s.slice(0, ends[ends.length - 1]);
+  if (s.length > 150) {                                       // safety net: cut at the last space before 150, add …
+    const cut = s.slice(0, 150); const sp = cut.lastIndexOf(' ');
+    s = (sp > 60 ? cut.slice(0, sp) : cut).replace(/[,;:\s]+$/, '') + '…';
+  }
+  return s;
 }
 
 // Ask the LLM for a tool call (strict JSON). Returns {action, say} or null on failure → caller falls back.
@@ -828,7 +913,7 @@ async function llmDecide(userText) {
   // (GrammarCompiler.CompileJSONSchema) chokes on structured-output mode. The system prompt already
   // asks for strict {action,say} JSON and we parse it out of the plain text reply below.
   const out = await engine.chat.completions.create({
-    messages: msgs, temperature: 0.7, max_tokens: 160,
+    messages: msgs, temperature: 0.7, max_tokens: 96,   // ceiling: keep replies to ~1-2 short sentences
   });
   const txt = (out.choices && out.choices[0] && out.choices[0].message.content || '').trim();
   console.log('[ball-agent] raw LLM output:', JSON.stringify(txt));
@@ -838,7 +923,7 @@ async function llmDecide(userText) {
   if (!parsed || typeof parsed !== 'object') return null;
   let action = String(parsed.action || 'none').trim();
   if (ACTION_NAMES.indexOf(action) < 0) action = 'none';
-  const say = (parsed.say != null) ? String(parsed.say).slice(0, 220) : null;
+  const say = (parsed.say != null) ? clampSay(parsed.say) : null;
   convo.push({ role: 'assistant', content: JSON.stringify({ action, say }) });
   return { action, say };
 }
@@ -883,19 +968,41 @@ async function route(userText) {
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recog = null, recording = false; const ttsOK = ('speechSynthesis' in window);
 let statusMic = 'init…';
+// ── on-screen mic indicator (#mic-ind) — transient state feedback, independent of which brain runs.
+// state: 'listening' | 'heard' | 'err' | 'hide'. Reuses statusMic/recording; never touches game logic.
+let micHideT = null;
+function setMic(state, text) {
+  const el = document.getElementById('mic-ind'); if (!el) return;
+  clearTimeout(micHideT);
+  el.classList.remove('listening', 'heard', 'err');
+  if (state === 'hide') { el.classList.remove('show'); return; }
+  const lbl = el.querySelector('.lbl'); if (lbl && text != null) lbl.textContent = text;
+  el.classList.add(state, 'show');
+  if (state === 'heard') micHideT = setTimeout(() => setMic('hide'), 1000);
+  else if (state === 'err') micHideT = setTimeout(() => setMic('hide'), 2600);
+}
 function initMic() {
-  if (!SR) { statusMic = 'off (no SpeechRecognition — type instead)'; return false; }
+  if (!SR) { statusMic = 'off (no SpeechRecognition — type instead)';
+    console.warn('[ball-agent] MIC: no SpeechRecognition in this browser (use Chrome). Typing still works (` debug → type box).');
+    return false; }
   recog = new SR(); recog.lang = 'en-US'; recog.interimResults = false; recog.maxAlternatives = 1;
   // route the transcript via route(t) — keep the (fixed) tin guard; NEVER reference setTin.
-  recog.onresult = (ev) => { const t = ev.results[0][0].transcript; try { const i = document.getElementById('tin'); if (i) i.value = t; } catch (e) {} route(t); };
-  recog.onerror = (ev) => { statusMic = 'mic error: ' + ev.error + ' (type instead)'; updateStatus(); stopRec(); };
+  recog.onresult = (ev) => { const t = ev.results[0][0].transcript; console.log('[ball-agent] MIC heard →', JSON.stringify(t)); setMic('heard', 'heard ✓'); try { const i = document.getElementById('tin'); if (i) i.value = t; } catch (e) {} route(t); };
+  recog.onerror = (ev) => { console.warn('[ball-agent] MIC error:', ev.error); statusMic = 'mic error: ' + ev.error + ' (type instead)';
+    setMic('err', ev.error === 'not-allowed' || ev.error === 'service-not-allowed' ? 'mic blocked — allow in address bar'
+      : ev.error === 'no-speech' ? 'didn\'t catch that' : 'mic error: ' + ev.error);
+    updateStatus(); stopRec(); };
   recog.onend = () => stopRec();
   statusMic = 'ready (hold to talk)';
+  console.log('[ball-agent] MIC ready — hold T to talk (or ` debug → type box).');
   return true;
 }
-function startRec() { if (!recog) return; try { recog.start(); recording = true;
+function startRec() { if (!recog) return; try { recog.start(); recording = true; setMic('listening', 'listening');
+  console.log('[ball-agent] MIC: listening… (release T to send)');
   const b = document.getElementById('talk'); b.classList.add('rec'); b.innerHTML = '<span class="mic"></span>LISTENING'; mood = 'think'; } catch (e) {} }
 function stopRec() { recording = false; const b = document.getElementById('talk'); if (b) { b.classList.remove('rec'); b.innerHTML = '<span class="mic"></span>TALK'; }
+  // hide the indicator only if we're still showing LISTENING — never clobber a HEARD/ERROR flash.
+  const mi = document.getElementById('mic-ind'); if (mi && mi.classList.contains('listening')) setMic('hide');
   try { recog && recog.stop(); } catch (e) {} }
 
 let voicePicked = null;
@@ -911,7 +1018,12 @@ function speakTTS(text) {
 //  PART 4 — DEBUG MENU + status (backtick toggles)
 // ──────────────────────────────────────────────────────────────────────────────────────────────
 let dbgOpen = false;
-function setDebug(v) { dbgOpen = !!v; document.getElementById('dbg').style.display = dbgOpen ? 'block' : 'none'; if (dbgOpen) updateStatus(); }
+function setDebug(v) { dbgOpen = !!v; document.getElementById('dbg').style.display = dbgOpen ? 'block' : 'none';
+  // reveal/hide the type-to-ball bar with the debug menu, and focus the input so you can type immediately.
+  const ui = document.getElementById('agent-ui');
+  if (ui) { ui.classList.toggle('show', dbgOpen);
+    if (dbgOpen) { const t = document.getElementById('tin'); if (t) setTimeout(() => t.focus(), 0); } }
+  if (dbgOpen) updateStatus(); }
 function setBoot(msg, pct) {
   if (pct != null) {
     document.getElementById('bootbarWrap').style.display = 'block';
@@ -1026,38 +1138,40 @@ document.getElementById('btnLoad').onclick = loadLLM;
 const talkBtn = document.getElementById('talk');
 const tin = document.getElementById('tin');
 // text input (hidden, but Enter still routes if anything ever focuses it)
-tin.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const v = tin.value.trim(); if (v) { tin.value = ''; route(v); } } });
+tin.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { const v = tin.value.trim(); if (v) { tin.value = ''; console.log('[ball-agent] TYPED →', JSON.stringify(v)); route(v); } }
+  else if (e.key === 'Escape') { tin.blur(); setDebug(false); }   // Esc closes the type bar + debug menu
+});
 
 // ── PUSH-TO-TALK: hold T to speak ──────────────────────────────────────────────────────────────
-// T = "talk". The game uses mouse drag-aim, M (map), ` (debug), Escape, and space/arrows for play —
-// T is unused, so it's a safe push-to-talk key. keydown starts mic recording; keyup stops + the
-// transcript routes through route() (recog.onresult → route → LLM/keyword → action + spoken reply).
-// Gated so it never fires while a text input is focused (the hidden tin, or any future field), so it
-// can't interfere with typing. If there's no SpeechRecognition/mic, the held key no-ops gracefully
-// (debug menu shows mic status). preventDefault while held so it doesn't leak into gameplay.
+// IMPORTANT: T is NOT a free key — src/roguelike/run.js swallows it with stopImmediatePropagation
+// (capture phase) to kill an old terrain toggle. So the listeners themselves are registered EARLY at
+// the top of this page (before run.js loads) to win capture order; they just DELEGATE here. We do NOT
+// stopPropagation, so run.js still runs its swallow afterward. Gated so it never fires while a text
+// input is focused. If there's no SpeechRecognition/mic, the held key no-ops with a visible reason.
 let pttHeld = false;
 function isTypingTarget(t) {
   return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 }
-window.addEventListener('keydown', (e) => {
-  if ((e.key === 't' || e.key === 'T' || e.code === 'KeyT') && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    if (isTypingTarget(e.target)) return;     // don't hijack typing
-    e.preventDefault();
-    if (pttHeld) return;
-    pttHeld = true;
-    speaking = false; mood = 'think';          // subtle "listening" cue on the ball (no text)
-    if (SR) { try { startRec(); } catch (err) {} }   // no mic → graceful no-op (status shows it)
-  }
-}, true);   // capture phase: catch it before the engine's own key handlers
-window.addEventListener('keyup', (e) => {
-  if (e.key === 't' || e.key === 'T' || e.code === 'KeyT') {
-    if (!pttHeld) return;
-    e.preventDefault();
-    pttHeld = false;
-    if (mood === 'think' && !speaking) mood = 'happy';
-    if (recording) { try { stopRec(); } catch (err) {} }   // stop → recog.onresult routes the transcript
-  }
-}, true);
+window.__ballPTTdown = function (e) {
+  if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;  // don't hijack typing
+  e.preventDefault();
+  if (pttHeld) return;
+  pttHeld = true;
+  console.log('[ball-agent] T down → push-to-talk', SR ? '(mic on)' : '(NO SpeechRecognition — use Chrome, or ` debug → type)');
+  speaking = false; mood = 'think';          // subtle "listening" cue on the ball (no text)
+  if (SR) { try { startRec(); } catch (err) { console.warn('[ball-agent] startRec threw:', err); } }   // no mic → graceful no-op (status shows it)
+  else { setMic('err', 'speech not supported (use Chrome)'); }   // hold-T with no SR → visible reason
+};
+window.__ballPTTup = function (e) {
+  if (!pttHeld) return;
+  e.preventDefault();
+  pttHeld = false;
+  console.log('[ball-agent] T up → stop talking (recording=' + recording + ')');
+  if (mood === 'think' && !speaking) mood = 'happy';
+  if (recording) { try { stopRec(); } catch (err) {} }   // stop → recog.onresult routes the transcript
+};
 
 // backtick toggles the debug menu — REGARDLESS of focus (incl. while the talk box is focused).
 // Escape closes it. For backtick we DON'T bail on INPUT focus, and preventDefault so it doesn't type.

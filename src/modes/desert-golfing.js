@@ -932,6 +932,13 @@ MODE = {
       transitionCamYEnd = (typeof camera.y === 'number') ? camera.y : 0;
       camera.x = savedCamX; // restore — we'll animate to target
       camera.y = savedCamY;
+      // RESTORE the zoom too (setHoleCamera just set RG._zoom + RG_PORTRAIT.zoom to the NEW hole's fit-zoom).
+      // Without this, the frame BEFORE the first onTransitionUpdate renders at the new scale = a one-frame
+      // ZOOM POP ("a different screen flashed"). Restoring to start lets onTransitionUpdate ease it cleanly.
+      if (portraitZoom && _transZoomStart != null) {
+        window.RG_PORTRAIT.zoom = _transZoomStart;
+        if (window.RG) { window.RG._zoom = _transZoomStart; window.RG._zoomPivot = { x: W / 2, y: H / 2 }; }
+      }
     }
 
     if (currentHole === 1) showTitle = false;

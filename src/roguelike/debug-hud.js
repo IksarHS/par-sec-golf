@@ -17,10 +17,11 @@
 //   SURFACE ball.lastCollidedMat || getMaterialAt(ball.x)
 //   DIST→CUP ball→holes[currentHole].cupX/cupY     ZOOM RG._zoom    W  the W global    FPS rolling
 // Peel-off: delete this file + its <script> tag and nothing else changes.
+// Registers option `statsHud` with the unified debug menu (window.DBG owns the backtick toggle now).
 (function () {
   if (typeof location === 'undefined' || typeof document === 'undefined') return;
 
-  var on = /[?&]debug\b/.test(location.search);   // OFF unless ?debug
+  var on = false;   // driven by DBG.apply(on); OFF until the menu turns it on
   var el = null, body = null;
 
   // Rolling FPS, measured off the rAF cadence (independent of the game loop).
@@ -40,14 +41,29 @@
   function make() {
     el = document.createElement('div');
     el.id = 'rg-debug-hud';
+    // pointer-events:auto on the OUTER box ONLY so the drag-handle strip + resize corner work; the readout
+    // body below is pointer-events:none so it never swallows a golf shot, and the box defaults to a corner.
     el.style.cssText = 'position:fixed;top:8px;left:10px;z-index:9994;'
       + 'font:11px/1.45 "Departure Mono",monospace;color:#dfe6f7;'
       + 'background:rgba(8,7,12,0.78);border:1px solid rgba(180,140,255,0.22);border-radius:7px;'
-      + 'padding:7px 10px;pointer-events:none;min-width:172px;white-space:pre;'
+      + 'padding:0 0 7px;pointer-events:auto;min-width:172px;white-space:pre;'
       + 'box-shadow:0 2px 12px rgba(0,0,0,0.55);letter-spacing:0.3px;';
+    var handle = document.createElement('div');
+    handle.className = 'dbg-drag-handle';
+    handle.textContent = 'STATS HUD';
+    handle.style.cssText = 'pointer-events:auto;font-size:9px;letter-spacing:1px;color:#b9a8e6;'
+      + 'background:rgba(180,140,255,0.14);padding:2px 10px;border-radius:7px 7px 0 0;'
+      + 'border-bottom:1px solid rgba(180,140,255,0.22);user-select:none;';
     body = document.createElement('div');
-    el.appendChild(body);
+    body.style.cssText = 'pointer-events:none;padding:6px 10px 0;';
+    el.appendChild(handle); el.appendChild(body);
     (document.body || document.documentElement).appendChild(el);
+    if (window.DBG && window.DBG.makeMovable) {
+      window.DBG.makeMovable(el, { handle: handle, resizable: true, storageKey: 'dbg-statshud-pos' });
+    }
+    if (window.DBG && window.DBG.attachCopyButton) {
+      window.DBG.attachCopyButton(handle, function () { return body ? body.textContent : ''; });
+    }
   }
 
   // Map the numeric STATE constants (+ ball rest flags) to a readable label.
@@ -151,14 +167,10 @@
     if (on) { acc = 0; accN = 0; frames = 0; }   // reset the FPS window when summoned
   }
 
-  // Robust toggle: fires even if an input/element is focused; backtick by key OR code.
-  window.addEventListener('keydown', function (e) {
-    if (e.key === '`' || e.code === 'Backquote') {
-      e.preventDefault();
-      setOn(!on);
-    }
-  });
+  // Register with the unified debug menu; apply() shows/hides the box + starts/stops its work.
+  if (window.DBG && window.DBG.register) {
+    window.DBG.register('statsHud', { label: 'Stats HUD', group: 'overlays', apply: setOn });
+  }
 
-  if (on) make();
   requestAnimationFrame(tick);
 })();

@@ -180,7 +180,11 @@
       const v = vertices[k];
       if (v.x < a || v.x > b) continue;
       if (v.mat === 'water' || v.mat === 'anomaly') continue;   // never overwrite a hazard / the Fault tile
-      saved.push({ k: k, mat: v.mat });
+      // Store the vertex OBJECT, not its index: ensureHolesAhead does `vertices = vertices.filter(...)`
+      // on every transition, which REINDEXES the array. Saved indices then point at the wrong vertices,
+      // so the rock band never un-painted and LEAKED forward to later holes (the "strata pop" recolour).
+      // filter() preserves object identity, so an object ref survives the reindex.
+      saved.push({ v: v, mat: v.mat });
       v.mat = mat;
     }
     RG._paintedBand = saved;   // restored by _restorePaintedBand on the next hole change
@@ -458,7 +462,7 @@
     _restorePaintedBand() {
       const p = this._paintedBand;
       if (!p || typeof vertices === 'undefined') { this._paintedBand = null; return; }
-      for (let i = 0; i < p.length; i++) { const v = vertices[p[i].k]; if (v) v.mat = p[i].mat; }
+      for (let i = 0; i < p.length; i++) { const v = p[i].v; if (v) v.mat = p[i].mat; }   // restore by OBJECT ref (indices go stale on regen)
       this._paintedBand = null;
     },
 
@@ -760,11 +764,11 @@
       // the live fairway — materials NOT in the course's base palette. Those are intentional and must
       // survive the clamp, or the band vanishes (the whole point of a place you read from the tee).
       // Exempt them two ways: by the active painted-band's vertex indices, and by the known band mats.
-      const inBand = {};
       const pb = this._paintedBand;
-      if (pb) for (let j = 0; j < pb.length; j++) inBand[pb[j].k] = 1;
+      // Exempt the active painted band by OBJECT identity (its indices are stale after a regen reindex).
+      const bandSet = (pb && typeof Set !== 'undefined') ? new Set(pb.map(function (e) { return e.v; })) : null;
       for (let i = 0; i < vertices.length; i++) {
-        if (inBand[i]) continue;
+        if (bandSet && bandSet.has(vertices[i])) continue;
         const m = vertices[i].mat;
         if (m === 'water' || m === 'anomaly' || m === 'ice' || m === 'rock' || m === 'mud') continue;   // hazards / Fault tile / condition-band paints
         if (!m || !ok[m]) vertices[i].mat = def;

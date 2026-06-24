@@ -7,7 +7,7 @@
 function _launchPower(dist) {
   let power = Math.min(dist * POWER_SCALE, MAX_POWER);
   if (typeof window !== 'undefined' && window.RG && window.RG._portraitCapture) {
-    power *= 0.5;   // portrait power scale — tuned by feel so a full-power drag covers most of the snack hole
+    power *= 0.6;   // portrait power scale (was 0.5; +20% — some holes were unreachable at 0.5)
   }
   return power;
 }

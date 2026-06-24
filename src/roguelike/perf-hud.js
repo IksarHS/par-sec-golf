@@ -17,22 +17,40 @@
   if (typeof location === 'undefined' || typeof document === 'undefined') return;
 
   var el = null, txt = null, spark = null;
-  var on = /[?&]perf\b/.test(location.search);
+  var on = false;   // driven by DBG.apply(on); OFF until the menu turns it on
   var times = [], N = 90, last = (typeof performance !== 'undefined') ? performance.now() : 0;
   var jank = 0, frames = 0, worstWin = 0, acc = 0, accN = 0;
 
   function make() {
     el = document.createElement('div');
     el.id = 'rg-perf-hud';
+    // pointer-events:auto on the OUTER box ONLY so the drag-handle strip + resize corner work; the readout
+    // content is pointer-events:none so it never swallows a golf shot, and the box defaults to a corner.
     el.style.cssText = 'position:fixed;top:8px;right:10px;z-index:9995;font:11px/1.4 "Departure Mono",monospace;'
       + 'color:#cdd6f5;background:rgba(10,8,14,0.80);border:1px solid rgba(205,214,245,0.18);border-radius:7px;'
-      + 'padding:6px 9px;pointer-events:none;min-width:150px;box-shadow:0 2px 10px rgba(0,0,0,0.5);';
+      + 'padding:0 0 6px;pointer-events:auto;min-width:150px;box-shadow:0 2px 10px rgba(0,0,0,0.5);';
+    var handle = document.createElement('div');
+    handle.className = 'dbg-drag-handle';
+    handle.textContent = 'PERF HUD';
+    handle.style.cssText = 'pointer-events:auto;font-size:9px;letter-spacing:1px;color:#aeb6d6;'
+      + 'background:rgba(205,214,245,0.10);padding:2px 9px;border-radius:7px 7px 0 0;'
+      + 'border-bottom:1px solid rgba(205,214,245,0.18);user-select:none;';
+    var inner = document.createElement('div');
+    inner.style.cssText = 'pointer-events:none;padding:5px 9px 0;';
     txt = document.createElement('div');
     spark = document.createElement('canvas');
     spark.width = 150; spark.height = 28;
     spark.style.cssText = 'display:block;margin-top:5px;width:150px;height:28px;';
-    el.appendChild(txt); el.appendChild(spark);
+    inner.appendChild(txt); inner.appendChild(spark);
+    el.appendChild(handle); el.appendChild(inner);
     (document.body || document.documentElement).appendChild(el);
+    if (window.DBG && window.DBG.makeMovable) {
+      window.DBG.makeMovable(el, { handle: handle, resizable: true, storageKey: 'dbg-perf-pos' });
+    }
+    if (window.DBG && window.DBG.attachCopyButton) {
+      // txt uses innerHTML with <br>; innerText preserves the line breaks (textContent would not).
+      window.DBG.attachCopyButton(handle, function () { return txt ? (txt.innerText || txt.textContent || '') : ''; });
+    }
   }
 
   function drawSpark() {
@@ -75,17 +93,26 @@
     requestAnimationFrame(tick);
   }
 
-  function toggle() {
-    on = !on;
+  function setOn(v) {
+    on = !!v;
     if (on && !el) make();
     if (el) el.style.display = on ? 'block' : 'none';
-    if (on) { jank = 0; frames = 0; times.length = 0; }         // reset the tally each time it's summoned
+    if (on) { jank = 0; frames = 0; times.length = 0; }
   }
 
+  // Shift+D kept as a convenience; the unified menu is the primary control.
   window.addEventListener('keydown', function (e) {
-    if (e.shiftKey && (e.key === 'D' || e.key === 'd')) { if (!el) make(); toggle(); }
+    if (e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+      var next = !on;
+      setOn(next);
+      if (window.DBG && window.DBG.set) window.DBG.set('perfHud', next);   // keep menu/persistence in sync
+    }
   });
 
-  if (on) make();
+  // Register with the unified debug menu; apply() shows/hides + resets the tally.
+  if (window.DBG && window.DBG.register) {
+    window.DBG.register('perfHud', { label: 'Perf HUD', group: 'overlays', apply: setOn });
+  }
+
   requestAnimationFrame(tick);
 })();
