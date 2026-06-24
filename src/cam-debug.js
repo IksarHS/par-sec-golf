@@ -181,6 +181,34 @@
   var pFrameHole = -2;                  // de-dupe the portrait cup-framing warning (once per hole)
   var framingOffFrames = 0;             // consecutive AIM frames with the cup off the phone frame (skip transients)
   var pCamX = null, pCamY = null, pZoom = null, camPops = 0;   // CAMERA-POP watch: catch 1-frame teleports during a transition
+  // ── CAMERA TRACE: record the FULL per-frame path through each transition (+ a few settle frames) so we can
+  // SEE whether it's smooth, not just threshold-flag it. Exposed at window.__camTraces for inspection. ──
+  var camTrace = null, camTraces = [], camPostFrames = 0;
+  var camRoll = [];   // CONTINUOUS rolling log of the last ~240 frames of camera state (ALL phases incl. planet travel)
+  function finalizeCamTrace(tr) {
+    if (!tr || tr.length < 2) return;
+    var maxDX = 0, maxDY = 0, maxDZ = 0, xRev = 0, zRev = 0, lastXs = 0, lastZs = 0, spikes = 0;
+    for (var i = 1; i < tr.length; i++) {
+      var dx = tr[i].x - tr[i - 1].x, dy = tr[i].y - tr[i - 1].y, dz = tr[i].z - tr[i - 1].z;
+      if (Math.abs(dx) > Math.abs(maxDX)) maxDX = dx;
+      if (Math.abs(dy) > Math.abs(maxDY)) maxDY = dy;
+      if (Math.abs(dz) > Math.abs(maxDZ)) maxDZ = dz;
+      var xs = dx > 0.5 ? 1 : dx < -0.5 ? -1 : 0; if (xs) { if (lastXs && xs !== lastXs) xRev++; lastXs = xs; }
+      var zs = dz > 0.005 ? 1 : dz < -0.005 ? -1 : 0; if (zs) { if (lastZs && zs !== lastZs) zRev++; lastZs = zs; }
+    }
+    // a "spike" = a single-frame move > 4× the median |dx| (a jitter/jerk that breaks smoothness)
+    var ds = []; for (var j = 1; j < tr.length; j++) ds.push(Math.abs(tr[j].x - tr[j - 1].x));
+    ds.sort(function (a, b) { return a - b; }); var med = ds[Math.floor(ds.length / 2)] || 0;
+    if (med > 0) for (var k = 1; k < tr.length; k++) if (Math.abs(tr[k].x - tr[k - 1].x) > med * 4 + 2) spikes++;
+    tr.stats = { frames: tr.length, maxDX: Math.round(maxDX * 10) / 10, maxDY: Math.round(maxDY * 10) / 10,
+      maxDZ: Math.round(maxDZ * 1000) / 1000, xReversals: xRev, zReversals: zRev, xSpikes: spikes, medianDX: Math.round(med * 10) / 10 };
+    camTraces.push(tr); if (camTraces.length > 8) camTraces.shift();
+    try { window.__camTraces = camTraces; } catch (e) {}
+    // surface a problem if the path is clearly NOT smooth (a jerk spike, or zoom oscillation)
+    if (spikes > 0 || zRev > 1 || xRev > 2) {
+      push('JERKY TRANSITION — camera path not smooth (' + spikes + ' x-spikes, ' + xRev + ' x-reversals, ' + zRev + ' zoom-reversals)', 'problem');
+    }
+  }
 
   // Number every visible terrain vertex on the canvas (drawn AFTER the game frame) so a piece can be named.
   function drawLabels() {
@@ -305,6 +333,25 @@
           }
         }
         pCamX = camera.x; pCamY = camY; pZoom = zoomNow;
+
+        // CONTINUOUS rolling log — every frame, all phases (so we can inspect ANY boundary incl. planet travel)
+        camRoll.push({ f: frame, x: Math.round(camera.x * 10) / 10, y: Math.round(camY * 10) / 10, z: Math.round(zoomNow * 1000) / 1000,
+          bsx: Math.round(ball.x - camera.x), bsy: Math.round(ball.y - camY), v: vlen, st: st,
+          desc: !!(window.RG && RG.descending), course: (window.RG ? RG.course : '?'), hole: ci + 1 });
+        if (camRoll.length > 240) camRoll.shift();
+        try { window.__camRoll = camRoll; } catch (e) {}
+
+        // record the full camera path through a transition (+ ~10 settle frames after it ends)
+        var inTrans = (st === 3);
+        if (inTrans && !camTrace) camTrace = [];
+        if (camTrace) {
+          camTrace.push({ f: frame, x: Math.round(camera.x * 10) / 10, y: Math.round(camY * 10) / 10,
+            z: Math.round(zoomNow * 1000) / 1000, bx: Math.round(ball.x), by: Math.round(ball.y), st: st, v: vlen,
+            ballScrX: Math.round(ball.x - camera.x), ballScrY: Math.round(ball.y - camY) });
+          if (inTrans) { camPostFrames = 0; }
+          else { camPostFrames++; if (camPostFrames > 10) { finalizeCamTrace(camTrace); camTrace = null; camPostFrames = 0; } }
+          if (camTrace && camTrace.length > 200) { finalizeCamTrace(camTrace); camTrace = null; }   // safety cap
+        }
         pState = st; pHole = ci; pVlen = vlen; pCol = col;
 
         // PERSISTENT vertex ids + per-vertex RECOLOUR WATCH (your idea): a vertex's terrain colour should never

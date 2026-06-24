@@ -101,6 +101,9 @@ const SCRIPTS = [
   // src/showcase.js is dev-only (Generator Showcase) — EXCLUDED.
   // PORTRAIT MOBILE MODE (gated, inert unless ?portrait) — MUST be bundled so ?portrait works in the dist build.
   'src/roguelike/portrait.js',
+  // GALAXY RUN roguelike mode (gated, inert unless ?rogue) — bundled so ?portrait&rogue works on phone.
+  // Default public game (no ?rogue) is byte-unaffected; this only activates behind the flag.
+  'src/roguelike/galaxy-run.js',
   'src/main.js',
 ];
 

@@ -208,6 +208,13 @@
      generated heightfield is pushed FAR BELOW (only an OOB floor); all real collision is the authored 2D
      geometry via the inert RG_ATLAS.collide / camera / isOOB / frame hooks. Peel the file + this tag → gone. -->
 <script src="src/roguelike/atlas-puzzle-mode.js"></script>
+<!-- Galaxy Run (?portrait&rogue) — the roguelike CORE LOOP over portrait mode: 3 strikes, a par-buffer
+     economy across an endless string of 5-hole planets, money + score + a tap-to-retry game-over. PURE
+     bookkeeping layered on the engine's own per-hole strokes/par (RG.holeScores / RG.holePars) — it does
+     not change how golf is played. GATED to ?rogue (inert otherwise) + loaded AFTER the roguelike core so
+     RG exists. NOT in tools/build.cjs SCRIPTS — local playtest prototype, kept out of the public build.
+     Peel this file + this tag → gone. -->
+<script src="src/roguelike/galaxy-run.js"></script>
 <!-- ?showcase: GENERATOR SHOWCASE — a clean dev curation tool to browse the TYPES of holes the terrain
      generator can build (complexity / terrain-type / hole-type + new-seed). Reuses the engine's generator
      + render. Inert without ?showcase (the base game is byte-identical). Peel the file + this tag → gone. -->
