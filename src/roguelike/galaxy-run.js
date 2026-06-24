@@ -197,43 +197,52 @@
   function makeHud() {
     hud = document.createElement('div');
     hud.id = 'rg-galaxy-hud';
+    // Full-width top bar that fades out downward, so it reads as intentional UI (not floating text) and
+    // never hard-cuts over the sky. pointer-events:none so it never eats a shot. Rogue OWNS the top now
+    // (the engine's corner HOLE/PAR readout is suppressed below), so there's nothing to overlap.
     hud.style.cssText = 'position:fixed;left:0;right:0;z-index:60;pointer-events:none;' +
-      'display:flex;flex-direction:column;align-items:center;gap:3px;' +
-      "font:13px/1.3 'Departure Mono',monospace;color:#f2ecff;" +
-      'text-shadow:0 1px 4px rgba(0,0,0,0.7);';
+      "font-family:'Departure Mono',monospace;color:#efeaff;" +
+      'padding:9px 18px 16px;box-sizing:border-box;' +
+      'background:linear-gradient(to bottom,rgba(9,7,18,0.78) 55%,rgba(9,7,18,0));' +
+      'text-shadow:0 1px 3px rgba(0,0,0,0.6);';
     (document.body || document.documentElement).appendChild(hud);
   }
 
   function drawHud() {
     if (!hud) makeHud();
-    hud.style.top = (topInsetPx() + 30) + 'px';   // sit just under the engine's "HOLE x / 5" readout
+    hud.style.top = topInsetPx() + 'px';
     if (RUN.gameOver) { hud.style.display = 'none'; return; }
-    hud.style.display = 'flex';
+    hud.style.display = 'block';
 
-    // Strikes: 3 pips, lost ones dimmed.
+    // Strikes as LIVES: filled dot = a strike still in hand, dim = spent.
     var pips = '';
-    for (var i = 0; i < 3; i++) pips += (i < RUN.strikes ? '◆' : '◇');   // ◆ filled / ◇ empty
+    for (var i = 0; i < 3; i++) {
+      pips += (i < RUN.strikes)
+        ? '<span style="color:#ff5d5d;">●</span>'
+        : '<span style="color:rgba(255,93,93,0.22);">●</span>';
+    }
 
-    // overall vs par: <=0 reads as banked cushion (green); a hole just pushed it positive reads as a
-    // spent strike (but overall is reset to 0 at that moment, so we show the cushion / EVEN state).
-    var ov = RUN.overall;
-    var ovTxt, ovColor;
-    if (ov < 0) { ovTxt = String(ov); ovColor = '#7CFFA0'; }          // e.g. -3, green cushion
-    else if (ov === 0) { ovTxt = 'E'; ovColor = 'rgba(242,236,255,0.7)'; }
-    else { ovTxt = '+' + ov; ovColor = '#ff9a7c'; }                  // (transient; reset on strike)
+    // CUSHION = how many over-par strokes you can still absorb before a strike (= |overall| when under par).
+    // 0 (even) = on the edge: the next over-par hole costs a strike. This is the core tension, so it's centred.
+    var ov = RUN.overall, cushVal, cushColor, cushLabel;
+    if (ov < 0) { cushVal = String(Math.abs(ov)); cushColor = '#6ff0a0'; cushLabel = 'CUSHION'; }
+    else { cushVal = '0'; cushColor = '#ffce5e'; cushLabel = 'ON THE EDGE'; }
 
-    var course = curCourse();
     var planetNo = RUN.planetsCleared + 1;
     var holeNo = Math.min(curHole() + 1, holeCount());
+    var par = g(function () { return RG.holePars[curHole()]; }, null);
 
     hud.innerHTML =
-      '<div style="display:flex;align-items:center;gap:14px;">' +
-        '<span style="font-size:16px;letter-spacing:3px;color:#ff6f6f;">' + pips + '</span>' +
-        '<span style="color:' + ovColor + ';">' + ovTxt + '</span>' +
-        '<span style="color:#ffd86b;">$' + RUN.money + '</span>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+        '<span style="font-size:17px;letter-spacing:5px;">' + pips + '</span>' +
+        '<span style="color:#ffd479;font-size:15px;letter-spacing:1px;">$' + RUN.money + '</span>' +
       '</div>' +
-      '<div style="font-size:11px;color:rgba(242,236,255,0.6);letter-spacing:1px;">' +
-        'PLANET ' + planetNo + ' · HOLE ' + holeNo + '/' + holeCount() + '</div>';
+      '<div style="text-align:center;margin-top:5px;line-height:1;">' +
+        '<div style="font-size:9px;letter-spacing:2px;color:' + (ov < 0 ? 'rgba(239,234,255,0.5)' : '#ffce5e') + ';">' + cushLabel + '</div>' +
+        '<div style="font-size:23px;font-weight:bold;color:' + cushColor + ';margin-top:1px;">' + (ov < 0 ? cushVal : '·') + '</div>' +
+      '</div>' +
+      '<div style="text-align:center;font-size:10.5px;letter-spacing:1px;color:rgba(239,234,255,0.45);margin-top:4px;">' +
+        'PLANET ' + planetNo + '  ·  HOLE ' + holeNo + '/' + holeCount() + '  ·  PAR ' + (par != null ? par : '?') + '</div>';
   }
 
   // ── GAME-OVER overlay (full-screen, pointer-events:auto, tap/click to retry) ──
@@ -273,6 +282,11 @@
 
   // ── DRIVE: own cheap rAF (independent of the game loop) so the HUD + poll run every frame ──
   function tick() {
+    // In rogue mode our HUD OWNS the top — suppress the engine's corner HOLE/PAR/strokes readout so the
+    // two don't stack/overlap. Done once, the moment RG is ready (gated to ?rogue, so always correct here).
+    if (!RUN._hudSuppressed) {
+      try { if (window.RG && typeof RG._drawScoreHUD === 'function') { RG._drawScoreHUD = function () {}; RUN._hudSuppressed = true; } } catch (e) {}
+    }
     try { poll(); drawHud(); drawOver(); } catch (e) { /* never break the page */ }
     requestAnimationFrame(tick);
   }
