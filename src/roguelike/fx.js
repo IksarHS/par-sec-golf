@@ -30,13 +30,31 @@
   //   landed:false -> ballistic (arc under gravity until it meets the ground)
   //   landed:true  -> resting on the surface, counting down `fade` to vanish
   const parts = [];
-  const CAP = 120;
+  const CAP = 300;
   const fired = { land: 0, spawned: 0 };   // headless verification
   let wasAir = false, lastSpeed = 0, lastVX = 0;
 
   const GROUND_GRAV = 0.34;     // px/frame^2 — gives a crisp, snappy fall (not floaty)
   const FADE_FRAMES = 14;       // how long a chunk lingers on the ground before it's gone
   const MIN_IMPACT  = 1.4;      // below this a contact barely stirs (gentle roll kicks ~nothing)
+
+  // ── TUNABLE PARAMS (live-editable via RG_FX.params — fxlab.html drives these) ──
+  // Defaults reproduce the SHIPPED feel exactly (all multipliers = 1, up = 0.30, bright = 0).
+  // Bump these to make the puff bigger/punchier — esp. on upslopes where it gets lost in the hill.
+  const params = {
+    count:     1,           // × number of chunks per burst
+    size:      1,           // × chunk size (the "scale")
+    speed:     1,           // × launch speed (the "intensity" / how far it's thrown)
+    spread:    1,           // × fan width
+    up:        0.30,        // launch angle base (× PI). HIGHER = thrown more UP (clears an upslope)
+    grav:      1,           // × fall speed (LOWER = more hang-time, more visible)
+    fade:      1,           // × ground dwell before it fades (lifetime)
+    minImpact: MIN_IMPACT,  // contact-speed floor (below this, nothing kicks)
+    bright:    0,           // +brightness 0..1 so chunks POP against the terrain they came from
+    // per-material debris × — hard ground (rock/ice) can kick LESS than loose ground (sand/dust).
+    // Multiplies the chunk count for the contacted material. Default 1 = no per-material difference.
+    mat: { sand: 1, grass: 1, ice: 1, rock: 1, mud: 1, water: 1, dust: 1, regolith: 1 },
+  };
 
   // ── colour: the material's OWN colour, so debris is literally the ground it came from ──
   function matColor(mat) {
@@ -45,11 +63,11 @@
   }
   // per-chunk light/dark jitter around the base colour: a scatter of real regolith is
   // never one flat swatch. amt is the max fractional lighten/darken (e.g. 0.14).
-  function jitterCol(hex, amt) {
+  function jitterCol(hex, amt, bright) {
     const h = (hex || '').replace('#', '');
     if (h.length < 6) return hex;
     const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
-    const k = (Math.random() * 2 - 1) * (amt || 0.14);   // -amt..+amt
+    const k = (Math.random() * 2 - 1) * (amt || 0.14) + (bright || 0);   // -amt..+amt, lifted by `bright`
     const cl = (v) => Math.max(0, Math.min(255, Math.round(v + v * k)));
     const hx = (v) => cl(v).toString(16).padStart(2, '0');
     return '#' + hx(r) + hx(g) + hx(b);
@@ -65,36 +83,40 @@
   function spawn(x, y, impact, mat) {
     fired.land++;
     if (!enabled) return;
-    if (impact < MIN_IMPACT) return;                 // a gentle roll kicks almost nothing
+    if (impact < params.minImpact) return;           // a gentle roll kicks almost nothing
 
-    const v = Math.min(1, (impact - MIN_IMPACT) / 13);   // 0..1 strength above the floor
+    const v = Math.min(1, (impact - params.minImpact) / 13);   // 0..1 strength above the floor
     const dirX = (lastVX >= 0 ? 1 : -1);             // throw in the TRAVEL direction
     const base = matColor(mat);
 
     // count + spread + speed + size all scale with impact (quality-over-quantity: a light
     // landing tosses 2-4 small chunks a short way; a hard slam throws more/bigger/farther).
-    const n = Math.round(2 + 9 * v);
+    // Each dimension is then × its live param multiplier (see `params` above).
+    const matMul = (params.mat && params.mat[mat] != null) ? params.mat[mat] : 1;
+    const n = Math.round((2 + 9 * v) * params.count * matMul);
     for (let i = 0; i < n && parts.length < CAP; i++) {
       // launch angle: mostly forward (travel dir) with an upward kick. Spread widens with v.
       // base ~55° up from horizontal, fanned ±(20°..55°), tightened toward forward.
-      const spread = 0.35 + 0.6 * v;
-      const ang = (Math.PI * 0.30) + (Math.random() - 0.5) * spread;   // 0=horizontal, +=up
-      const spd = (1.4 + 4.0 * v) * (0.55 + 0.55 * Math.random());     // px/frame
+      const spread = (0.35 + 0.6 * v) * params.spread;
+      const ang = (Math.PI * params.up) + (Math.random() - 0.5) * spread;   // 0=horizontal, +=up
+      const spd = (1.4 + 4.0 * v) * (0.55 + 0.55 * Math.random()) * params.speed;   // px/frame
       // forward chunks fly farther than the few that spit backward off the dir.
       const forward = Math.random() < 0.82 ? 1 : -1;
       const r = Math.random();
-      const size = 1 + (3.5 * v + 1.0) * Math.pow(r, 1.7);             // ~1..4.5, biased small
+      const size = (1 + (3.5 * v + 1.0) * Math.pow(r, 1.7)) * params.size;  // ~1..4.5 (×size), biased small
+      const fadeMax = Math.max(1, Math.round(FADE_FRAMES * params.fade));
       parts.push({
         x: x + (Math.random() - 0.5) * 3,
         y: y - 1 - Math.random() * 2,
         vx: Math.cos(ang) * spd * dirX * forward,
         vy: -Math.sin(ang) * spd,                    // screen-y up = negative
         size: size,
-        col: jitterCol(base, 0.14),
-        grav: GROUND_GRAV * (0.85 + 0.4 * (size / 4.5)), // bigger chunks fall a touch faster
+        col: jitterCol(base, 0.14, params.bright),
+        grav: GROUND_GRAV * params.grav * (0.85 + 0.4 * (size / (4.5 * params.size))), // bigger chunks fall a touch faster
         landed: false,
         life: 0,
-        fade: FADE_FRAMES,
+        fade: fadeMax,
+        fadeMax: fadeMax,
       });
       fired.spawned++;
     }
@@ -149,7 +171,7 @@
       }
 
       // alpha: solid while flying + freshly landed, then a clean fade-out as it settles.
-      const a = p.landed ? (p.fade / FADE_FRAMES) : 1;
+      const a = p.landed ? (p.fade / (p.fadeMax || FADE_FRAMES)) : 1;
       ctx.globalAlpha = a;
       ctx.fillStyle = p.col;
       const s = p.size;
@@ -162,6 +184,7 @@
 
   window.RG_FX = {
     enable(b) { enabled = b !== false; },
+    params: params,         // live-tunable knobs (fxlab.html drives these)
     draw: draw,
     _fired: fired,
     _count() { return parts.length; },

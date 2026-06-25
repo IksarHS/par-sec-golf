@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Par Sec — PARTICLE LAB</title>
+<link rel="preload" href="assets/fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'&gt;&lt;circle cx='8' cy='8' r='6' fill='%23ffffff'/&gt;&lt;circle cx='11.3' cy='8' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='10.86' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;circle cx='6.35' cy='5.14' r='1.4' fill='%23000' opacity='.28'/&gt;&lt;/svg&gt;">
+<style>
+  @font-face {
+    font-family: 'Departure Mono';
+    src: url('assets/fonts/DepartureMono-Regular.woff2') format('woff2'),
+         url('assets/fonts/DepartureMono-Regular.woff') format('woff');
+    font-weight: normal; font-style: normal; font-display: swap;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: #0c0e14; }
+  body { font-family: 'Departure Mono', monospace; color: #f2ecff; }
+  canvas { display: block; position: fixed; inset: 0; z-index: 1; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- ── REAL ENGINE CORE (same physics/render files run.html loads; NO roguelike layer) ── -->
+<script src="src/shared.js"></script>
+<script src="src/level-design.js"></script>
+<script src="src/modes/desert-golfing.js"></script>
+<script src="src/art.js"></script>
+<script src="src/gameplay.js"></script>
+<!-- The landing-debris particle system being tuned. -->
+<script src="src/roguelike/fx.js"></script>
+<!-- The lab (owns boot — no main.js). -->
+<script src="src/fxlab.js"></script>
+</body>
+</html>
