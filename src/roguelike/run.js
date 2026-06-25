@@ -7,6 +7,13 @@
 // when it exists and then does NOT auto-boot a default course. We point that stub
 // at the start screen and own boot ourselves.
 (function () {
+  // Bake every hole's condition band (slick/hotrock/sticky → ice/rock/mud) onto the terrain ONCE at course
+  // generation, off-screen during planet travel, instead of painting it on hole-entry and un-painting it on
+  // exit. Kills the visible "terrain repaints mid-transition" recolour (the band restore otherwise lands
+  // on-screen during the pan). ON by default; ?nobake restores the old runtime paint/restore for A/B.
+  // RG._audit suspends baking (below), so the determinism oracle still hashes bandless gen terrain.
+  const _BAKE = !((typeof location !== 'undefined') && /[?&]nobake\b/.test(location.search));
+  let _bakeSuspended = false;   // true only inside RG._audit, so the regression hash is unaffected by baking
   // Minimalist palette override (color = behaviour). Applied from the roguelike
   // layer so the engine's shared.js stays pristine, and BEFORE the pristine
   // snapshot below so modifiers restore to these colours. Distinct hues per
@@ -446,7 +453,7 @@
       if (!c) { this._condBanner = null; return; }
       const def = condDef(c.key);
       if (def && def.apply) def.apply(c);
-      if (def && def.band) _paintBand(c, def.band.mat, def.band.span);   // refined: paint the place
+      if (def && def.band && !_BAKE) _paintBand(c, def.band.mat, def.band.span);   // refined: paint the place (skipped in bake mode — baked at gen)
       // Thin atmospheres scale whatever wind the condition set (vacuum already filtered the roll).
       if (this._coursePhys && this._coursePhys.windScale != null) this.wind *= this._coursePhys.windScale;
       // A hazard you can SEE needs no floating word: a "place" band (slick/hotrock/sticky) or an
@@ -460,10 +467,39 @@
     // colour are real), but it must never leak past its own hole — holes are continuous,
     // so an un-restored band could overlap the next tee.
     _restorePaintedBand() {
+      if (_BAKE) return;   // bake mode: bands are permanent terrain, never un-painted (kept for the leak-scan exemption)
       const p = this._paintedBand;
       if (!p || typeof vertices === 'undefined') { this._paintedBand = null; return; }
       for (let i = 0; i < p.length; i++) { const v = p[i].v; if (v) v.mat = p[i].mat; }   // restore by OBJECT ref (indices go stale on regen)
       this._paintedBand = null;
+    },
+    // ?bakebands: paint EVERY hole's band onto its own vertices once, after the whole course is generated
+    // (called from startRun, off-screen). Same span maths as _paintBand, but per-hole and permanent — so
+    // the material is part of the terrain from the first frame the hole is seen, and nothing recolours
+    // during play. RG._paintedBand is left holding every baked vertex so the cam-debug leak scan (which
+    // exempts the active band by object identity) never false-flags a baked ice/rock/mud band.
+    _bakeBands() {
+      if (!_BAKE || _bakeSuspended) return;
+      if (typeof vertices === 'undefined' || typeof holes === 'undefined' || !this.holeConds) return;
+      const baked = [];
+      const n = this.holeCount || holes.length;
+      for (let i = 0; i < n; i++) {
+        const c = this.holeConds[i]; if (!c) continue;
+        const def = condDef(c.key); if (!def || !def.band) continue;
+        const h = holes[i]; if (!h || h.cupX == null) continue;
+        const lo = Math.min(h.teeX, h.cupX), hi = Math.max(h.teeX, h.cupX), len = hi - lo;
+        if (len < 120) continue;
+        const a = lo + len * def.band.span.fromFrac;
+        const b = lo + len * def.band.span.toFrac;
+        for (let k = 0; k < vertices.length; k++) {
+          const v = vertices[k];
+          if (v.x < a || v.x > b) continue;
+          if (v.mat === 'water' || v.mat === 'anomaly') continue;   // never overwrite a hazard / the Fault tile
+          baked.push({ v: v, mat: v.mat });
+          v.mat = def.band.mat;
+        }
+      }
+      this._paintedBand = baked.length ? baked : null;
     },
 
     // ── Audit oracle (dev / regression) ───────────────────
@@ -480,6 +516,9 @@
         return -1;
       };
       const out = [];
+      const _prevSuspend = _bakeSuspended;
+      _bakeSuspended = true;   // hash the bandless gen terrain (baked bands would shift terrainHash off the committed baseline)
+      try {
       for (let s = 0; s < seeds.length; s++) {
         this.startRun({ seed: seeds[s] });
         const conds = (this.holeConds || []).map(function (c) { return c ? c.key : '.'; });
@@ -499,6 +538,7 @@
           terrainHash: fnv(tv) + '-' + fnv(th),
         });
       }
+      } finally { _bakeSuspended = _prevSuspend; }
       return out;
     },
 
@@ -897,6 +937,7 @@
       RG._computeRunPar();
       RG.budget = RG.runPar + BUDGET_OVER;
       RG.prevBest = RG.loadBest();
+      RG._bakeBands();   // ?bakebands: paint all condition bands now (no-op unless the flag is on), off-screen, before reveal
       RG._applyHoleCondition(0);
 
       RG._buildHUD();

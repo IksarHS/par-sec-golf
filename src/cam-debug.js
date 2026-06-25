@@ -362,25 +362,23 @@
           var _cc = (window.RG && RG.course) || '';
           if (_cc !== _vidCourse) { vidCol = {}; _vidCourse = _cc; }   // new course = new terrain → reset colour memory (no false pop)
           if (frame % 12 === 0 && frame > 50) {                        // skip startup churn (default course → real course swap)
+            // DATA-BASED recolour watch: compare each vertex's ACTUAL material (v.mat) by stable identity,
+            // not a sampled pixel colour. Pixel sampling named anti-aliasing/camera-pan noise with the
+            // nearest palette material ("ice→teal", "stone→trappist_glacier_ice" on the wrong planet) and
+            // fired constantly on a perfectly static band. v.mat is the truth: it only "recolours" when the
+            // engine actually reassigns a material, so this reports real repaints and nothing else.
             var chg = 0, exFrom = null, exTo = null;
             for (var qi = 0; qi < vertices.length; qi++) {
               var qv = vertices[qi]; if (!qv || qv._dbgId == null) continue;
-              var qx = qv.x - camera.x, qy = (qv.y + 22) - camY;
-              if (qx < 6 || qx > W - 6 || qy < 6 || qy > H - 6) continue;
-              var qc = sampleAt(qx, qy); if (!qc) continue;
+              var qm = (qv.mat == null) ? '(none)' : String(qv.mat);
               var qp = vidCol[qv._dbgId];
-              if (qp && (Math.abs(qc[0] - qp[0]) + Math.abs(qc[1] - qp[1]) + Math.abs(qc[2] - qp[2])) > 60) { chg++; if (!exFrom) { exFrom = qp; exTo = qc; } }
-              vidCol[qv._dbgId] = qc;
+              if (qp != null && qp !== qm) { chg++; if (!exFrom) { exFrom = qp; exTo = qm; } }
+              vidCol[qv._dbgId] = qm;
             }
-            // A real strata pop can be as small as ONE solid-terrain vertex flipping colour — the old chg>=4
-            // gate under-reported (the leak class is often 1-2 verts). We sample a bit INTO the terrain (qy +22)
-            // and gate each sampled vtx on a >60 channel-sum delta, which already filters sky-edge/grain noise,
-            // so flagging >=1 is safe: a lone solid-terrain vertex flipping >60 is a real recolour, not grain.
             if (chg >= 1) {
-              var fN = matName(exFrom), tN = matName(exTo);
               // band paint/cleanup = a band material toggling against the course default → totally normal.
-              var benign = (BAND_MATS[fN] && !BAND_MATS[tN]) || (BAND_MATS[tN] && !BAND_MATS[fN]);
-              push(chg + ' terrain point' + (chg > 1 ? 's' : '') + ' recoloured ' + fN + '→' + tN
+              var benign = (BAND_MATS[exFrom] && !BAND_MATS[exTo]) || (BAND_MATS[exTo] && !BAND_MATS[exFrom]);
+              push(chg + ' terrain point' + (chg > 1 ? 's' : '') + ' recoloured ' + exFrom + '→' + exTo
                 + (benign ? ' (band paint/cleanup — normal)' : ''), 'info');
             }
           }
@@ -436,7 +434,7 @@
         var matsStr = matsLine().replace(/^MATS:\s*/, '');
 
         var autop = (typeof aiEnabled !== 'undefined' && aiEnabled) ? ('  ·  AUTOPLAY ' + (typeof aiSpeed === 'number' ? aiSpeed : 1) + '×') : '';
-        var modeTag = portraitMode ? '  ·  📱 PORTRAIT' : '';
+        var modeTag = portraitMode ? '  ·  📱 PAR SEC MOBILE' : '  ·  🖥 PAR SEC (PC)';
         var live =
           courseName + '  ·  hole ' + (ci + 1) + '/' + tot + '  ·  "' + (h.archetype || '?') + '"' + (ovh ? ' +overhang' : '') + modeTag + autop + '\n' +
           statusLine + '\n' +

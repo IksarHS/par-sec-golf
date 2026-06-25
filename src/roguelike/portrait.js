@@ -20,6 +20,10 @@
   if (typeof location === 'undefined' || !/[?&]portrait(?:=|&|$)/.test(location.search)) return;  // GATE
   if (typeof window === 'undefined') return;
 
+  // Clearly distinguish the two builds at a glance (browser tab / window title). The landscape PC build
+  // keeps run.html's static "Par Sec"; this mobile-portrait build relabels to "Par Sec Mobile".
+  try { document.title = 'Par Sec Mobile'; } catch (e) {}
+
   window.RG_PORTRAIT = {
     active: true,
     safeTopCss: 0,

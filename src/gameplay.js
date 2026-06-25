@@ -156,6 +156,10 @@ function updatePhysics() {
     if (ball.onGround && s === 0) _logBall('collision');
   }
 
+  // Roguelike special-ball step (inert hook; mirrors the wind line above). Applies the active special
+  // ball's mechanic to the live, moving ball (sticky/wall/stop). No-op without a run (RG._ballStep unset).
+  if (typeof window !== 'undefined' && window.RG && typeof window.RG._ballStep === 'function') window.RG._ballStep();
+
   // Friction applied once per frame (outside substeps)
   if (ball.onGround) {
     ball.flightFrames = 0; // reset flight timer when on ground
