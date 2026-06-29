@@ -32,8 +32,7 @@
     MATERIALS.anomaly = { restitution: 0.47, rollingFriction: 0.98, surfaceFriction: 0.004, color: '#b24dff', colorLight: '#c98bff' };
   }
 
-  const BUDGET_OVER = 24; // run stroke budget = total par + this cushion. Generous + HIDDEN
-  // for now (the simple surface has no visible fail); calibrated stakes reveal later.
+  // (Removed 2026-06-29: BUDGET_OVER / the par-buffer stroke budget — PC adventure has no fail state.)
 
   // Pristine snapshots so opt-in modifiers fully restore (the controller resets to
   // these before every run, so modifier apply()/course() only need to MUTATE).
@@ -697,8 +696,6 @@
 
     // Called by the MODE wrap when a hole completes.
     recordHole(i, strokesTaken) { this.holeScores[i] = strokesTaken; },
-    // True if completing the run so far has blown the budget.
-    isOverBudget() { return this.budget > 0 && (typeof totalStrokes !== 'undefined') && totalStrokes > this.budget; },
 
     // Spend a drop: replay your last shot from where you took it (no stroke). Only
     // between shots and only if a previous rest is known. Using any drop forfeits this
@@ -935,7 +932,6 @@
       RG._extendShipApron(course);       // ground past the last cup for the ship scene
       RG._legibleHazards();
       RG._computeRunPar();
-      RG.budget = RG.runPar + BUDGET_OVER;
       RG.prevBest = RG.loadBest();
       RG._bakeBands();   // ?bakebands: paint all condition bands now (no-op unless the flag is on), off-screen, before reveal
       RG._applyHoleCondition(0);
@@ -1773,7 +1769,6 @@
       ctx.fillStyle = 'rgba(14,12,22,0.55)'; ctx.fillRect(x, y, w, h);
       ctx.textAlign = 'left'; ctx.fillStyle = '#cdd6f5'; ctx.fillText(title, x + pad, y + 26);
       ctx.fillStyle = '#7ad17a'; ctx.font = '30px "Departure Mono",monospace'; ctx.fillText('-4', x + pad, y + 64);
-      ctx.fillStyle = '#e6b84a'; ctx.font = '14px "Departure Mono",monospace'; ctx.fillText('+$37', x + pad, y + 94);
       ctx.fillStyle = '#9aa0ab'; ctx.textAlign = 'right'; ctx.fillText('9 / 9 cups', x + w - pad, y + 94);
       ctx.restore();
     },

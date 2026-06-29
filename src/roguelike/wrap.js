@@ -50,16 +50,9 @@
         if (RG._surfaceRunOnly && RG._surfaceRunOnly() && RG._recordHoleDone) RG._recordHoleDone();
         // …and at/under par COLLECTS that hole-of-the-nine (overt progression — the Front Nine).
         if (RG._surfaceRunOnly && RG._surfaceRunOnly() && RG._recordCollect) RG._recordCollect(justFinished, (typeof strokes !== 'undefined') ? strokes : 0);
-        // Budget bust ends the run as a failure — INCLUDING on the final hole, where
-        // base onTransitionStart already set courseComplete (otherwise an over-budget
-        // last hole would slip through as a win + could even bank a NEW BEST).
-        if (RG.isOverBudget()) {
-          RG.failed = true;
-          if (!courseComplete) {
-            courseComplete = true;
-            transitionCamEnd = transitionCamStart; // stay put; no pan to a next hole
-          }
-        }
+        // (Removed 2026-06-29: the par-buffer "budget bust → RUN FAILED" — PC is an adventure, not a
+        //  roguelike. There is no fail state now; every completed course travels onward. RG.failed stays
+        //  false, so the auto-travel + best-record paths below always run.)
         // apply the entering hole's emergent condition (wind / thin air); resets to
         // pristine first so nothing leaks between holes
         if (typeof currentHole !== 'undefined') RG._applyHoleCondition(currentHole);
@@ -365,7 +358,6 @@
         if (window.RG_EVENT && window.RG && RG.active && RG._surfaceRunOnly() && RG_EVENT.active()) RG_EVENT.draw(ctx);
       }
       if (window.RG && RG._drawFirstKnowFlare) RG._drawFirstKnowFlare(ctx);   // always-on: the one-shot first-discovery bloom
-      if (window.RG_SHIP && RG_SHIP.drawFlare) RG_SHIP.drawFlare(ctx);        // always-on: ship-part earned acknowledgement
       if (window.RG_SEQ && RG_SEQ.draw) RG_SEQ.draw(ctx);                     // dev (?seq): scorecard+transition A/B overlay, over the crane (seqtest.js)
       // (The Fault descent crane is driven from RG._drawOverlays so its post-swap settle
       //  keeps ticking after `descending` clears — no separate descent draw needed here.)
@@ -421,10 +413,6 @@
   function drawRunComplete() {
     if (typeof _completeBtn !== 'undefined') _completeBtn = null;
     if (typeof _replayBtn !== 'undefined') _replayBtn = null;
-
-    // The shop owns the screen when open (entered from the recap's Shop button; its
-    // back button returns here — completeTimer keeps running so the recap re-fades in).
-    if (window.RG_SHOP && RG_SHOP.isOpen()) { RG._btns = []; RG_SHOP.draw(ctx); return; }
 
     completeTimer++;
     const fade = Math.min(1, completeTimer / 30);
@@ -587,13 +575,6 @@
     // testing via the dev cheat panel + ?goto=launch. The old gold recap launch button was
     // removed (designer call: not a default-game control).
 
-    // The shop: a quiet secondary button under New Run (surface recaps only — the
-    // Vault/Fault recaps are trophies, not a storefront).
-    if (window.RG_SHOP && !RG.inVault && !RG.inFault) {
-      drawBtn(bx, y, bw, bh, fade, '◈ Shop', false);
-      RG._btns.push({ x: bx, y: y, w: bw, h: bh, action: 'shop' });
-      y += bh + 16;
-    }
     if (showVault) {
       const gw = 20, gh = 26, gx = cx - gw / 2, gy = y;
       var vseen = 0; try { vseen = parseInt(localStorage.getItem('rg-vault-seen') || '0', 10) || 0; } catch (e) {}
@@ -657,7 +638,6 @@
   // synthetic mouse event the layer used to rely on.
   function recapPress(mx, my) {
     if (!(window.RG && RG.active) || state !== STATE_COMPLETE) return;
-    if (window.RG_SHOP && RG_SHOP.isOpen()) { RG_SHOP.onClick(mx, my); return; }
     const btns = RG._btns || [];
     for (let i = 0; i < btns.length; i++) {
       const b = btns[i];
@@ -665,7 +645,6 @@
         if (b.action === 'vault') RG.enterVault();
         else if (b.action === 'newrun') { _flagsCelebrate = false; RG.beginNewRun(); }
         else if (b.action === 'earth' && RG.returnToEarth) RG.returnToEarth();
-        else if (b.action === 'shop' && window.RG_SHOP) RG_SHOP.open();
         else if (b.action === 'progression' && RG.openCollection) RG.openCollection();
         return;
       }

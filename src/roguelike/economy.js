@@ -13,9 +13,6 @@
 // Settled once per run on the recap (wrap.js calls settleRun); the tally drawn there.
 // Peel this file off and the game is scoreless golf again.
 (function () {
-  const TIER_VALUE = [0, 5, 10, 15, 25];   // cumulative $ by tier
-  const REPEAT_PAY = 1;
-
   function num(key) { try { const v = parseInt(localStorage.getItem(key), 10); return Number.isFinite(v) ? v : 0; } catch (e) { return 0; } }
   function put(key, v) { try { localStorage.setItem(key, String(v)); } catch (e) {} }
   function slotKey(course, i) { return 'rg-tier-' + course + '-' + i; }
@@ -32,120 +29,39 @@
 
     _lastTally: null,   // { rows: [{hole, pay, tier, improved}], total, wallet } for the recap
 
-    // Grade one completed hole against its slot. Returns the payout.
+    // Grade one completed hole against its slot, recording the BEST TIER per slot. This tier store
+    // (rg-tier-*) is what the scorecard / constellation / journey "collection" art reads. Money was
+    // removed (PC = adventure, not roguelike) — this now only persists the tier; no payout.
     _settleHole(course, i, strokes, par) {
       let t = 1;
       if (strokes === 1) t = 4;
       else if (strokes < par) t = 3;
       else if (strokes === par) t = 2;
       const best = this.tier(course, i);
-      if (t > best) {
-        put(slotKey(course, i), t);
-        return { pay: TIER_VALUE[t] - TIER_VALUE[best], tier: t, improved: true };
-      }
-      return { pay: REPEAT_PAY, tier: t, improved: false };
+      const improved = t > best;
+      if (improved) put(slotKey(course, i), t);
+      return { tier: t, improved: improved };
     },
 
-    // Called once per completed run (wrap.onTransitionEnd). Surface courses only — the
-    // Vault and the undercroft are trophies, not payroll.
+    // Called once per completed run (wrap.onTransitionEnd). Surface courses only. Records each
+    // hole's best tier (feeds the collection art); no money is earned (PC adventure).
     settleRun() {
       this._lastTally = null;
       if (!(window.RG && RG.active) || RG.inVault || RG.inFault) return;
       const course = RG.course;
       const rows = [];
-      let total = 0;
       for (let i = 0; i < RG.holeCount; i++) {
         const s = RG.holeScores ? RG.holeScores[i] : null;
-        if (s == null) { rows.push(null); continue; }          // bust: unplayed holes pay nothing
+        if (s == null) { rows.push(null); continue; }
         const par = (RG.holePars && RG.holePars[i]) || 3;
-        const r = this._settleHole(course, i, s, par);
-        rows.push(r);
-        total += r.pay;
+        rows.push(this._settleHole(course, i, s, par));
       }
-      if (total > 0) this.add(total);
-      this._lastTally = { rows: rows, total: total, wallet: this.money() };
+      this._lastTally = { rows: rows };
     },
 
-    // The recap money block — built to answer two questions at a glance:
-    //   WHY this much  — nine hole pips coloured by the tier each hole banked (bright =
-    //                    paid real money this run, dim = a $1 repeat), over the earning
-    //                    ladder that names each tier's value.
-    //   HOW to earn more — a single line: how many holes on this world still have room
-    //                    to pay more (anything you haven't aced yet).
-    // One prominent number (the run's take); everything else supports it. Returns next y.
-    TIER_COLORS: ['#8a93a8', '#8a93a8', '#caa64e', '#f0c860', '#ffd87a'],   // by tier 0..4
-    drawTally(ctx, cx, y, fade) {
-      const t = this._lastTally;
-      if (!t) return y;
-      const n = t.rows.length;
-      ctx.save();
-
-      // ── per-hole pips ──
-      const gap = 17;
-      let px = cx - ((n - 1) * gap) / 2;
-      for (let i = 0; i < n; i++) {
-        const r = t.rows[i];
-        ctx.beginPath();
-        if (!r) {                                            // unplayed (a busted run)
-          ctx.globalAlpha = fade * 0.18; ctx.fillStyle = '#cdd6f5';
-          ctx.arc(px, y, 2.2, 0, Math.PI * 2);
-        } else {
-          ctx.globalAlpha = fade * (r.improved ? 0.95 : 0.26);   // dim = $1 repeat, no new money
-          ctx.fillStyle = this.TIER_COLORS[r.tier] || '#8a93a8';
-          ctx.arc(px, y, 5, 0, Math.PI * 2);
-        }
-        ctx.fill();
-        px += gap;
-      }
-      ctx.globalAlpha = 1;
-      y += 24;
-
-      // ── the earning ladder (colours map to the pips above; names the "why") ──
-      const segs = [
-        { txt: 'ace $25', c: '#ffd87a' }, { txt: 'under $15', c: '#f0c860' },
-        { txt: 'par $10', c: '#caa64e' }, { txt: 'finish $5', c: '#8a93a8' },
-      ];
-      const sep = '  ·  ';
-      ctx.font = "11px 'Departure Mono', monospace";
-      ctx.textAlign = 'left';
-      let totalW = 0;
-      for (let i = 0; i < segs.length; i++) { totalW += ctx.measureText(segs[i].txt).width; if (i < segs.length - 1) totalW += ctx.measureText(sep).width; }
-      let lx = cx - totalW / 2;
-      for (let i = 0; i < segs.length; i++) {
-        ctx.globalAlpha = fade * 0.75; ctx.fillStyle = segs[i].c;
-        ctx.fillText(segs[i].txt, lx, y); lx += ctx.measureText(segs[i].txt).width;
-        if (i < segs.length - 1) { ctx.globalAlpha = fade * 0.3; ctx.fillStyle = '#cdd6f5'; ctx.fillText(sep, lx, y); lx += ctx.measureText(sep).width; }
-      }
-      ctx.globalAlpha = 1;
-      ctx.textAlign = 'center';
-      y += 28;
-
-      // ── the take (the one prominent number) + wallet ──
-      ctx.font = "20px 'Departure Mono', monospace";
-      ctx.fillStyle = 'rgba(240,200,96,' + fade + ')';
-      ctx.fillText('+$' + t.total + ' this run', cx, y);
-      y += 22;
-      ctx.font = "12px 'Departure Mono', monospace";
-      ctx.fillStyle = 'rgba(242,236,255,' + (fade * 0.5) + ')';
-      ctx.fillText('$' + t.wallet + ' total', cx, y);
-      y += 22;
-
-      // ── how to earn more: holes on this world not yet aced (real remaining headroom) ──
-      let room = 0;
-      if (window.RG) for (let i = 0; i < RG.holeCount; i++) { if (this.tier(RG.course, i) < 4) room++; }
-      ctx.font = "11px 'Departure Mono', monospace";
-      if (room > 0) {
-        ctx.fillStyle = 'rgba(242,236,255,' + (fade * 0.45) + ')';
-        ctx.fillText('↑ ' + room + (room === 1 ? ' hole' : ' holes') + ' here can still pay more', cx, y);
-      } else {
-        ctx.fillStyle = 'rgba(240,200,96,' + (fade * 0.7) + ')';
-        ctx.fillText('★ every hole here is maxed', cx, y);
-      }
-      y += 16;
-
-      ctx.restore();
-      return y;
-    },
+    // (Removed 2026-06-29: drawTally — the recap MONEY block, +$ take, earning ladder. PC adventure
+    //  has no money. The tier store it read still drives the scorecard/constellation/journey below.)
+    TIER_COLORS: ['#8a93a8', '#8a93a8', '#caa64e', '#f0c860', '#ffd87a'],   // by tier 0..4 (scorecard pip colours)
 
     // ── The Scorecard: a quiet collection of every hole you've ever aced ───────
     // Per-slot best tier already persists (the rg-tier keys); tier 4 == ace. This renders
@@ -324,13 +240,8 @@
       const ruleY = rowY + rowH + 16;
       ctx.strokeStyle = this.INK + (fade * 0.18) + ')'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cardX + pad, ruleY); ctx.lineTo(cardX + cardW - pad, ruleY); ctx.stroke();
-      // the take, penciled in the margin under the rule (gold, the one warm number)
-      const counts = this._aceCounts();
-      ctx.textAlign = 'left';
-      ctx.font = "12px 'Departure Mono', monospace";
-      ctx.fillStyle = 'rgba(176,128,32,' + fade + ')';
-      ctx.fillText('+$' + ((t && t.total) || 0), cardX + pad, ruleY + 20);
       // the all-aces collection count in the right margin (the long arc, in ink)
+      const counts = this._aceCounts();
       ctx.textAlign = 'right';
       ctx.fillStyle = this.INK + (fade * 0.5) + ')';
       ctx.fillText(counts.have + ' / ' + counts.total + ' aces', cardX + cardW - pad, ruleY + 20);
@@ -490,29 +401,7 @@
       return pathY + 40;
     },
 
-    // A compact money summary for the cleaner recap layouts: the prominent TAKE (the payoff),
-    // and optionally the wallet under it. Pass showWallet=false to keep the column short (the
-    // default ledger drops it — the take being EARNED is the access-loop fact; the wallet is a
-    // supporting number better left implicit). Returns the next y; nothing drawn with no tally.
-    drawTakeLine(ctx, cx, y, fade, showWallet) {
-      const t = this._lastTally;
-      if (!t) return y;
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.font = "20px 'Departure Mono', monospace";
-      ctx.fillStyle = 'rgba(240,200,96,' + fade + ')';
-      ctx.fillText('+$' + t.total, cx, y);
-      y += 20;
-      if (showWallet !== false) {
-        ctx.font = "11px 'Departure Mono', monospace";
-        ctx.fillStyle = 'rgba(242,236,255,' + (fade * 0.45) + ')';
-        ctx.fillText('$' + t.wallet + ' total', cx, y);
-        y += 18;
-      } else {
-        y += 6;
-      }
-      ctx.restore();
-      return y;
-    },
+    // (Removed 2026-06-29: drawTakeLine — the +$ money take. PC adventure has no money. wrap.js
+    //  guards its call with `if (RG_ECON.drawTakeLine)`, so its absence just drops the money line.)
   };
 })();
