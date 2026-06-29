@@ -30,6 +30,11 @@
   // lab owns the whole lifecycle.
   window.HOLE_OVERRIDES_ENABLED = false;
 
+  // RG_FX (landing-debris particles, src/roguelike/fx.js) gates its contact-detection on the roguelike
+  // layer (window.RG) existing. The lab has no roguelike, so stub a minimal RG → impacts spawn debris.
+  // Purely visual + reads ball state; does NOT touch the physics globals/materials being tuned.
+  window.RG = window.RG || { active: true, _simulating: false };
+
   // ── Default knob values (the ship values, so "Reset knobs" restores feel) ───
   const DEFAULTS = {
     POWER_SCALE: POWER_SCALE,
@@ -124,10 +129,45 @@
     return { verts: v, teeX: TEE_X, teeY: GROUND_Y, cupX: 640 };
   }
 
+  function buildSteep() {
+    // A short, STEEP (~40°) drop — exaggerates momentum / terminal-velocity differences between presets.
+    const v = [];
+    v.push({ x: 20, y: 200, mat: 'sand' });
+    v.push({ x: 120, y: 200, mat: 'sand' });
+    for (let x = 160; x <= 420; x += 30) {
+      const t = (x - 160) / (420 - 160);
+      v.push({ x, y: 200 + t * 230, mat: 'sand' });
+    }
+    for (let x = 455; x <= 760; x += 30) v.push({ x, y: 430, mat: 'sand' });
+    return { verts: v, teeX: 70, teeY: 200, cupX: 650 };
+  }
+
+  function buildValley() {
+    // A parabolic bowl: roll in from the left rim, settle at the bottom. Best shape for FEELING stop-time
+    // (the ball oscillates then comes to rest — long under ship friction, crisp under SNAPPY).
+    const v = [];
+    const cx = 390, halfW = 300, rimY = 290, botY = 450;
+    for (let x = 20; x <= 760; x += 20) {
+      let n = (x - cx) / halfW; if (n < -1) n = -1; if (n > 1) n = 1;
+      v.push({ x, y: botY - (botY - rimY) * (n * n), mat: 'grass' });
+    }
+    return { verts: v, teeX: 55, teeY: rimY, cupX: 620 };
+  }
+
+  function buildBumps() {
+    // Rolling undulation — tests bounce + roll over terrain that isn't a clean ramp.
+    const v = [];
+    for (let x = 20; x <= 760; x += 15) v.push({ x, y: 350 + Math.sin((x - 20) / 55) * 28, mat: 'grass' });
+    return { verts: v, teeX: 60, teeY: 350, cupX: 645 };
+  }
+
   const TERRAINS = [
-    { id: 'flat',  label: 'FLAT',          build: buildFlat },
-    { id: 'slope', label: 'SLOPE',         build: buildSlope },
-    { id: 'mixed', label: 'MIXED MATERIAL', build: buildMixed },
+    { id: 'flat',   label: 'FLAT',           build: buildFlat },
+    { id: 'slope',  label: 'SLOPE',          build: buildSlope },
+    { id: 'steep',  label: 'STEEP',          build: buildSteep },
+    { id: 'valley', label: 'VALLEY (bowl)',  build: buildValley },
+    { id: 'bumps',  label: 'BUMPS',          build: buildBumps },
+    { id: 'mixed',  label: 'MIXED MATERIAL', build: buildMixed },
   ];
   let terrainIdx = 0;
 
@@ -175,6 +215,9 @@
     terrainIdx = ((idx % TERRAINS.length) + TERRAINS.length) % TERRAINS.length;
     const def = TERRAINS[terrainIdx].build();
     vertices = def.verts.map(v => ({ x: v.x, y: v.y, mat: v.mat || 'sand' }));
+    // GROUND override: paint every vert (incl. the cup walls, via _matAtVerts) with the chosen material
+    // so any shape can be tested on any surface. 'auto' keeps the terrain's authored materials.
+    if (_groundMat !== 'auto') vertices.forEach(v => { v.mat = _groundMat; });
     _matAtVerts = vertices.map(v => ({ x: v.x, mat: v.mat }));
     holes.length = 0;
     objects.length = 0;
@@ -247,22 +290,23 @@
   // is NOT a property of `window` — but a sibling <script> (this file) shares the
   // same global lexical scope, so we read/write them by BARE NAME. Each knob gets an
   // explicit get/set closure (mutating the REAL engine variable, never a fork).
+  // NOTE: the engine reads PER-MATERIAL rollingFriction/surfaceFriction/restitution for the actual
+  // roll/bounce/stop (gameplay.js friction + desert-golfing.js collide). The old global ROLLING_FRICTION
+  // and RESTITUTION sliders were DEAD (declared in shared.js, never read) — removed to cut the confusion.
+  // SURFACE_FRICTION (global) IS read, but ONLY as the "slope too steep to rest" threshold in canRest() —
+  // labelled as such. Dial real feel via the PER-MATERIAL knobs below + the PRESETS row.
   const GLOBAL_KNOBS = [
-    { name: 'POWER_SCALE',      min: 0.01, max: 0.12, step: 0.001, group: 'LAUNCH',
+    { name: 'POWER_SCALE',      min: 0,    max: 0.20, step: 0.001, group: 'LAUNCH',
       get: () => POWER_SCALE,      set: (v) => { POWER_SCALE = v; } },
-    { name: 'MAX_POWER',        min: 2,    max: 20,   step: 0.5,   group: 'LAUNCH',
+    { name: 'MAX_POWER',        min: 1,    max: 30,   step: 0.5,   group: 'LAUNCH',
       get: () => MAX_POWER,        set: (v) => { MAX_POWER = v; } },
-    { name: 'GRAVITY',          min: 0.005,max: 0.12, step: 0.001, group: 'FLIGHT',
+    { name: 'GRAVITY',          min: 0,    max: 0.30, step: 0.001, group: 'FLIGHT',
       get: () => GRAVITY,          set: (v) => { GRAVITY = v; } },
-    { name: 'RESTITUTION',      min: 0,    max: 1,    step: 0.01,  group: 'FLIGHT',
-      get: () => RESTITUTION,      set: (v) => { RESTITUTION = v; } },
-    { name: 'BOUNCE_THRESHOLD', min: 0.1,  max: 4,    step: 0.05,  group: 'FLIGHT',
+    { name: 'BOUNCE_THRESHOLD', min: 0,    max: 8,    step: 0.05,  group: 'FLIGHT',
       get: () => BOUNCE_THRESHOLD, set: (v) => { BOUNCE_THRESHOLD = v; } },
-    { name: 'ROLLING_FRICTION', min: 0.80, max: 1.0,  step: 0.001, group: 'ROLL/STOP',
-      get: () => ROLLING_FRICTION, set: (v) => { ROLLING_FRICTION = v; } },
-    { name: 'SURFACE_FRICTION', min: 0,    max: 0.04, step: 0.001, group: 'ROLL/STOP',
+    { name: 'SURFACE_FRICTION', label: 'SURFACE_FRICTION (slope-rest)', min: 0, max: 0.1, step: 0.001, group: 'ROLL/STOP',
       get: () => SURFACE_FRICTION, set: (v) => { SURFACE_FRICTION = v; } },
-    { name: 'BALL_RADIUS',      min: 2,    max: 10,   step: 0.5,   group: 'BALL',
+    { name: 'BALL_RADIUS',      min: 1,    max: 16,   step: 0.5,   group: 'BALL',
       get: () => BALL_RADIUS,      set: (v) => { BALL_RADIUS = v; } },
   ];
   const KNOB_BY_NAME = {};
@@ -271,9 +315,54 @@
   const MAT_LIST = ['sand', 'grass', 'ice', 'rock', 'mud'];
   const MAT_FIELDS = [
     { key: 'restitution',     min: 0,    max: 1,    step: 0.01 },
-    { key: 'rollingFriction', min: 0.80, max: 1.0,  step: 0.001 },
-    { key: 'surfaceFriction', min: 0,    max: 0.04, step: 0.001 },
+    { key: 'rollingFriction', min: 0.50, max: 1.0,  step: 0.001 },
+    { key: 'surfaceFriction', min: 0,    max: 0.1,  step: 0.001 },
   ];
+
+  // ── PRESETS (feel starting points) ───────────────────────────────────────────
+  // Each sets the global knobs + EVERY material together so the feel is coherent. SHIP = restore the
+  // shipped defaults. The big lever for "ball stops sooner" is per-material surfaceFriction (the constant
+  // low-speed drag): ship is a tiny 0.004 so the ball creeps near-stationary until the 2s slow-roll
+  // failsafe — raising it makes the ball settle crisply in well under a second.
+  const PRESET_NAMES = ['SHIP', 'REALISTIC', 'SNAPPY', 'FLOATY'];
+  const PRESETS = {
+    REALISTIC: {
+      desc: 'heavier gravity, low air-drag → momentum builds downhill, stops on flats',
+      globals: { GRAVITY: 0.07, SURFACE_FRICTION: 0.010, BOUNCE_THRESHOLD: 1.0, POWER_SCALE: 0.05, MAX_POWER: 11 },
+      mats: {
+        sand:  { restitution: 0.35, rollingFriction: 0.990, surfaceFriction: 0.014 },
+        grass: { restitution: 0.30, rollingFriction: 0.990, surfaceFriction: 0.012 },
+        ice:   { restitution: 0.50, rollingFriction: 0.997, surfaceFriction: 0.004 },
+        rock:  { restitution: 0.60, rollingFriction: 0.990, surfaceFriction: 0.010 },
+        mud:   { restitution: 0.12, rollingFriction: 0.960, surfaceFriction: 0.025 },
+        water: { restitution: 0.10, rollingFriction: 0.880, surfaceFriction: 0.030 },
+      },
+    },
+    SNAPPY: {
+      desc: 'short roll-out, crisp quick stop (kills the long creep-to-rest)',
+      globals: { GRAVITY: 0.045, SURFACE_FRICTION: 0.020, BOUNCE_THRESHOLD: 1.3, POWER_SCALE: 0.04, MAX_POWER: 8 },
+      mats: {
+        sand:  { restitution: 0.38, rollingFriction: 0.952, surfaceFriction: 0.020 },
+        grass: { restitution: 0.30, rollingFriction: 0.950, surfaceFriction: 0.022 },
+        ice:   { restitution: 0.48, rollingFriction: 0.984, surfaceFriction: 0.008 },
+        rock:  { restitution: 0.55, rollingFriction: 0.950, surfaceFriction: 0.018 },
+        mud:   { restitution: 0.12, rollingFriction: 0.880, surfaceFriction: 0.032 },
+        water: { restitution: 0.10, rollingFriction: 0.840, surfaceFriction: 0.040 },
+      },
+    },
+    FLOATY: {
+      desc: 'low-g, bouncy, long lazy rolls (moon-golf arcade feel)',
+      globals: { GRAVITY: 0.022, SURFACE_FRICTION: 0.003, BOUNCE_THRESHOLD: 0.7, POWER_SCALE: 0.045, MAX_POWER: 9 },
+      mats: {
+        sand:  { restitution: 0.55, rollingFriction: 0.992, surfaceFriction: 0.003 },
+        grass: { restitution: 0.50, rollingFriction: 0.990, surfaceFriction: 0.003 },
+        ice:   { restitution: 0.65, rollingFriction: 0.998, surfaceFriction: 0.001 },
+        rock:  { restitution: 0.80, rollingFriction: 0.988, surfaceFriction: 0.003 },
+        mud:   { restitution: 0.20, rollingFriction: 0.930, surfaceFriction: 0.012 },
+        water: { restitution: 0.12, rollingFriction: 0.860, surfaceFriction: 0.022 },
+      },
+    },
+  };
 
   // ── Side panel (HTML/CSS, Departure Mono) ────────────────────────────────────
   let panelVisible = true;
@@ -310,6 +399,9 @@
     #physlab-panel button:hover{background:rgba(184,140,255,0.24)}
     #physlab-panel button.on{background:#e8c840;color:#221a06;border-color:#e8c840}
     #physlab-panel button.ab{background:rgba(232,200,64,0.16);border-color:rgba(232,200,64,0.5);color:#ffe08a}
+    #physlab-panel select{width:100%;margin:2px 0 4px;background:#0c0e16;color:#e8e2ff;
+      border:1px solid rgba(184,140,255,0.32);border-radius:4px;padding:5px 7px;
+      font:11px 'Departure Mono',monospace;cursor:pointer}
     #physlab-panel textarea{width:100%;height:128px;margin-top:6px;background:#07080d;color:#9fe0b0;
       border:1px solid rgba(184,140,255,0.25);border-radius:4px;font:10px 'Departure Mono',monospace;
       padding:6px;resize:vertical;white-space:pre;overflow:auto}
@@ -321,7 +413,7 @@
 
   const hint = document.createElement('div');
   hint.id = 'physlab-hint';
-  hint.textContent = 'drag BACK from the ball to aim · R re-tee · SPACE repeat shot · H hide panel · 1/2/3 terrain';
+  hint.textContent = 'drag BACK from the ball to aim · R re-tee · SPACE repeat shot · H hide panel · TERRAIN + GROUND dropdowns in panel (1/2/3 = first 3 shapes)';
   document.body.appendChild(hint);
 
   // Build panel DOM
@@ -352,16 +444,40 @@
     const h1 = document.createElement('h1'); h1.textContent = 'PHYSICS LAB'; panel.appendChild(h1);
     const sub = document.createElement('div'); sub.className = 'sub'; sub.textContent = 'PAR SEC · dial the feel'; panel.appendChild(sub);
 
-    // Terrain + actions
-    const tRow = document.createElement('div'); tRow.className = 'btnrow';
-    TERRAINS.forEach((t, i) => {
-      const b = document.createElement('button'); b.textContent = t.label;
-      b.className = (i === terrainIdx) ? 'on' : '';
-      b.onclick = () => { loadTerrain(i); refreshTerrainBtns(); };
-      b._terrIdx = i; tRow.appendChild(b);
+    // PRESETS — set globals + every material together (coherent feel starting points).
+    const pHead = document.createElement('div'); pHead.className = 'grp'; pHead.textContent = 'PRESETS'; panel.appendChild(pHead);
+    presetRow = document.createElement('div'); presetRow.className = 'btnrow';
+    PRESET_NAMES.forEach(name => {
+      const b = document.createElement('button'); b.textContent = name; b._preset = name;
+      b.title = (name === 'SHIP') ? 'restore shipped defaults' : (PRESETS[name] && PRESETS[name].desc) || '';
+      b.onclick = () => applyPreset(name);
+      presetRow.appendChild(b);
     });
-    panel.appendChild(tRow);
-    refreshTerrainBtns = () => { Array.from(tRow.children).forEach(b => b.className = (b._terrIdx === terrainIdx) ? 'on' : ''); };
+    panel.appendChild(presetRow);
+    presetDesc = document.createElement('div'); presetDesc.className = 'sub';
+    presetDesc.style.cssText = 'margin:5px 0 2px;color:#9fe0b0';
+    presetDesc.textContent = 'ball reads PER-MATERIAL roll/stop (below); globals = launch/flight/slope-rest';
+    panel.appendChild(presetDesc);
+
+    // TERRAIN shape (dropdown) + GROUND-material override (dropdown).
+    const terrHead = document.createElement('div'); terrHead.className = 'grp'; terrHead.textContent = 'TERRAIN'; panel.appendChild(terrHead);
+    const terrSel = document.createElement('select');
+    TERRAINS.forEach((t, i) => { const o = document.createElement('option'); o.value = String(i); o.textContent = t.label; terrSel.appendChild(o); });
+    terrSel.value = String(terrainIdx);
+    terrSel.addEventListener('change', () => { loadTerrain(parseInt(terrSel.value, 10)); });
+    panel.appendChild(terrSel);
+
+    const groundLbl = document.createElement('div'); groundLbl.className = 'sub';
+    groundLbl.style.cssText = 'margin:4px 0 1px;color:#8f86b8'; groundLbl.textContent = 'ground material (override)';
+    panel.appendChild(groundLbl);
+    const groundSel = document.createElement('select');
+    ['auto'].concat(MAT_LIST).forEach(g => { const o = document.createElement('option'); o.value = g; o.textContent = g.toUpperCase(); groundSel.appendChild(o); });
+    groundSel.value = _groundMat;
+    groundSel.addEventListener('change', () => { _groundMat = groundSel.value; loadTerrain(terrainIdx); });
+    panel.appendChild(groundSel);
+
+    // Keep the terrain dropdown in sync when terrain changes via keyboard (1/2/3) or the headless API.
+    refreshTerrainBtns = () => { terrSel.value = String(terrainIdx); };
 
     const aRow = document.createElement('div'); aRow.className = 'btnrow';
     const reBtn = document.createElement('button'); reBtn.textContent = 'RE-TEE (R)'; reBtn.onclick = reTee;
@@ -372,6 +488,11 @@
     const rRow = document.createElement('div'); rRow.className = 'btnrow';
     const resetK = document.createElement('button'); resetK.textContent = 'RESET KNOBS'; resetK.onclick = resetKnobs;
     rRow.appendChild(resetK);
+    const fxBtn = document.createElement('button'); fxBtn.textContent = 'PARTICLES';
+    fxBtn.className = showFX ? 'on' : '';
+    fxBtn.title = 'landing-debris puff on ball impact (RG_FX) — off for pure-physics testing';
+    fxBtn.onclick = () => { showFX = !showFX; fxBtn.className = showFX ? 'on' : ''; };
+    rRow.appendChild(fxBtn);
     panel.appendChild(rRow);
 
     // Global knobs grouped
@@ -380,20 +501,31 @@
     for (const g in groups) {
       const gh = document.createElement('div'); gh.className = 'grp'; gh.textContent = g; panel.appendChild(gh);
       groups[g].forEach(k => {
-        knobRow(panel, k.name, k.get, k.set, k.min, k.max, k.step, fmt, k.name);
+        knobRow(panel, k.label || k.name, k.get, k.set, k.min, k.max, k.step, fmt, k.name);
       });
     }
 
-    // Per-material knobs
-    MAT_LIST.forEach(m => {
-      const gh = document.createElement('div'); gh.className = 'grp';
-      gh.textContent = 'MATERIAL · ' + m.toUpperCase(); panel.appendChild(gh);
+    // Per-material knobs — ONE material at a time via a dropdown (keeps the panel uncluttered).
+    // The readout below still lists ALL materials, so a copy-paste stays complete.
+    const mh = document.createElement('div'); mh.className = 'grp'; mh.textContent = 'MATERIAL'; panel.appendChild(mh);
+    const matSel = document.createElement('select');
+    MAT_LIST.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m.toUpperCase(); matSel.appendChild(o); });
+    matSel.value = _selMat;
+    panel.appendChild(matSel);
+    const matKnobs = document.createElement('div'); panel.appendChild(matKnobs);
+    function renderMatKnobs(m) {
+      _selMat = m;
+      // Drop stale per-material slider refs so syncSliders() only touches the visible material.
+      for (const id in sliderEls) { if (id.indexOf('mat.') === 0) delete sliderEls[id]; }
+      matKnobs.innerHTML = '';
       MAT_FIELDS.forEach(f => {
         const id = 'mat.' + m + '.' + f.key;
-        knobRow(panel, f.key.toUpperCase(), () => MATERIALS[m][f.key], (v) => { MATERIALS[m][f.key] = v; },
+        knobRow(matKnobs, f.key.toUpperCase(), () => MATERIALS[m][f.key], (v) => { MATERIALS[m][f.key] = v; },
           f.min, f.max, f.step, fmt, id);
       });
-    });
+    }
+    matSel.addEventListener('change', () => renderMatKnobs(matSel.value));
+    renderMatKnobs(_selMat);
 
     // Readout
     const gh = document.createElement('div'); gh.className = 'grp'; gh.textContent = 'READOUT (copy → src/shared.js)'; panel.appendChild(gh);
@@ -404,11 +536,24 @@
   }
   let refreshTerrainBtns = () => {};
   let readoutEl = null;
+  let presetRow = null, presetDesc = null;
+  let _selMat = MAT_LIST[0];   // which material the dropdown is showing
+  let _groundMat = 'auto';     // 'auto' = terrain's authored materials; else paint the whole ground this material
+  let showFX = true;           // draw RG_FX landing-debris particles (toggle for pure-physics testing)
 
   function writeReadout() {
     if (!readoutEl) return;
+    // Print ALL eight shared.js globals (even RESTITUTION/ROLLING_FRICTION, which have no slider — so a
+    // copy-paste of this block stays a complete replacement for shared.js lines and never drops a line).
     let s = '// globals (src/shared.js)\n';
-    GLOBAL_KNOBS.forEach(k => { s += 'let ' + k.name + ' = ' + trim(k.get()) + ';\n'; });
+    s += 'let GRAVITY = ' + trim(GRAVITY) + ';\n';
+    s += 'let RESTITUTION = ' + trim(RESTITUTION) + ';\n';
+    s += 'let ROLLING_FRICTION = ' + trim(ROLLING_FRICTION) + ';\n';
+    s += 'let SURFACE_FRICTION = ' + trim(SURFACE_FRICTION) + ';\n';
+    s += 'let POWER_SCALE = ' + trim(POWER_SCALE) + ';\n';
+    s += 'let MAX_POWER = ' + trim(MAX_POWER) + ';\n';
+    s += 'let BOUNCE_THRESHOLD = ' + trim(BOUNCE_THRESHOLD) + ';\n';
+    s += 'let BALL_RADIUS = ' + trim(BALL_RADIUS) + ';\n';
     s += '\n// MATERIALS (src/shared.js)\n';
     MAT_LIST.forEach(m => {
       const M = MATERIALS[m];
@@ -439,7 +584,28 @@
     syncSliders(); writeReadout();
   }
 
+  // Highlight the active preset button + show its description.
+  function markPreset(name) {
+    if (presetRow) Array.from(presetRow.children).forEach(b => { b.className = (b._preset === name) ? 'on' : ''; });
+    if (presetDesc) {
+      presetDesc.textContent = (name === 'SHIP')
+        ? 'SHIP — shipped defaults · ball reads PER-MATERIAL roll/stop (below)'
+        : (name + ' — ' + (PRESETS[name] ? PRESETS[name].desc : ''));
+    }
+  }
+
+  // Apply a preset: set the global knobs + every material, then refresh sliders/readout.
+  function applyPreset(name) {
+    if (name === 'SHIP') { resetKnobs(); markPreset('SHIP'); return; }
+    const p = PRESETS[name];
+    if (!p) return;
+    for (const g in p.globals) { if (KNOB_BY_NAME[g]) KNOB_BY_NAME[g].set(p.globals[g]); }
+    for (const m in p.mats) { if (MATERIALS[m]) Object.assign(MATERIALS[m], p.mats[m]); }
+    syncSliders(); writeReadout(); markPreset(name);
+  }
+
   buildPanel();
+  markPreset('SHIP');
 
   // ── Keyboard ──────────────────────────────────────────────────────────────
   window.addEventListener('keydown', (e) => {
@@ -484,6 +650,14 @@
   function frame() {
     if (auto) update();
     draw();
+    // Landing-debris particles in WORLD space, under the HUD (mirrors wrap.js drawWorld + fxlab.js).
+    if (showFX && window.RG_FX) {
+      ctx.save();
+      ctx.scale(displayScale, displayScale);
+      if (MODE.applyCameraTransform) MODE.applyCameraTransform(ctx);
+      RG_FX.draw(ctx);
+      ctx.restore();
+    }
     drawLabHUD();
     // keep slider value labels live while the ball is rolling (material can change)
     window._physlabRAF = requestAnimationFrame(frame);
