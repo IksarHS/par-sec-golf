@@ -219,7 +219,11 @@
   // A = toggle autoplay on/off (ONE press to stop). S = cycle SPEED 1×→2×→4× (separate control, so
   // stopping is never more than one A press). aiSpeed persists across on/off; main.js reads it live, so
   // changing speed mid-run is instant. (S is unbound elsewhere in the game.)
+  // DEV-ONLY: this file ships in the player build too (its shot-SOLVER, RG.bot.calculateShot/simulateShot,
+  // is runtime-required for hole-solvability validation), but autoplay is a dev tool — so the A/S keys are
+  // gated on window.RG_DEV (set only by run.html). In the player build RG_DEV is unset → autoplay is inert.
   window.addEventListener('keydown', function (e) {
+    if (!window.RG_DEV) return;
     if (/INPUT|TEXTAREA/.test((e.target && e.target.tagName) || '')) return;
     if (e.key === 'a' || e.key === 'A') {
       if (window.aiEnabled) RG.bot.stop();

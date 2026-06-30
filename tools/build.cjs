@@ -67,8 +67,8 @@ const SCRIPTS = [
   'src/roguelike/fx.js',
   'src/roguelike/juice.js',
   'src/roguelike/ambient.js',
-  'src/roguelike/fx-lab.js',
-  'src/roguelike/gfx-lab.js',
+  // fx-lab.js / gfx-lab.js (the ?fx/?gfx post-process shader labs) are DEV-ONLY — excluded from the
+  // player build. They still load in run.html (the dev build). Restore here if you ever ship them.
   'src/roguelike/travel.js',
   'src/roguelike/starmap-ingame.js',
   'src/roguelike/event.js',
@@ -201,7 +201,10 @@ const runHtml = fs.readFileSync(path.join(ROOT, 'run.html'), 'utf8');
 // Extract head inner (everything between <head> and </head>)
 const headInner = runHtml.match(/<head>([\s\S]*?)<\/head>/)[1];
 // Extract the body chrome up to (but not including) the first engine <script src> tag.
-const bodyChrome = runHtml.slice(runHtml.indexOf('<body>') + '<body>'.length, runHtml.indexOf('<!-- Engine core'));
+let bodyChrome = runHtml.slice(runHtml.indexOf('<body>') + '<body>'.length, runHtml.indexOf('<!-- Engine core'));
+// Strip the DEV BUILD FLAG: the PLAYER build must NOT set window.RG_DEV, so dev-only handlers (autoplay,
+// etc.) stay inert. It's set only in run.html (the dev build). Without this strip the flag leaks into dist.
+bodyChrome = bodyChrome.replace(/<!--\s*DEV BUILD FLAG[\s\S]*?<script>\s*window\.RG_DEV[\s\S]*?<\/script>\s*/, '');
 
 // The ?course= autostart block (verbatim) from run.html — find the last <script> IIFE block.
 const autostart = runHtml.slice(runHtml.indexOf('<!-- Dev shortcut: jump straight to a BASE course'), runHtml.indexOf('</body>'));

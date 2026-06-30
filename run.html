@@ -67,6 +67,10 @@
 <!-- In-run HUD (populated by the run controller) -->
 <div id="rg-hud"></div>
 
+<!-- DEV BUILD FLAG: this is the dev environment (run.html) — cheats, autoplay, debug, labs, editor are all
+     enabled. The PLAYER build (dist/index.html, via tools/build.cjs) does NOT set this, so dev-only handlers
+     stay inert and dev files aren't bundled. One switch = "is this the dev build?" -->
+<script>window.RG_DEV = true;</script>
 <!-- Engine core (lean): no firebase / leaderboard / menu / autoplay / debug, no desert worlds, no generators. -->
 <script src="src/shared.js"></script>
 <script src="src/worlds/run.js"></script>
