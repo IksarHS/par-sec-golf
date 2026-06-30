@@ -16,6 +16,8 @@ promote it into `src/` deliberately — don't wire the game to anything in this 
   local in-browser LLM (hold `T`). Explored as a hidden "secret talking ball" feature. Loads a local
   AI model, so it's heavy. (Its 4 script refs to stripped game files — secrets/ship/shop/onboard —
   were removed so it loads clean.)
+- **RESEARCH-local-conversational-llms.md** — research notes (local/on-device LLMs for the "talking golf
+  ball" caddie). Background for `ball-agent.html`.
 - **golforbit-planet.html** — ROUND-PLANET golf: golf *around* a whole faceted globe (8 pins/zones,
   radial gravity, the ball arcs over the curve to the next pin). The right *concept* for a planet mode.
   Canvas was fixed to fill the window (was a tiny 960×540). **TODO / known-wrong:** the shot is a soft
