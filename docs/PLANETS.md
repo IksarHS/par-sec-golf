@@ -6,7 +6,7 @@ One hole generator, driven by a per-planet **settings object**, producing **24 d
 This is the standalone tool the conversation set out to find; it is NOT wired into the main game yet (by
 request) — it lives in this project and registers courses `p1` … `p24`.
 
-Play any planet: `?course=p1` … `?course=p24` (served locally, e.g. `python serve.py` → 8231).
+Play any planet: `?course=p1` … `?course=p24` (served locally, e.g. `python build/serve.py` → 8231).
 
 ## The one knob: `complexity` (0..1)
 `src/planet-gen.js` defines 24 planets along a smooth complexity ramp (0.05 → 0.97). The complexity dial:
@@ -41,7 +41,7 @@ skies.
 - `src/set-pieces.js` — floating-mass overhang generation + swept collision + render.
 - `src/level-design.js` — `gen:'faceted'` skips micro-noise; hooks `generateOverhangs` after each hole;
   (a bot-based `_validateHole`/`_genValidatedHole` scaffold exists but is unhooked — see Improvements).
-- `run.html` — loads the above; generic `?course=<id>` dev shortcut.
+- `devbuild.html` — loads the above; generic `?course=<id>` dev shortcut.
 - `tools/verify.cjs` — **headless deterministic completability harness**. Loads the REAL engine in Node
   (vm context + minimal browser stubs), plays every planet with the real autoplay bot. No browser, no
   flakiness, reproducible (seed → identical terrain). Verified faithful: p12 seed 777 geometry is

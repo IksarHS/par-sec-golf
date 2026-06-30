@@ -117,7 +117,7 @@
 <div id="rg-hud"></div>
 
 <!-- ──────────────────────────────────────────────────────────────────────────────────────────────
-     REAL ENGINE — the SAME script set run.html / the dist loads (full physics + render + generators +
+     REAL ENGINE — the SAME script set devbuild.html / the dist loads (full physics + render + generators +
      the roguelike run layer + the deep-space planet→planet TRAVEL transition). The ONE difference: we
      DO NOT load src/roguelike/login-ui.js, and we set ?nologin semantics — so there is NO firebase /
      username gate and NO login overlay; the agent boots straight into the loop.
@@ -128,7 +128,7 @@
 <script>
   // Boot straight into play: no login overlay, no firebase gate. login-ui.js reads ?nologin to skip the
   // overlay — and we don't even load it — but set the flag so any other peek is consistent. aiEnabled stays
-  // false (a human plays). RG_MINIMAL = the lean core loop (no secrets/Codex clutter), like run.html default.
+  // false (a human plays). RG_MINIMAL = the lean core loop (no secrets/Codex clutter), like devbuild.html default.
   if (!/[?&]nologin\b/.test(location.search)) {
     try { history.replaceState(null, '', location.pathname + (location.search ? location.search + '&' : '?') + 'nologin'); } catch (e) {}
   }
@@ -148,40 +148,39 @@
     if (e.key === 't' || e.key === 'T' || e.code === 'KeyT') { if (window.__ballPTTup) window.__ballPTTup(e); }
   }, true);
 </script>
-<script src="../src/shared.js"></script>
-<script src="../src/worlds/run.js"></script>
-<script src="../src/planet-gen.js"></script>
-<script src="../src/lab.js"></script>
-<script src="../src/level-design.js"></script>
-<script src="../src/moon-terrain.js"></script>
-<script src="../src/set-pieces.js"></script>
-<script src="../src/holegen/spine.js"></script>
-<script src="../src/holegen/operators.js"></script>
-<script src="../src/holegen/skin.js"></script>
-<script src="../src/holegen/caves.js"></script>
-<script src="../src/holegen/setpieces-dream.js"></script>
-<script src="../src/holegen/score.js"></script>
-<script src="../src/holegen/dreamgen.js"></script>
-<script src="../src/water.js"></script>
-<script src="../src/weird-terrain.js"></script>
-<script src="../src/modes/desert-golfing.js"></script>
-<script src="../src/art.js"></script>
-<script src="../src/gameplay.js"></script>
+<script src="../game/shared.js"></script>
+<script src="../game/worlds/run.js"></script>
+<script src="../game/planet-gen.js"></script>
+<script src="../game/lab.js"></script>
+<script src="../game/level-design.js"></script>
+<script src="../game/moon-terrain.js"></script>
+<script src="../game/set-pieces.js"></script>
+<script src="../game/holegen/spine.js"></script>
+<script src="../game/holegen/operators.js"></script>
+<script src="../game/holegen/skin.js"></script>
+<script src="../game/holegen/caves.js"></script>
+<script src="../game/holegen/setpieces-dream.js"></script>
+<script src="../game/holegen/score.js"></script>
+<script src="../game/holegen/dreamgen.js"></script>
+<script src="../game/water.js"></script>
+<script src="../game/modes/desert-golfing.js"></script>
+<script src="../game/art.js"></script>
+<script src="../game/gameplay.js"></script>
 <!-- roguelike run layer (peel-off-able). NOTE: login-ui.js is deliberately OMITTED (no login gate). -->
-<script src="../src/roguelike/save.js"></script>
-<script src="../src/roguelike/profile.js"></script>
-<script src="../src/roguelike/modifiers.js"></script>
-<script src="../src/roguelike/run.js"></script>
-<script src="../src/roguelike/economy.js"></script>
-<script src="../src/roguelike/wrap.js"></script>
-<script src="../src/roguelike/audio.js"></script>
-<script src="../src/roguelike/fx.js"></script>
-<script src="../src/roguelike/juice.js"></script>
-<script src="../src/roguelike/ambient.js"></script>
-<script src="../src/roguelike/travel.js"></script>
-<script src="../src/roguelike/event.js"></script>
-<script src="../src/roguelike/terrain.js"></script>
-<script src="../src/main.js"></script>
+<script src="../game/runtime/save.js"></script>
+<script src="../game/runtime/profile.js"></script>
+<script src="../game/runtime/modifiers.js"></script>
+<script src="../game/runtime/run.js"></script>
+<script src="../game/runtime/economy.js"></script>
+<script src="../game/runtime/wrap.js"></script>
+<script src="../game/runtime/audio.js"></script>
+<script src="../game/runtime/fx.js"></script>
+<script src="../game/runtime/juice.js"></script>
+<script src="../game/runtime/ambient.js"></script>
+<script src="../game/runtime/travel.js"></script>
+<script src="../game/runtime/event.js"></script>
+<script src="../game/runtime/terrain.js"></script>
+<script src="../game/main.js"></script>
 
 <!-- ── ALWAYS-VISIBLE agent UI ── -->
 <div id="agent-ui">

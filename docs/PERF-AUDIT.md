@@ -1,7 +1,7 @@
 # Par Sec — Performance Audit (load-time + frame-rate)
 
-**Scope:** read-only audit of the live build at `run.html`. Measured on the dev server
-(`http://172.19.97.28:8236/run.html`) with an isolated headless Chromium (gstack/browse).
+**Scope:** read-only audit of the live build at `devbuild.html`. Measured on the dev server
+(`http://172.19.97.28:8236/devbuild.html`) with an isolated headless Chromium (gstack/browse).
 No source was edited. Date: 2026-06-22.
 
 > **Headline:** Par Sec is already **render-cheap** — the live build ships the *flat-vector*
@@ -64,7 +64,7 @@ Ordered by impact ÷ effort. Effort S/M/L. "Impact" tagged LOAD or FPS/STALL.
 | 5 | **`Cache-Control: no-store`** on everything | Production host must send real cache headers (long-cache hashed assets). Dev `no-store` is correct and should stay in dev only. | **LOAD: repeat visits ~instant** | **S** | None (deploy-config only) |
 | 6 | **No DPR cap / no resize debounce** (`art.js:2`). On a 4K/Retina display the backing canvas is `vw·dpr × vh·dpr` (4–9× pixels); `resize` re-runs uncapped on every event. | Cap `dpr` at ~2; debounce `resizeDisplay`. Fill-rate is cheap today so impact is modest, but it protects high-DPI laptops/4K. | **FPS on hi-DPI: prevents fill-rate cliff** | **S** | Low |
 | 7 | **`perf-hud.js` runs a `requestAnimationFrame` tick every frame in the public build** (its `tick()` always reschedules; measurement work is gated by `on`, but the rAF + `performance.now()` still fire). Several other dev overlays (`cam-debug`, `feel`, `seqtest`) also ship and self-gate. | In the production bundle, drop the dev-only files (perf-hud, cam-debug, editor, editor-trace, feel, playtest-bot, seqtest, testjump, showcase, lab, all `atlas-*` not in the default tour). Tie to #4. | **LOAD: ~−400 KB JS; FPS: a few idle rAF callbacks removed** | **S–M** | Low — already URL-gated, just exclude from ship build |
-| 8 | **Strata/crust/dune textured path** allocates a `createLinearGradient` per terrain segment + 2 full-canvas `soft-light` passes **every frame** (`desert-golfing.js:464`). | Already inert (run.js pins `TERRAIN_TEXTURE_ON=false`). **No action for the current look.** If the textured look is ever re-enabled, cache it to an offscreen canvas keyed by (course, camera-x bucket) and only redraw on terrain/camera change. | FPS (only if re-enabled) | M | n/a today |
+| 8 | ~~**Strata/crust/dune textured path** — per-segment `createLinearGradient` + 2 full-canvas `soft-light` passes every frame.~~ **RESOLVED 2026-06-30: the entire `drawTexturedTerrain`/`TERRAIN_TEXTURE_ON` feature was deleted** (dormant in the shipped game). The flat faceted renderer is the only terrain path now. | — | — | done |
 
 ---
 

@@ -1,11 +1,11 @@
 # experiments/ — reference only, NOT the game
 
 Standalone prototypes and design tools kept **purely for reference / future exploration**.
-**None of these are part of the shipped game** (that's `run.html` / `dist/`). They're not in the
+**None of these are part of the shipped game** (that's `devbuild.html` / `dist/`). They're not in the
 public build and nothing in the game loads them. Open them directly via the dev server, e.g.
 `http://localhost:8231/experiments/striking.html`.
 
-If you're looking for the actual game, it's `run.html`. If something in here proves worth shipping,
+If you're looking for the actual game, it's `devbuild.html`. If something in here proves worth shipping,
 promote it into `src/` deliberately — don't wire the game to anything in this folder.
 
 ## Contents
