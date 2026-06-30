@@ -150,33 +150,10 @@ function drawObjects() {
     }
     ctx.closePath();
 
-    if (ov.sprite && SPRITES[ov.sprite]) {
-      // Sprite object: draw image within bounding box
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const v of ov.verts) {
-        if (v.x < minX) minX = v.x;
-        if (v.x > maxX) maxX = v.x;
-        if (v.y < minY) minY = v.y;
-        if (v.y > maxY) maxY = v.y;
-      }
-      ctx.save();
-      if (ov.rotation) {
-        const cx = (minX + maxX) / 2;
-        const cy = (minY + maxY) / 2;
-        ctx.translate(cx, cy);
-        ctx.rotate(ov.rotation);
-        ctx.drawImage(SPRITES[ov.sprite],
-          -(maxX - minX) / 2, -(maxY - minY) / 2,
-          maxX - minX, maxY - minY);
-      } else {
-        ctx.drawImage(SPRITES[ov.sprite], minX, minY, maxX - minX, maxY - minY);
-      }
-      ctx.restore();
-    } else {
-      // Non-sprite: fill with the object's own material colour (e.g. green cactus), else terrain colour
-      ctx.fillStyle = (ov.mat && typeof MATERIALS !== 'undefined' && MATERIALS[ov.mat] && MATERIALS[ov.mat].color) || GROUND;
-      ctx.fill();
-    }
+    // (Sprite objects removed 2026-06-30 — the desert-golfing sprite PNGs were unused.) Objects fill
+    // as a polygon with their material colour, else terrain colour.
+    ctx.fillStyle = (ov.mat && typeof MATERIALS !== 'undefined' && MATERIALS[ov.mat] && MATERIALS[ov.mat].color) || GROUND;
+    ctx.fill();
   }
 }
 

@@ -38,28 +38,9 @@ const ctx = canvas.getContext('2d');
 
 let displayScale = 1;
 
-// ── Sprite Assets ─────────────────────────────────────────
-// SPRITE_CATALOG defines all placeable assets: { label, category, defaultHeight, src }
-// SPRITES holds loaded Image objects keyed by sprite name
-const SPRITE_CATALOG = {
-  lander:                  { label: 'Lunar Lander',           category: 'vehicles', defaultHeight: 95,  src: 'assets/lunar_lander.png' },
-  cactus_1:                { label: 'Cactus 1',               category: 'plants',   defaultHeight: 60,  src: 'assets/plants/cactus_1.png' },
-  cactus_2:                { label: 'Cactus 2',               category: 'plants',   defaultHeight: 60,  src: 'assets/plants/cactus_2.png' },
-  agave:                   { label: 'Agave',                  category: 'plants',   defaultHeight: 40,  src: 'assets/plants/agave_small.png' },
-  barrel_cactus:           { label: 'Barrel Cactus',          category: 'plants',   defaultHeight: 45,  src: 'assets/plants/barrel_cactus_flowering.png' },
-  prickly_pear:            { label: 'Prickly Pear',           category: 'plants',   defaultHeight: 50,  src: 'assets/plants/prickly_pear_cactus.png' },
-  desert_scrub:            { label: 'Desert Scrub',           category: 'plants',   defaultHeight: 35,  src: 'assets/plants/desert_scrub_brush.png' },
-  alien_eye_plant:         { label: 'Alien Eye Plant',        category: 'plants',   defaultHeight: 50,  src: 'assets/plants/alien_eye_plant_small.png' },
-  purple_alien_eye_plant:  { label: 'Purple Alien Eye Plant', category: 'plants',   defaultHeight: 50,  src: 'assets/plants/purple_alien_eye_plant.png' },
-};
-
-const SPRITES = {};
-// Preload all sprite images
-for (const [key, info] of Object.entries(SPRITE_CATALOG)) {
-  const img = new Image();
-  img.src = info.src;
-  img.onload = () => { SPRITES[key] = img; };
-}
+// (Removed 2026-06-30: SPRITE_CATALOG + SPRITES preloader — the desert-golfing decorative sprites
+//  (lunar_lander.png + plants/, ~2.6 MB) were never placed in the space game and were dropped by the
+//  build anyway. Objects now always render as flat polygons (art.js drawObjects).)
 
 // ── Materials ─────────────────────────────────────────────
 const DEFAULT_MAT = 'sand';
