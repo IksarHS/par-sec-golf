@@ -80,9 +80,8 @@
         RG.finalStrokes = totalStrokes;
         RG.finalHoles = currentHole;
         if (!RG.failed) {
-          // Best-score tracking (the adventure's "beat your record"). A run that used a drop
-          // isn't best-eligible (the mulligan is a safety net).
-          if (RG.dropsUsed === 0) RG.isNewBest = RG.saveBest(totalStrokes);
+          // Best-score tracking (the adventure's "beat your record").
+          RG.isNewBest = RG.saveBest(totalStrokes);
         }
         // Record each hole's best tier (economy.js) — feeds the scorecard/collection art (no money).
         if (window.RG_ECON) RG_ECON.settleRun();
@@ -99,7 +98,7 @@
           if (window.RG_PROFILE && RG_PROFILE.syncUp) RG_PROFILE.syncUp();
         }
       }
-      if (window.RG) { RG._lastSafe = null; RG._dropTo = null; } // fresh hole -> water reshoots from this tee; no stale prior-hole shot to drop-replay
+      if (window.RG) { RG._lastSafe = null; } // fresh hole -> water reshoots from this tee
       // The rare in-course EVENT NODE: arriving at a new tee MAY land on a small event
       // (seed-stable, ~rare). Off by default (variant 0) so nothing changes unless enabled.
       // The ball already rests on the real tee; the event is a small DIEGETIC object the world
@@ -148,9 +147,7 @@
         ball.x = safeX; ball.y = terrainYAt(safeX) - BALL_RADIUS; ball.vx = 0; ball.vy = 0;
         ball.onGround = true; ball.atRest = true;
       } else if (mat !== 'water') {
-        // remember where this shot was taken FROM (the previous safe rest) so a drop
-        // can replay it; then record the new rest.
-        RG._dropTo = (RG._lastSafe != null) ? RG._lastSafe : { x: holes[currentHole].teeX };
+        // record the new safe rest (water hazard reshoots from here).
         RG._lastSafe = { x: ball.x };
       }
     },

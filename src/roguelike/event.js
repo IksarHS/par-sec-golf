@@ -77,7 +77,7 @@
 
   // ── Grants (access / knowledge / place only — never shot power) ────────────
   function grantCredit(amount) {
-    if (window.RG_ECON && RG_ECON.add) RG_ECON.add(amount);   // a small shop credit — buys ACCESS sooner, not a better putt
+    // (Money removed 2026-06-29 — the cache event no longer grants a credit; it's cosmetic now.)
   }
   // A scouted FACT about THIS run, read at arm-time (the run layout is known here). Pure
   // knowledge — it changes nothing about the ball, only what you KNOW walking in. It is

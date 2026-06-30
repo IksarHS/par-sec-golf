@@ -18,13 +18,8 @@
   function slotKey(course, i) { return 'rg-tier-' + course + '-' + i; }
 
   window.RG_ECON = {
-    money() { return num('rg-money'); },
-    add(n) { put('rg-money', this.money() + n); },
-    spend(n) {
-      if (this.money() < n) return false;
-      put('rg-money', this.money() - n);
-      return true;
-    },
+    // (Removed 2026-06-29: money()/add()/spend() — PC adventure has no money. The per-slot TIER store
+    //  below stays: it's the "collection" the scorecard/constellation/journey art reads.)
     tier(course, i) { return num(slotKey(course, i)); },
 
     _lastTally: null,   // { rows: [{hole, pay, tier, improved}], total, wallet } for the recap

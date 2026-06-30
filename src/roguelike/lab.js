@@ -140,32 +140,13 @@
       if (typeof camera !== 'undefined') { camera.x = h.teeX - 30; camera.y = 0; }
       return '☁ island · platform · crystal · mesa · blob (left→right) — the floating-object shapes.';
     } },
-    { label: '$ Give $50', cls: 'econ', run: function () {
-      if (!window.RG_ECON) return 'no economy';
-      RG_ECON.add(50);
-      return '$ Added <b>$50</b> · wallet now <b>$' + RG_ECON.money() + '</b>.';
-    } },
-    { label: '✦ Complete the ship', cls: 'econ', run: function () {
-      var parts = (window.RG_SHIP && RG_SHIP.parts) || 3;
-      for (var i = 1; i <= parts; i++) { try { localStorage.setItem('rg-ship-part-' + i, '1'); } catch (e) {} }
-      var done = !window.RG_SHIP || RG_SHIP.complete();
-      return '✦ Ship <b>' + (done ? 'whole' : 'parts set') + '</b> — rest beside the wreck (or the Launch button) to fly.';
-    } },
-    { label: '◇ Strip ship parts', cls: 'econ', run: function () {
-      var parts = (window.RG_SHIP && RG_SHIP.parts) || 3;
-      for (var i = 1; i <= parts; i++) { try { localStorage.removeItem('rg-ship-part-' + i); } catch (e) {} }
-      return '◇ Ship parts <b>cleared</b>.';
-    } },
-    { label: '▲ Launch to the Moon', cls: 'warp', run: function () {
-      // Launching is no longer a default-game button (designer call: it was a debug affordance).
-      // This cheat is the test path: repair the ship, make sure we're on Earth, then fire the
-      // crane to the Moon via the existing RG.launchToMoon — same control ?goto=launch uses.
-      if (!(window.RG && RG.launchToMoon)) return 'no launch control';
-      var parts = (window.RG_SHIP && RG_SHIP.parts) || 3;
-      for (var i = 1; i <= parts; i++) { try { localStorage.setItem('rg-ship-part-' + i, '1'); } catch (e) {} }
+    // (Removed 2026-06-29: the $ Give $50 + ✦ Complete/◇ Strip ship cheats — money + ship are gone.)
+    { label: '▲ Travel to the Moon', cls: 'warp', run: function () {
+      // Jump straight to the Moon via the travel spine (RG.launchToMoon = _beginTravel('moon')).
+      if (!(window.RG && RG.launchToMoon)) return 'no travel control';
       if (RG.course !== 'earth-course') RG.startRun({ course: 'earth-course', seed: RG.rollSeed() });
-      setTimeout(function () { if (RG.launchToMoon) RG.launchToMoon(); }, 60);   // let the ship/run state settle a frame, then fire the crane
-      return '▲ <b>Launching to the Moon…</b>';
+      setTimeout(function () { if (RG.launchToMoon) RG.launchToMoon(); }, 60);   // let run state settle a frame, then travel
+      return '▲ <b>Traveling to the Moon…</b>';
     } },
     { label: '▸ Toggle autoplay (bot)', cls: 'bot', run: function () {
       if (!(window.RG && RG.bot)) return 'no bot';

@@ -355,11 +355,7 @@
     _condBanner: null,
     _paintedBand: null,   // refined "place" conditions: vertices repainted this hole, restored on hole change
 
-    // Drops: a small carried resource — replay your last shot (no stroke). Using any
-    // forfeits this run's best + Vault eligibility, so it's a "survive vs stay clean" call.
-    drops: 0,
-    dropsUsed: 0,
-    _dropTo: null,
+    // (Removed 2026-06-29: drops — the roguelike carried-mulligan resource. PC adventure has no drops.)
 
     _pars: {},           // par cache by hole index
     _lastSafe: null,     // last non-hazard rest position (water reshoots from here)
@@ -513,7 +509,6 @@
           faultHole: anomalyX >= 0 ? holeAt(anomalyX) : -1,
           pars: this.holePars.slice(0, this.holeCount),
           runPar: this.runPar,
-          budget: this.budget,
           terrainHash: fnv(tv) + '-' + fnv(th),
         });
       }
@@ -638,26 +633,7 @@
     // Called by the MODE wrap when a hole completes.
     recordHole(i, strokesTaken) { this.holeScores[i] = strokesTaken; },
 
-    // Spend a drop: replay your last shot from where you took it (no stroke). Only
-    // between shots and only if a previous rest is known. Using any drop forfeits this
-    // run's best + Vault eligibility (enforced in the wrap's onTransitionEnd).
-    useDrop() {
-      if (!this.active || this.inVault || this.drops <= 0) return false;
-      if (typeof state === 'undefined' || state !== STATE_AIM) return false;
-      // Need a real shot to replay: 0 strokes means a fresh tee, where dropping would teleport to
-      // the prior hole's spot AND silently forfeit best/Vault (dropsUsed++) for no shot taken.
-      if (typeof strokes === 'undefined' || strokes <= 0) return false;
-      if (!this._dropTo || typeof terrainYAt !== 'function') return false;
-      const x = this._dropTo.x;
-      ball.x = x; ball.y = terrainYAt(x) - BALL_RADIUS;
-      ball.vx = 0; ball.vy = 0; ball.onGround = true; ball.atRest = true;
-      if (typeof strokes !== 'undefined' && strokes > 0) strokes--; // refund the shot just taken
-      this.drops--; this.dropsUsed++;
-      this._lastSafe = { x: x };
-      this._dropTo = null; // can't undo the same shot twice
-      this._syncHUD();
-      return true;
-    },
+    // (Removed 2026-06-29: useDrop — the mulligan/drop replay. PC adventure has no drops.)
 
     // ── Pristine reset (for stacked modifiers) ────────────
     _restoreAll() {
@@ -839,9 +815,6 @@
       RG.holeScores = [];
       RG._pars = {};
       RG._lastSafe = null;
-      RG.drops = 2;
-      RG.dropsUsed = 0;
-      RG._dropTo = null;
       RG._paintedBand = null;   // vertices are regenerated below; drop stale band indices
 
       // The planet's own physics first (course phys scales the pristine baseline), then
@@ -2005,14 +1978,7 @@
   // Dormant unless the page is loaded with ?dev, so it can't spoil a public playtest.
   // (Removed 2026-06-29: RG.dbg — the ?dev Fault-seed scanner/peek tooling, now that the Fault is gone.)
 
-  // 'z' / 'x' spends a drop (replay your last shot). Ignored while typing in an input.
-  window.addEventListener('keydown', function (e) {
-    const t = e.target && e.target.tagName;
-    if (t === 'INPUT' || t === 'TEXTAREA') return;
-    if (e.key === 'z' || e.key === 'Z' || e.key === 'x' || e.key === 'X') {
-      if (RG.useDrop()) e.preventDefault();
-    }
-  });
+  // (Removed 2026-06-29: the z/x drop/mulligan key handler.)
 
   // Capture-phase click router: a secret (pull-the-flag, poke-the-sun, …) gets first
   // refusal on the press BEFORE gameplay.js's bubble-phase mousedown starts an aim drag.
