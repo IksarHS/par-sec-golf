@@ -34,6 +34,22 @@
     gravity: (typeof GRAVITY !== 'undefined') ? GRAVITY : 0.04,
     materials: (typeof MATERIALS !== 'undefined') ? JSON.parse(JSON.stringify(MATERIALS)) : {},
   };
+  // Physics profiles for the in-game SHIP-vs-REALISTIC A/B toggle (RG.setPhysicsProfile, driven by
+  // src/roguelike/physics-toggle.js). Values mirror the physics lab's presets (src/physlab.js).
+  // REALISTIC overrides the PRISTINE baseline + launch/slope globals so it holds across travel + holes.
+  let _physShip = null;          // the shipped baseline, captured on first toggle
+  let _physProfile = 'ship';
+  const _PHYS_REALISTIC = {
+    gravity: 0.07, surfaceFriction: 0.010, bounceThreshold: 1.0, powerScale: 0.05, maxPower: 11,
+    mats: {
+      sand:  { restitution: 0.35, rollingFriction: 0.990, surfaceFriction: 0.014 },
+      grass: { restitution: 0.30, rollingFriction: 0.990, surfaceFriction: 0.012 },
+      ice:   { restitution: 0.50, rollingFriction: 0.997, surfaceFriction: 0.004 },
+      rock:  { restitution: 0.60, rollingFriction: 0.990, surfaceFriction: 0.010 },
+      mud:   { restitution: 0.12, rollingFriction: 0.960, surfaceFriction: 0.025 },
+      water: { restitution: 0.10, rollingFriction: 0.880, surfaceFriction: 0.030 },
+    },
+  };
   let _courseTemplates = {};  // pristine copies of surface courses, by courseId
   let _courseFnsById = {};    // function-valued course fields (JSON clone drops these), by courseId
   let _vaultTemplate = null;  // pristine copy of the vault course
@@ -659,6 +675,45 @@
         }
       }
       this._physBase = { gravity: (typeof GRAVITY !== 'undefined') ? GRAVITY : PRISTINE.gravity, wind: this.wind, mats: mats };
+    },
+
+    // Current physics profile id ('ship' | 'realistic').
+    physicsProfile() { return _physProfile; },
+    // Swap the whole-game physics profile (SHIP = shipped feel · REALISTIC = the lab's realistic preset).
+    // Mutates the PRISTINE baseline + the launch/slope globals so the profile holds across travel + hole
+    // transitions, then re-applies to the LIVE run so it's felt on the next shot. _physShip captures the
+    // shipped values once so 'ship' restores exactly.
+    setPhysicsProfile(name) {
+      if (!_physShip) {
+        _physShip = {
+          gravity: PRISTINE.gravity,
+          mats: JSON.parse(JSON.stringify(PRISTINE.materials)),
+          surfaceFriction: (typeof SURFACE_FRICTION !== 'undefined') ? SURFACE_FRICTION : 0.004,
+          powerScale: (typeof POWER_SCALE !== 'undefined') ? POWER_SCALE : 0.04,
+          maxPower: (typeof MAX_POWER !== 'undefined') ? MAX_POWER : 8,
+          bounceThreshold: (typeof BOUNCE_THRESHOLD !== 'undefined') ? BOUNCE_THRESHOLD : 1.0,
+        };
+      }
+      const P = (name === 'realistic') ? _PHYS_REALISTIC : _physShip;
+      PRISTINE.gravity = P.gravity;
+      for (const k in P.mats) { if (PRISTINE.materials[k]) Object.assign(PRISTINE.materials[k], P.mats[k]); }
+      if (typeof SURFACE_FRICTION !== 'undefined') SURFACE_FRICTION = P.surfaceFriction;
+      if (typeof POWER_SCALE !== 'undefined') POWER_SCALE = P.powerScale;
+      if (typeof MAX_POWER !== 'undefined') MAX_POWER = P.maxPower;
+      if (typeof BOUNCE_THRESHOLD !== 'undefined') BOUNCE_THRESHOLD = P.bounceThreshold;
+      _physProfile = (name === 'realistic') ? 'realistic' : 'ship';
+      // Re-apply to the live run: baseline → planet gravity scale → modifiers → snapshot → current hole.
+      if (this.active) {
+        this._restoreAll();
+        if (this._coursePhys && this._coursePhys.gravityScale != null && typeof GRAVITY !== 'undefined') {
+          GRAVITY = PRISTINE.gravity * this._coursePhys.gravityScale;
+        }
+        for (const m of (this.modifiers || [])) { if (m.apply) m.apply(); }
+        this._snapPhysBase();
+        if (typeof currentHole !== 'undefined' && this._applyHoleCondition) this._applyHoleCondition(currentHole);
+        if (this._syncHUD) this._syncHUD();
+      }
+      return _physProfile;
     },
 
     // Resolve active modifier keys to their descriptors (shared by startRun + the Vault).

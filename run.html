@@ -134,6 +134,9 @@
 <script src="src/roguelike/lab.js"></script>
 <script src="src/roguelike/feel.js"></script>
 <script src="src/roguelike/playtest-bot.js"></script>
+<!-- Physics A/B toggle (playtest): F toggles SHIP vs REALISTIC physics; ?physics=realistic boots realistic.
+     Calls RG.setPhysicsProfile (run.js). Peel this file + this tag → gone. -->
+<script src="src/roguelike/physics-toggle.js"></script>
 <!-- UNIFIED DEBUG MENU (dev-only, EXCLUDED from the public build by build.cjs's allow-list). Must load
      BEFORE the overlay modules so window.DBG exists when they register. Backtick ` opens/closes it. -->
 <script src="src/debug-menu.js"></script>
