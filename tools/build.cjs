@@ -115,34 +115,16 @@ fs.mkdirSync(path.join(DIST, 'src'), { recursive: true });
 // ── 2. Concatenate runtime scripts in exact order ──
 let combined = '';
 let rawBytes = 0;
-let patchedPreload = false;
 for (const f of SCRIPTS) {
   const p = path.join(ROOT, f);
   if (!fs.existsSync(p)) throw new Error('missing script: ' + f);
   let code = fs.readFileSync(p, 'utf8');
-
-  // ── PATCH: neutralize shared.js's eager sprite preload ──────────────────────────────────────────
-  // shared.js preloads all 9 sprite PNGs at boot via `new Image()`. We DROP those PNGs (the flat-vector
-  // tour places no sprite objects), so those requests would 404 → console errors → ship-gate failure.
-  // SPRITES stays an empty {} (its real runtime state anyway). Surgical, exact-match replacement of the
-  // preload loop only; if the source ever changes shape, the build FAILS LOUDLY (assert below) rather
-  // than silently shipping the 404s. This is the one source-behaviour change in the build, and it is a
-  // pure no-op for the shipped tour (no sprite is ever placed → SPRITES is never read with a hit).
-  if (f === 'src/shared.js') {
-    const preloadRe = /const SPRITES = \{\};\s*\n\/\/ Preload all sprite images\s*\nfor \(const \[key, info\] of Object\.entries\(SPRITE_CATALOG\)\) \{\s*\n\s*const img = new Image\(\);\s*\n\s*img\.src = info\.src;\s*\n\s*img\.onload = \(\) => \{ SPRITES\[key\] = img; \};\s*\n\}/;
-    if (!preloadRe.test(code)) {
-      throw new Error('PATCH FAILED: shared.js sprite-preload block not found — re-check the regex against src/shared.js before shipping (would otherwise 404 on the dropped PNGs).');
-    }
-    code = code.replace(preloadRe,
-      'const SPRITES = {};\n/* [BUILD] sprite preload removed — PNGs dropped from the production build; the flat-vector tour places no sprite objects, so SPRITES stays {} (its real runtime state). */');
-    patchedPreload = true;
-  }
-
+  // (Removed 2026-06-30: the shared.js sprite-preload neutralizer — the SPRITE_CATALOG/preload block was
+  //  deleted from source along with the unused sprite PNGs, so there's nothing to patch.)
   rawBytes += Buffer.byteLength(code);
   // Separator comment + a newline guard (some files may not end in a newline / may end in a line comment).
   combined += `\n/* ===== ${f} ===== */\n` + code + '\n';
 }
-if (!patchedPreload) throw new Error('PATCH FAILED: src/shared.js was not in the bundle — the sprite-preload patch never ran.');
 const concatPath = path.join(DIST, 'parsec.concat.js');
 fs.writeFileSync(concatPath, combined);
 log('concatenated', SCRIPTS.length, 'scripts →', (rawBytes / 1024).toFixed(0), 'KB raw');
@@ -179,9 +161,8 @@ log(minified ? 'minified →' : 'concat (unminified) →', (minBytes / 1024).toF
 for (const fn of ['DepartureMono-Regular.woff2', 'DepartureMono-Regular.woff', 'DepartureMono-LICENSE']) {
   fs.copyFileSync(path.join(ROOT, 'assets', 'fonts', fn), path.join(DIST, 'assets', 'fonts', fn));
 }
-// Sprite PNGs (lunar_lander + plants, 2.6 MB) — DROPPED. The flat-vector tour places no sprite objects
-// (verified: no `sprite:` keys in level-design; `drawLander` is a vector, not the PNG).
-log('copied fonts; dropped 2.6 MB of unused sprite PNGs');
+// (Sprite PNGs were deleted from the repo entirely 2026-06-30 — the flat-vector game places no sprites.)
+log('copied fonts');
 
 // starmap.html overlay (opened by starmap-ingame.js) loads starmap.js + starmap-data.js + planet-gen.js.
 // Copy the star-map page and its scripts so the in-game ✦ MAP works in dist.
