@@ -118,26 +118,5 @@ WORLDS['run-world'].courses['moon3'] = Object.assign({}, WORLDS['run-world'].cou
   phys: { gravityScale: 0.64, windScale: 0 },
 });
 
-// ── The Vault (secret) ─────────────────────────────────────
-// A single brutal, guarded bonus hole — DISCOVERED by finishing a run at or under
-// par, never announced. One more, if you dare. (Seed derived from the run seed.)
-WORLDS['run-world'].courses['vault'] = {
-  name: 'The Vault',
-  materials: ['rock', 'rock', 'ice', 'water', 'sand'],
-  archetypes: ['canyon_cup', 'fortress', 'narrow_gap', 'cliff_shelf', 'deep_pocket', 'twin_peaks'],
-  difficultyRange: [0.9, 0.98],
-  holeCount: 1,
-};
-
-// ── The Undercroft (deeper secret) ─────────────────────────
-// A hidden hole you DROP INTO mid-run by coming to rest on a Fault anomaly tile (see
-// src/roguelike/run.js: _legibleHazards places the tile, descend() diverts here). Never
-// announced anywhere — discovered only by noticing the off-palette tile and playing to it.
-WORLDS['run-world'].courses['undercroft'] = {
-  name: 'The Hollow',
-  materials: ['rock', 'rock', 'ice', 'sand'],
-  archetypes: ['deep_pocket', 'canyon_cup', 'narrow_gap', 'cliff_shelf', 'twin_peaks'],
-  difficultyRange: [0.55, 0.78],
-  holeCount: 1,
-};
+// (Removed 2026-06-29: the secret 'vault' + 'undercroft' courses — the secrets subsystem is gone.)
 

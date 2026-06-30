@@ -25,13 +25,7 @@
     for (const k in PAL) if (MATERIALS[k]) MATERIALS[k].color = PAL[k];
   }
 
-  // The Fault's tell: an off-palette violet material that behaves lawfully (sand-like),
-  // so it reads as "a rule is broken here" without ever being an unfair trap. Added
-  // before the PRISTINE snapshot below so modifiers restore it cleanly.
-  if (typeof MATERIALS !== 'undefined' && !MATERIALS.anomaly) {
-    MATERIALS.anomaly = { restitution: 0.47, rollingFriction: 0.98, surfaceFriction: 0.004, color: '#b24dff', colorLight: '#c98bff' };
-  }
-
+  // (Removed 2026-06-29: MATERIALS.anomaly — the Fault's violet trigger tile; the secrets subsystem is gone.)
   // (Removed 2026-06-29: BUDGET_OVER / the par-buffer stroke budget — PC adventure has no fail state.)
 
   // Pristine snapshots so opt-in modifiers fully restore (the controller resets to
@@ -349,24 +343,11 @@
     // + rare shooting star. ?twinkle=1 / ?twinkle=2 pick a level; bare ?twinkle = 1 (the calm pick).
     _twinkle: (function () { if (typeof location === 'undefined') return 0; var m = /[?&]twinkle(?:=(\d))?/.exec(location.search); return m ? (m[1] ? parseInt(m[1], 10) : 1) : 0; })(),
     _shoot: null,        // active shooting-star state (twinkle style 2)
-    _firstKnowFlare: 0,  // frames left on the one-shot first-discovery rune bloom (the iceberg surfacing)
-    failed: false,       // true if the run ended by busting the budget
+    failed: false,       // legacy flag, always false now (no fail state). KEEP: wrap.js still reads it.
     finalStrokes: 0,
     finalHoles: 0,
 
-    // The Vault (secret)
-    inVault: false,
-    vaultUnlocked: false,
-    vaultCleared: false,
-
-    // The Fault (deeper secret): a hidden course you DROP INTO mid-run by coming to
-    // rest on an anomaly tile. descending = the brief drop-through-the-floor animation.
-    inFault: false,
-    faultCleared: false,
-    descending: false,
-
-    // The Fault tile position (used by beginDescent to align the crane column).
-    _faultTile: null,     // { hole, x } or null — set by _legibleHazards each run
+    descending: false,   // the brief drop/crane animation — shared by travel + the ?seq crane
 
     // Emergent per-hole conditions (wind / thin air / ice / …): seeded, never chosen,
     // most holes plain. holeConds[i] = null or { key, ...params }.
@@ -396,7 +377,7 @@
       h ^= h >>> 16;
       return h >>> 0;
     },
-    _surfaceRunOnly() { return !this.inVault && !this.inFault; }, // no secret spawns inside a secret area
+    _surfaceRunOnly() { return true; },   // (secret areas removed; every run is a surface run now)
 
     // ── Emergent per-hole conditions ──────────────────────
     // Most holes are plain golf; a few are "special" (wind, ice, rising air, …) — seeded
@@ -411,7 +392,6 @@
     },
     _rollConditions() {
       this.holeConds = [];
-      if (this.inVault || this.inFault) return;
       const CHANCE = 30; // % of eligible holes that get a condition
       // Airless worlds (phys.windScale === 0) never roll wind — vacuum is lawful.
       // (Thermal is convection in an atmosphere — vacuum kills it too.)
@@ -611,46 +591,7 @@
         ponds++;
       }
 
-      // ── The Fault (secret) ──────────────────────────────
-      // A rare, deterministic anomaly tile. Come to REST on it and the floor gives way
-      // (wrap.onRest -> RG.beginDescent). Placed by geometry + a seed hash only (never
-      // the terrain PRNG), so the seed reproduces it. Surface run only — never inside
-      // the Vault or the undercroft. Flattened into a small, landable violet shelf.
-      this._faultTile = null;
-      let faultHole = -1;
-      if (!window.RG_MINIMAL && !RG.inVault && !RG.inFault && this.holeCount > 2) {
-        const fh = this._faultHash(this.seed);
-        if ((fh % 100) < 20) {                                   // ~1 in 5 runs hide a Fault (rare)
-          const fhi = 2 + (fh % (this.holeCount - 2));           // never on the tutorial holes
-          faultHole = fhi;
-          const fHole = holes[fhi];
-          if (fHole) {
-            const flo = Math.min(fHole.teeX, fHole.cupX) + 130;
-            const fhiX = Math.max(fHole.teeX, fHole.cupX) - 130;
-            if (fhiX - flo > 70) {
-              const fmid = (flo + fhiX) / 2;
-              let fbest = -1, fscore = 1e9;
-              for (let k = 1; k < vertices.length - 1; k++) {
-                const v = vertices[k];
-                if (v.x < flo || v.x > fhiX || v.mat === 'water') continue;
-                const slope = Math.abs(vertices[k + 1].y - vertices[k - 1].y);
-                const sc = Math.abs(v.x - fmid) + slope * 6;
-                if (sc < fscore) { fscore = sc; fbest = k; }
-              }
-              if (fbest >= 1 && fbest < vertices.length - 1) {
-                // a consistent 3-vertex flat violet shelf (visible + landable regardless
-                // of local vertex spacing), leveled to the centre so the ball can rest
-                const fy = vertices[fbest].y;
-                for (let k = fbest - 1; k <= fbest + 1; k++) { vertices[k].mat = 'anomaly'; vertices[k].y = fy; }
-                this._faultTile = { hole: fhi, x: vertices[fbest].x };
-              }
-            }
-          }
-        }
-      }
-
-      // standalone secrets (the registry) place themselves last — surface run only
-      if (this._surfaceRunOnly() && window.RG_runSecretHook) RG_runSecretHook('place', this.seed);
+      // (Removed 2026-06-29: the Fault placement + standalone-secret place hook — secrets subsystem gone.)
 
       // emergent per-hole conditions (wind / thin air / …) decided last
       this._rollConditions();
@@ -889,19 +830,11 @@
       RG.finalHoles = 0;
       RG.failed = false;
       RG.isNewBest = false;
-      RG.inVault = false;
-      RG.vaultUnlocked = false;
-      RG.vaultCleared = false;
-      RG.inFault = false;
-      RG.faultCleared = false;
       RG.descending = false;
       RG._descPhase = 'none';
       RG._zoom = 1;
-      RG._secretArea = null;
       if (typeof camera !== 'undefined') camera.y = 0; // clear any leftover crane offset
-      RG._secretStrokes = null;
       RG._apronCamBase = null;
-      if (window.RG_runSecretHook) RG_runSecretHook('reset');
       RG.holePars = [];
       RG.holeScores = [];
       RG._pars = {};
@@ -981,53 +914,8 @@
     // further courses unlock through progression (persisted later) — the hook New Run reads.
     _unlockedCourses() { return ['run-course']; },
 
-    // Enter the secret Vault: one brutal bonus hole. Reuses the run machinery on a
-    // separate course; no budget (it's a bonus). Seed derived from the run seed.
-    enterVault() {
-      RG._restoreAll();
-      RG.modifiers = RG._resolveMods(RG.mods);
-      if (!_vaultTemplate) _vaultTemplate = JSON.parse(JSON.stringify(WORLDS['run-world'].courses['vault']));
-      var vc = JSON.parse(JSON.stringify(_vaultTemplate));
-      for (var i = 0; i < RG.modifiers.length; i++) if (RG.modifiers[i].course) RG.modifiers[i].course(vc);
-      WORLDS['run-world'].courses['vault'] = vc;
-      RG.inVault = true;
-      RG.vaultCleared = false;
-      RG.failed = false;
-      RG.isNewBest = false;
-      RG.holeCount = vc.holeCount || 1;
-      RG.budget = 0; // no budget in the vault
-      RG.holePars = []; RG.holeScores = []; RG._pars = {}; RG._lastSafe = null;
-      RG.drops = 0; RG.dropsUsed = 0; RG._dropTo = null; // no drops in the Vault
-      RG.finalStrokes = 0; RG.finalHoles = 0;
-      for (var j = 0; j < RG.modifiers.length; j++) if (RG.modifiers[j].apply) RG.modifiers[j].apply();
-      RG._snapPhysBase();
-      localStorage.setItem('dg-seed', String((RG.seed ^ 0x5eed) | 0));
-      RG._applyWorldSkin(vc);   // vault has no skin of its own -> the default (dark) world
-      startCourse('run-world', 'vault');
-      if (typeof ensureHolesAhead === 'function') ensureHolesAhead(RG.holeCount);
-      RG._legibleHazards();
-      RG._computeRunPar();
-      RG._buildHUD();
-      if (typeof revealGame === 'function') revealGame();
-      if (typeof ensureGameLoop === 'function') ensureGameLoop();
-      RG._syncHUD();
-    },
-
-    // ── Secret areas: a continuous vertical pan into a course above/below ──
-    // Triggered by wrap.onRest (rest on the violet anomaly -> the Fault, DOWN) or a secret (over-club
-    // out the top -> the Loft; the Leviathan -> the Ocean, UP). Reuses the hole-to-hole feel: one clean
-    // departure frame renders, THEN the destination is installed + sunk (deferred so the build hitch
-    // lands off the first motion frame) and the camera pans on Y over a TIME-based duration with the
-    // variant's easing. Both the surface band AND the sunk destination band are drawn during the pan
-    // (wrap.drawWorld -> _drawShaftBand); because drawTerrainDG closes every polygon
-    // at the same world-y (H+300), their sand fills MEET into one continuous column — you drill through
-    // solid earth into the room. No cover flash, no visible course-load.
-    beginDescent() {
-      // Ride from where the ball ACTUALLY rests (it can stop anywhere on the tile's width);
-      // riding the tile's centre instead would snap the ball sideways on the first frame.
-      this._beginCrane(CRANE_DEPTH, ((typeof ball !== 'undefined') ? ball.x : (this._faultTile ? this._faultTile.x : 0)),
-        function () { RG.descend(); });
-    },
+    // (Removed 2026-06-29: enterVault + beginDescent — the secret Vault/Fault entry points. The shared
+    //  crane (_beginCrane, below) stays; it's used by ?seq travel.)
     // Dev: switch the per-hole CONDITION pool. 'default' = the shipped table (safe; what
     // the determinism gate audits). 'places' / 'range' / 'gentle' = the critique-refined
     // pools. Re-rolls the current run's conditions so the change is visible immediately.
@@ -1420,51 +1308,8 @@
       const sp = window.RG_secret ? RG_secret('ship') : null;
       if (sp && sp.pos) sp.pos.y += dy;
     },
-    // Shared loader for both crane destinations (the Fault's undercroft below, the Sky's loft
-    // above): restore pristine, clone+modify the template course, swap it in, reset run state to a
-    // 1-hole bonus, fire the knowledge flag + once-per-seed Shard faucet, then sink/raise the whole
-    // built world by `depth` so the camera (already at `depth`) frames it with no reversal.
-    _craneLandCourse(courseId, tmplRef, depth, knowsFlag, faucetPrefix, dgSalt, label) {
-      RG._restoreAll();
-      RG.modifiers = RG._resolveMods(RG.mods);
-      if (!tmplRef.t) tmplRef.t = JSON.parse(JSON.stringify(WORLDS['run-world'].courses[courseId]));
-      var cc = JSON.parse(JSON.stringify(tmplRef.t));
-      for (var i = 0; i < RG.modifiers.length; i++) if (RG.modifiers[i].course) RG.modifiers[i].course(cc);
-      WORLDS['run-world'].courses[courseId] = cc;
-      RG._secretArea = label || null; // which secret area this is (the complete screen reads it)
-      RG.descending = false;
-      RG.inFault = true;             // reuse the "in a secret bonus area" state (scored like the Fault)
-      RG.faultCleared = false;
-      RG.inVault = false;
-      RG.failed = false;
-      RG.isNewBest = false;
-      RG.holeCount = cc.holeCount || 1;
-      RG.budget = 0;
-      RG.holePars = []; RG.holeScores = []; RG._pars = {}; RG._lastSafe = null;
-      RG.drops = 0; RG.dropsUsed = 0; RG._dropTo = null;
-      RG.finalStrokes = 0; RG.finalHoles = 0;
-      for (var j = 0; j < RG.modifiers.length; j++) if (RG.modifiers[j].apply) RG.modifiers[j].apply();
-      RG._snapPhysBase();
-      if (RG._markKnown) RG._markKnown(knowsFlag);                                // permanent KNOWLEDGE unlock (+ first-find bloom)
-      localStorage.setItem('dg-seed', String((RG.seed ^ dgSalt) | 0));
-      RG._applyWorldSkin(cc);
-      startCourse('run-world', courseId);
-      if (typeof ensureHolesAhead === 'function') ensureHolesAhead(RG.holeCount);
-      RG._legibleHazards();
-      RG._computeRunPar();
-      RG._buildHUD();
-      if (typeof revealGame === 'function') revealGame();
-      if (typeof ensureGameLoop === 'function') ensureGameLoop();
-      if (typeof state !== 'undefined') state = STATE_AIM;
-      RG._syncHUD();
-      // The room really lives at the crane's target offset (±depth from the DEPARTURE world,
-      // which itself may be displaced — e.g. a Fault entered from the Moon).
-      const targetY = (RG._craneTargetY != null) ? RG._craneTargetY : depth;
-      RG._sinkWorld(targetY);
-      if (typeof camera !== 'undefined') camera.y = targetY;
-    },
-    // Divert the run onto the hidden undercroft (DOWN).
-    descend() { RG._craneLandCourse('undercroft', _undercroftTmplRef, CRANE_DEPTH, 'rg-knows-fault', 'rg-fault-', 0xfa017, { title: '▾ THE FAULT', tag: 'the fault', sub: 'a course beneath the course' }); },
+    // (Removed 2026-06-29: _craneLandCourse + descend — they loaded the secret undercroft/Fault course.
+    //  The shared crane + _sinkWorld stay for ?seq travel.)
 
     // ── The space arc: planet-to-planet travel ─────────────
     // Launch is the crane pointed at the sky. Unlike the Fault (a one-hole bonus room),
@@ -1900,7 +1745,7 @@
     // are the same as before (round total + this-hole strokes), just relocated + font-matched.
     _drawScoreHUD(ctx) {
       if (this._scoreStyle === 'center') return;
-      if (!this.active || this.inFault || this.inVault || this.descending) return;
+      if (!this.active || this.descending) return;
       if (typeof state !== 'undefined' && typeof STATE_COMPLETE !== 'undefined' && state === STATE_COMPLETE) return;
       if (typeof showTitle !== 'undefined' && showTitle && (typeof currentHole !== 'undefined') && currentHole === 0) return;
       const idx = (typeof currentHole !== 'undefined') ? currentHole : 0;
@@ -1945,7 +1790,6 @@
     // OVER the ground because this used to run in _drawOverlays / drawHUD (after the world).
     _drawSkyStars(ctx) {
       if (this._descPhase && this._descPhase !== 'none') return;   // a crane descent owns the screen
-      if (this.inFault || this.inVault) return;                    // underground: no sky
       this._drawConstellations(ctx);
       if (this.course === 'moon') this._drawMoonSky(ctx);
       this._drawShootingStar(ctx);                                 // rare shooting star (twinkle level 2)
@@ -1958,32 +1802,17 @@
       if (this._descPhase && this._descPhase !== 'none') { this._tickCrane(ctx); return; }
       // NB: ambient sky treatments now draw BEHIND the world from wrap.js drawSky (so bands/body
       // never paint over the flag or an airborne ball). They are NOT drawn here anymore.
-      if (window.RG_ONBOARD) RG_ONBOARD.draw(ctx);                          // first-run nudges: sky / wake / reach / glint (peel-off-able; onboard.js; OFF by default)
       // (the distant sky — constellations / moon field / shooting star — now draws BEHIND the world via
       //  _drawSkyStars from wrap.js drawSky, so high terrain occludes it instead of stars over a mesa)
       const idx = (typeof currentHole !== 'undefined') ? currentHole : 0;
       const c = this.holeConds[idx];
       if (c) { const def = condDef(c.key); if (def && def.draw) def.draw(ctx, c); }
       if (this._condBanner) this._drawCondBanner(ctx);
-      this._secretFrame(ctx);
       this._drawCollectFlash(ctx);           // gold flag-plant when a hole is collected
       this._drawScoreHUD(ctx);               // on-course score readout (corner; replaces the centered counter)
       if (window.RG_ATLAS && RG_ATLAS.frameScreen) RG_ATLAS.frameScreen(ctx);   // atlas screen-space HUD (e.g. long-drive distance bar)
     },
-    // Per-frame standalone-secret dispatch. Runs every draw frame (all states), so it doubles
-    // as the secrets' update tick. Detects the shot edge (strokes ↑) to fire onShot, then
-    // update, then draw (screen space, painted last). Kept in one place so adding a secret is
-    // only ever "push one object to RG_SECRETS" — the controller never grows per secret.
-    _secretFrame(ctx) {
-      if (!(window.RG && window.RG_runSecretHook)) return;
-      if (!RG._surfaceRunOnly()) return;   // standalone secrets live on surface runs only
-      const sc = (typeof strokes !== 'undefined') ? strokes : 0;
-      if (RG._secretStrokes == null) RG._secretStrokes = sc;
-      if (sc > RG._secretStrokes) RG_runSecretHook('onShot');
-      RG._secretStrokes = sc;
-      RG_runSecretHook('update');
-      RG_runSecretHook('draw', ctx);
-    },
+    // (Removed 2026-06-29: _secretFrame — the per-frame standalone-secret dispatch.)
     // A veil with lit holes punched around the ball + cup (your torch — the free
     // counter-tool). Built on an offscreen layer so the world shows through; render-only,
     // so the sand is untouched. DARK = near-black + tight torch; FOG = pale haze + wide.
@@ -2014,51 +1843,7 @@
       ctx.drawImage(this._veilC, 0, 0);
     },
     _drawDark(ctx) { this._drawVeil(ctx, 'rgba(6,5,12,0.95)', 120, 84); },
-    // The Undercroft is a hollow carved INTO rock, not an island floating in sky: solid earth
-    // walls close off both ends of the room and a crusty ceiling band caps the top, so the
-    // camera can never expose a floating-slab read. Render-only, deterministic per seed,
-    // drawn after the live terrain (the surface band still covers it during the crane pan).
-    _drawCavern(ctx) {
-      if (!this.inFault || typeof camera === 'undefined' || !(camera.y > 0)) return;
-      if (typeof vertices === 'undefined' || !vertices.length) return;
-      const sand = (typeof MATERIALS !== 'undefined' && MATERIALS.sand && MATERIALS.sand.color) || '#c8884d';
-      const seed = this.seed | 0;
-      const self = this;
-      const jag = function (n, amp) { return ((self._faultHash(((n * 0x9e37) ^ seed) >>> 0) % 1000) / 1000 - 0.5) * amp; };
-      const x0 = camera.x - 60, x1 = camera.x + W + 60;
-      const top = camera.y - 40, bot = camera.y + H + 340;
-      const firstX = vertices[0].x, lastX = vertices[vertices.length - 1].x;
-      ctx.save();
-      ctx.fillStyle = sand;
-      // Side walls: fill from the screen edge to the room's carved span with a jagged face.
-      const wall = function (innerX, outerX, salt) {
-        ctx.beginPath();
-        ctx.moveTo(outerX, top);
-        const steps = 9;
-        for (let s = 0; s <= steps; s++) ctx.lineTo(innerX + jag(s * 7 + salt, 34), top + (bot - top) * (s / steps));
-        ctx.lineTo(outerX, bot);
-        ctx.closePath(); ctx.fill();
-      };
-      if (firstX > x0) wall(firstX, x0, 131);
-      if (lastX < x1) wall(lastX, x1, 577);
-      // Ceiling: a crust across the top of the hollow with an uneven underside.
-      const cy = camera.y + 46;
-      ctx.beginPath();
-      ctx.moveTo(x0, top);
-      const steps = 14;
-      for (let s = 0; s <= steps; s++) ctx.lineTo(x0 + (x1 - x0) * (s / steps), cy + jag(s * 13 + 977, 26));
-      ctx.lineTo(x1, top);
-      ctx.closePath(); ctx.fill();
-      // a darker seam along the crust's underside (strata depth cue)
-      ctx.globalAlpha = 0.28; ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let s = 0; s <= steps; s++) {
-        const px = x0 + (x1 - x0) * (s / steps), py = cy + jag(s * 13 + 977, 26) + 1;
-        if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      }
-      ctx.stroke();
-      ctx.restore();
-    },
+    // (Removed 2026-06-29: _drawCavern — the secret undercroft's rock walls/ceiling render.)
     // The night-sky accretion: faint stars (one per surface hole ever completed), brighter every
     // ninth (a finished Front Nine). Screen-space, upper band only, so they read as distant sky.
     _drawConstellations(ctx, recap, aFade) {
@@ -2115,43 +1900,8 @@
       cf.frame--;
     },
 
-    // ── First-discovery signal (the iceberg surfacing) ────
-    // Centralized knowledge-flag setter — route EVERY rg-knows-* write through here. The first
-    // secret a player ever finds fires a one-shot violet rune bloom so they learn Discoveries exist
-    // (and to press M). Most players' first secret is the Fault, whose flag is set mid-crane, so the
-    // bloom is drawn from drawHUD (always-on), not _drawOverlays (which the crane early-returns from).
-    _markKnown(flag) {
-      flag = String(flag).replace('rg-knows-', '');
-      try {
-        if (localStorage.getItem('rg-knows-' + flag) === '1') return false;   // already known
-        var flags = window.RG_SECRET_FLAGS || [], hadAny = false;
-        for (var i = 0; i < flags.length; i++) { if (localStorage.getItem('rg-knows-' + flags[i]) === '1') { hadAny = true; break; } }
-        localStorage.setItem('rg-knows-' + flag, '1');
-        if (!hadAny && !localStorage.getItem('rg-first-codex-seen')) {         // the FIRST-ever discovery
-          localStorage.setItem('rg-first-codex-seen', '1');
-          this._firstKnowFlare = 100;
-        }
-        return true;
-      } catch (e) { return false; }
-    },
-    _drawFirstKnowFlare(ctx) {
-      if (!(this._firstKnowFlare > 0)) return;
-      const f = this._firstKnowFlare, t = 1 - f / 100;       // 0 -> 1 over its life
-      const cx = W / 2, cy = H * 0.38, a = Math.sin(t * Math.PI);   // fade in + out, no text
-      ctx.save();
-      ctx.textAlign = 'center';
-      ctx.globalAlpha = Math.max(0, a) * 0.8;
-      ctx.strokeStyle = '#c98bff'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      ctx.beginPath(); ctx.arc(cx, cy, 14 + t * 26, 0, Math.PI * 2); ctx.stroke();         // expanding violet ring
-      ctx.beginPath();                                                                     // a small angular rune
-      ctx.moveTo(cx - 9, cy - 9); ctx.lineTo(cx + 5, cy - 3); ctx.lineTo(cx - 4, cy + 4); ctx.lineTo(cx + 9, cy + 9);
-      ctx.stroke();
-      ctx.globalAlpha = Math.max(0, a) * 0.55;                                             // a lingering ◇ (the Codex tell)
-      ctx.fillStyle = '#b24dff'; ctx.font = "15px 'Departure Mono', monospace";
-      ctx.fillText('◇', cx, cy + 38);
-      ctx.restore();
-      this._firstKnowFlare--;
-    },
+    // (Removed 2026-06-29: _markKnown + _drawFirstKnowFlare — the first-discovery knowledge flag +
+    //  rune-bloom signal for the secrets Codex.)
     // The wind tell: a thin pale arrow, top-center. tier (0/1/2, optional) maps to one of
     // three discrete LENGTHS so the per-hole magnitude is READABLE — a long arrow means
     // "this hole actually bends the shot", a stub means "barely" — turning the old static
@@ -2253,33 +2003,7 @@
   // RG.dbg.go(seed)  -> load a seed, report its secrets + conditions
   // RG.dbg.peek()    -> jump to the Fault hole, ball at its tee
   // Dormant unless the page is loaded with ?dev, so it can't spoil a public playtest.
-  if (typeof location !== 'undefined' && /[?&]dev\b/.test(location.search)) RG.dbg = {
-    scan: function (n) {
-      n = n || 80; const seeds = []; for (let i = 1; i <= n; i++) seeds.push(i);
-      return RG._audit(seeds).filter(function (r) { return r.faultHole >= 0; })
-        .map(function (r) { return { seed: r.seed, faultHole: r.faultHole >= 0 ? r.faultHole + 1 : null }; });
-    },
-    go: function (seed) {
-      RG.startRun({ seed: seed });
-      return {
-        seed: (RG.seed >>> 0).toString(36),
-        faultHole: RG._faultTile ? RG._faultTile.hole + 1 : null,
-        conditions: RG.holeConds.map(function (c, i) { return c ? ((i + 1) + ':' + c.key) : null; }).filter(Boolean),
-      };
-    },
-    peek: function () {
-      const hit = RG.dbg.scan(160).find(function (r) { return r.faultHole; });
-      if (!hit) return 'none found in 1..160';
-      RG.startRun({ seed: parseInt(hit.seed, 36) });
-      const tile = RG._faultTile;
-      currentHole = tile.hole;
-      const h = holes[tile.hole];
-      ball.x = h.teeX; ball.y = terrainYAt(h.teeX) - BALL_RADIUS; ball.vx = 0; ball.vy = 0; ball.atRest = true; ball.onGround = true;
-      if (typeof state !== 'undefined') state = STATE_AIM;
-      if (typeof camera !== 'undefined') camera.x = (tile.x + h.teeX) / 2 - W / 2;
-      return { seed: hit.seed, hole: tile.hole + 1, targetX: Math.round(tile.x) };
-    },
-  };
+  // (Removed 2026-06-29: RG.dbg — the ?dev Fault-seed scanner/peek tooling, now that the Fault is gone.)
 
   // 'z' / 'x' spends a drop (replay your last shot). Ignored while typing in an input.
   window.addEventListener('keydown', function (e) {
@@ -2373,7 +2097,6 @@
   window.initFirebase = function () {
     const ld = document.getElementById('loading'); if (ld) ld.style.display = 'none';
     RG.loadProgress();
-    if (RG.loadCollection) RG.loadCollection();
     // The space arc boots on Earth. ?mars boots the original Mars nine directly (the
     // old line stays playable while Mars awaits its place as a destination).
     const _cm = (typeof location !== 'undefined') && /[?&](?:course|gomoon)=([a-z0-9_-]+)/i.exec(location.search);

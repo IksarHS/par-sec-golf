@@ -93,13 +93,10 @@
 <script src="src/art.js"></script>
 <script src="src/gameplay.js"></script>
 
-<!-- Roguelike layer (peel-off-able). run.js defines window.initFirebase, so main.js
-     init() defers boot to the run controller, which starts straight into a run. -->
-<!-- DEFAULT = the core loop: golf, money, ship, shop. ?full restores the secrets/Codex
-     build (the 4 secrets, the Fault/Vault, M + C pages). The secrets HOST (registry +
-     util in secrets.js) always loads — the ship rides its lifecycle — only the secret
-     CONTENT is gated, by window.RG_MINIMAL. -->
-<script>window.RG_MINIMAL = !/[?&](full|secrets)(=|&|$)/.test(location.search);</script>
+<!-- Game layer (peel-off-able). run.js defines window.initFirebase, so main.js init() defers boot to the
+     run controller, which starts straight into a course. PC = single-player ADVENTURE: the roguelike
+     economy (money/shop/ship/lives) AND the secrets subsystem (Fault/Vault/Codex) were removed 2026-06-29.
+     The roguelike lives in par-sec-mobile. -->
 <script src="src/roguelike/save.js"></script>
 <!-- META layer (additive, peel-off-able): per-planet scores store + username login + sync-ready
      cloud client. localStorage-first (works fully offline); POSTs/GETs the save blob to api/save.js
@@ -117,7 +114,6 @@
      colourful bodies) on the REAL travel flow. INERT unless ?portrait (one early return). Peel = delete
      this file + this tag + the ?portrait branch below. Loads after run.js so RG/startRun exist to wrap. -->
 <script src="src/roguelike/portrait.js"></script>
-<script src="src/roguelike/secrets.js"></script>
 <script src="src/roguelike/economy.js"></script>
 <!-- ship.js (repair-shop) + shop.js (storefront) REMOVED 2026-06-29 — roguelike economy, PC is an adventure. -->
 <script src="src/roguelike/wrap.js"></script>
@@ -127,19 +123,12 @@
 <script src="src/roguelike/ambient.js"></script>
 <script src="src/roguelike/fx-lab.js"></script>
 <script src="src/roguelike/gfx-lab.js"></script>
-<script src="src/roguelike/onboard.js"></script>
 <script src="src/roguelike/travel.js"></script>
 <!-- META: in-game STAR MAP launcher — press M / click ✦ MAP to open the real progression map
      (starmap.html in an overlay) and click a played planet to travel back + replay. Peelable. -->
 <script src="src/roguelike/starmap-ingame.js"></script>
 <script src="src/roguelike/event.js"></script>
 <script src="src/roguelike/terrain.js"></script>
-<script>
-  if (!window.RG_MINIMAL) {
-    document.write('<script src="src/roguelike/manual.js"><\/script>');
-    document.write('<script src="src/roguelike/progression.js"><\/script>');
-  }
-</script>
 
 <!-- Dev-only panels (dormant unless the URL has ?dev): Secrets Lab + Game-Feel sandbox + playtest bot. -->
 <script src="src/roguelike/lab.js"></script>

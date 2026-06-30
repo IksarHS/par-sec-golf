@@ -48,8 +48,6 @@
         RG.recordHole(justFinished, (typeof strokes !== 'undefined') ? strokes : 0);
         // A completed SURFACE hole adds a star to the night sky (visual progression).
         if (RG._surfaceRunOnly && RG._surfaceRunOnly() && RG._recordHoleDone) RG._recordHoleDone();
-        // …and at/under par COLLECTS that hole-of-the-nine (overt progression — the Front Nine).
-        if (RG._surfaceRunOnly && RG._surfaceRunOnly() && RG._recordCollect) RG._recordCollect(justFinished, (typeof strokes !== 'undefined') ? strokes : 0);
         // (Removed 2026-06-29: the par-buffer "budget bust → RUN FAILED" — PC is an adventure, not a
         //  roguelike. There is no fail state now; every completed course travels onward. RG.failed stays
         //  false, so the auto-travel + best-record paths below always run.)
@@ -81,19 +79,12 @@
       if (typeof state !== 'undefined' && state === STATE_COMPLETE && window.RG && RG.active) {
         RG.finalStrokes = totalStrokes;
         RG.finalHoles = currentHole;
-        if (RG.inVault) {
-          RG.vaultCleared = true;
-        } else if (RG.inFault) {
-          RG.faultCleared = true;
-        } else if (!RG.failed) {
-          // A run that used any drop is not best- or Vault-eligible (drops are a safety
-          // net, not a way to game the leaderboard or earn the secret).
-          if (RG.dropsUsed === 0) {
-            RG.isNewBest = RG.saveBest(totalStrokes);
-            if (RG.finalStrokes <= RG.runPar) RG.vaultUnlocked = true;
-          }
+        if (!RG.failed) {
+          // Best-score tracking (the adventure's "beat your record"). A run that used a drop
+          // isn't best-eligible (the mulligan is a safety net).
+          if (RG.dropsUsed === 0) RG.isNewBest = RG.saveBest(totalStrokes);
         }
-        // Settle the run's earnings (economy.js): tier payouts per hole slot, $1 repeats.
+        // Record each hole's best tier (economy.js) — feeds the scorecard/collection art (no money).
         if (window.RG_ECON) RG_ECON.settleRun();
         // ── META: record this body's per-planet score (RG_SCORES) for the scorecard + star map.
         // Surface runs only (not Vault/Fault). Persists total-vs-par + all-time best to localStorage,
@@ -146,15 +137,7 @@
       // creature, a portal, an only-up tumble check. Inert unless an atlas planet with an onRest
       // hook is active. Runs before the built-in handling so it can fully consume the rest.
       if (window.RG_ATLAS && RG_ATLAS.onRest && RG_ATLAS.onRest()) return;
-      // A standalone secret can claim the rest (e.g. land in its own pocket) before the
-      // built-in anomaly/water handling runs. Return true from its onRest to consume.
-      if (RG._surfaceRunOnly() && window.RG_runSecretHook && RG_runSecretHook('onRest')) return;
       const mat = getMaterialAt(ball.x);
-      // The Fault: come to rest on an anomaly tile and the floor gives way.
-      if (mat === 'anomaly' && (typeof isBallInCup !== 'function' || !isBallInCup())) {
-        if (RG.beginDescent) RG.beginDescent();
-        return;
-      }
       if (mat === 'water' && !isBallInCup()) {
         // Hazard: the ball is lost. Reshoot from the last safe rest (or this tee).
         // The stroke that found the water already counts.
@@ -270,11 +253,6 @@
     // Underground there is no open sky: the hollow's own dark replaces the starry surface sky
     // the moment the floor opens (the crane band covers the swap, so it reads as descent).
     drawSky() {
-      if (window.RG && RG.active && RG.inFault) {
-        ctx.fillStyle = '#0f0b12';
-        ctx.fillRect(0, 0, W, H);
-        return;
-      }
       if (baseSky) baseSky();
       // Experimental-planet SKY treatment (atlas.js): a behind-the-world screen-space layer (e.g. the
       // golf-orbit deep-space starfield + atmosphere limb glow) drawn over the base sky fill and BEHIND
@@ -285,9 +263,6 @@
       // Inert by default (ships OFF); guards inside RG_AMBIENT.draw skip fault/vault/crane/bot.
       // (peel-off-able; ambient.js — delete the file + its <script> tag + this line.)
       if (window.RG_AMBIENT) RG_AMBIENT.draw(ctx);
-      // The onboard 'sky' far body is the same class of behind-the-world treatment (its other
-      // nudges — wake/reach/glint — stay foreground in run.js _drawOverlays). (onboard.js)
-      if (window.RG_ONBOARD && RG_ONBOARD.drawBehind) RG_ONBOARD.drawBehind(ctx);
       // The distant sky (completed-hole stars / Moon field / shooting star) draws BEHIND the world so
       // terrain occludes it — was in drawHUD/_drawOverlays, which painted stars over high terrain
       // (a Descent mesa). Screen-space; identical on the surface where terrain is low. (run.js)
@@ -330,11 +305,9 @@
       // audit), so the determinism baseline is untouched. (run.js RG._clampTerrainMats)
       if (window.RG && RG._clampTerrainMats) RG._clampTerrainMats();
       if (baseWorld) baseWorld();
-      if (window.RG_ONBOARD) RG_ONBOARD.tick();                // first-run nudges: watch for the 'reach' arrival edge + keep the reached-last latch (peel-off-able; onboard.js; runs at all states incl. STATE_COMPLETE; no camera moves, no state writes — purely a cosmetic latch, never drives state)
       if (window.RG_AUDIO && RG_AUDIO.tick) RG_AUDIO.tick();   // shot/land/cup sound detection — in the draw pass so it's FRAME-SYNCED with the fx puff + juice pop (peel-off-able; audio.js)
       if (window.RG_FX) RG_FX.draw(ctx);                       // landing-particle juice (peel-off-able; fx.js)
       if (window.RG_JUICE) RG_JUICE.draw(ctx);                 // ball motion trail + impact pop (peel-off-able; juice.js)
-      if (window.RG && RG._drawCavern) RG._drawCavern(ctx);   // walls + ceiling around a sunken hollow
       if (window.RG && RG._descPhase === 'pan' && RG._panBand && RG._drawShaftBand) RG._drawShaftBand(ctx);
       // Experimental-planet per-frame hook (atlas.js): mid-flight forces (gravity wells), moving
       // hazards/creatures, and their world-space draw. Runs after the base world + juice, inside the
@@ -357,7 +330,6 @@
         // no event is armed (variant 0 / not on an event tee), so peel-off-able and default-safe.
         if (window.RG_EVENT && window.RG && RG.active && RG._surfaceRunOnly() && RG_EVENT.active()) RG_EVENT.draw(ctx);
       }
-      if (window.RG && RG._drawFirstKnowFlare) RG._drawFirstKnowFlare(ctx);   // always-on: the one-shot first-discovery bloom
       if (window.RG_SEQ && RG_SEQ.draw) RG_SEQ.draw(ctx);                     // dev (?seq): scorecard+transition A/B overlay, over the crane (seqtest.js)
       // (The Fault descent crane is driven from RG._drawOverlays so its post-swap settle
       //  keeps ticking after `descending` clears — no separate descent draw needed here.)
@@ -433,36 +405,11 @@
     if (window.RG && RG._drawConstellations) RG._drawConstellations(ctx, true);
     if (window.RG && RG._frontNineJustDone) { _flagsCelebrate = true; RG._frontNineJustDone = false; }
 
-    const failed = RG.failed;
-    const inFault = RG.inFault, inVault = RG.inVault, inSecret = inVault || inFault;
-    const vaultDone = inVault && RG.vaultCleared;
-    const area = (window.RG && RG._secretArea) || { title: '▾ THE FAULT', tag: 'the fault', sub: 'a course beneath the course' };
+    const failed = RG.failed;   // legacy; always false now (no fail state)
 
     ctx.textAlign = 'center';
 
-    // ── Secret-area completion (unchanged: these recaps are trophies, no scorecard) ──
-    if (inSecret) {
-      ctx.font = "22px 'Departure Mono', monospace";
-      if (inFault) { ctx.fillStyle = 'rgba(178,77,255,' + fade + ')'; ctx.fillText(area.title, cx, top); }
-      else { ctx.fillStyle = 'rgba(240,184,96,' + fade + ')'; ctx.fillText('★ VAULT CLEARED ★', cx, top); }
-      if (_flagsCelebrate) drawFlagsCelebration(cx, top, fade);
-      ctx.font = "12px 'Departure Mono', monospace";
-      ctx.fillStyle = 'rgba(242,236,255,' + (fade * 0.4) + ')';
-      ctx.fillText('seed ' + (RG.seed >>> 0).toString(36) + '   ·   ' + (inFault ? area.tag : 'the vault'), cx, top + 24);
-      ctx.font = "22px 'Departure Mono', monospace";
-      ctx.fillStyle = 'rgba(255,255,255,' + fade + ')';
-      ctx.fillText('cleared in ' + RG.finalStrokes + (RG.finalStrokes === 1 ? ' stroke' : ' strokes'), cx, top + 58);
-      if (inFault) {
-        ctx.font = "12px 'Departure Mono', monospace";
-        ctx.fillStyle = 'rgba(201,139,255,' + (fade * 0.75) + ')';
-        ctx.fillText(area.sub, cx, top + 80);
-        ctx.fillStyle = 'rgba(242,236,255,' + (fade * 0.35) + ')';
-        ctx.fillText('your run ends here', cx, top + 98);
-      }
-      drawCompleteButtons(top + (inFault ? 120 : 96), fade, false);
-      ctx.textAlign = 'left';
-      return;
-    }
+    // (Removed 2026-06-29: the secret-area Vault/Fault completion recap.)
 
     // ── Surface recap (the redesigned screen) ──
     let y;
@@ -487,7 +434,7 @@
       y = drawSuccessLedger(cx, top, fade, 'grid');
     }
 
-    drawCompleteButtons(y + 8, fade, RG.vaultUnlocked && !failed && !window.RG_MINIMAL);
+    drawCompleteButtons(y + 8, fade, false);
     ctx.textAlign = 'left';
   }
 
@@ -575,22 +522,7 @@
     // testing via the dev cheat panel + ?goto=launch. The old gold recap launch button was
     // removed (designer call: not a default-game control).
 
-    if (showVault) {
-      const gw = 20, gh = 26, gx = cx - gw / 2, gy = y;
-      var vseen = 0; try { vseen = parseInt(localStorage.getItem('rg-vault-seen') || '0', 10) || 0; } catch (e) {}
-      if (completeTimer === 51) { try { localStorage.setItem('rg-vault-seen', String(vseen + 1)); } catch (e) {} }  // count once per show
-      const newbie = vseen < 3;        // a touch brighter the first few times the door appears, then it recedes
-      ctx.save();
-      // barely-there, with a slow pulse so a lingering eye can find it — never advertised.
-      ctx.globalAlpha = fade * ((newbie ? 0.30 : 0.17) + 0.13 * Math.abs(Math.sin(completeTimer * 0.045)));
-      ctx.strokeStyle = '#f0c060'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.roundRect(gx, gy, gw, gh, 3); ctx.stroke();      // a small door
-      ctx.fillStyle = '#f0c060';
-      ctx.beginPath(); ctx.arc(gx + gw * 0.72, gy + gh * 0.55, 1.5, 0, Math.PI * 2); ctx.fill();   // its knob
-      ctx.restore();
-      RG._btns.push({ x: gx - 14, y: gy - 8, w: gw + 28, h: gh + 16, action: 'vault' });            // forgiving hitbox
-      y += gh + 16;
-    }
+    // (Removed 2026-06-29: the secret Vault-door button — showVault is always false now.)
     // On the Moon, home hangs below the buttons: a small blue Earth. Click it to fly back.
     if (window.RG && RG.course === 'moon') {
       const er = 9, ex = cx, ey = y + er + 2;
@@ -642,10 +574,8 @@
     for (let i = 0; i < btns.length; i++) {
       const b = btns[i];
       if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-        if (b.action === 'vault') RG.enterVault();
-        else if (b.action === 'newrun') { _flagsCelebrate = false; RG.beginNewRun(); }
+        if (b.action === 'newrun') { _flagsCelebrate = false; RG.beginNewRun(); }
         else if (b.action === 'earth' && RG.returnToEarth) RG.returnToEarth();
-        else if (b.action === 'progression' && RG.openCollection) RG.openCollection();
         return;
       }
     }

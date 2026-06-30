@@ -5,11 +5,6 @@
 (function () {
   if (typeof location === 'undefined' || !/[?&]dev\b/.test(location.search)) return;
 
-  function findSeed(test, max) {
-    max = max || 160;
-    for (var s = 1; s <= max; s++) { RG.startRun({ seed: s }); try { if (test()) return s; } catch (e) {} }
-    return null;
-  }
   function tee(idx) { // put the ball at hole idx's tee, at rest, ready to aim
     currentHole = idx; var h = holes[idx];
     // A hole's tee IS the previous hole's cup; in real play the transition fills that divot
@@ -39,33 +34,7 @@
     el.style.display = text ? 'block' : 'none';
   }
 
-  // Each scenario sets up the hole + ball at the tee and returns the on-screen instruction.
-  var SCENARIOS = [
-    { name: '▾ The Fault → Undercroft', cls: 'crane', run: function () {
-      var s = findSeed(function () { return !!RG._faultTile; });
-      if (s == null) return 'no Fault seed in 1..160';
-      var h = tee(RG._faultTile.hole); frame(h.teeX, RG._faultTile.x);
-      return '🟣 <b>The Fault.</b> Putt onto the <span style="color:#c98bff">violet tile</span> and let the ball stop — the floor opens.';
-    } },
-    { name: '◐ Patient Rest', cls: 'gest', run: function () {
-      try { localStorage.removeItem('rg-knows-patient'); } catch (e) {}   // gateway retires once known — un-know so it can place
-      var p = RG_secret('patient');
-      var s = findSeed(function () { return !!(p.tile); });
-      if (s == null) return 'no Patient seed';
-      var h = tee(p.tile.hole); frame(h.teeX, h.teeX + 200);
-      return '◐ <b>Patient Rest.</b> Don\'t shoot — just <b>wait ~5s</b>. A <span style="color:#c98bff">violet halo</span> blooms around the ball.';
-    } },
-    { name: '☀ Poke the Sun', cls: 'gest', run: function () {
-      RG.startRun({ seed: 5 }); var h = tee(1); frame(h.teeX, h.cupX);
-      return '☀ <b>The Sun.</b> Click the faint sun in the <b>top-right</b> corner — lights out. Click it again for dawn.';
-    } },
-    { name: '◆ The Leviathan (ace this hole)', cls: 'crane', run: function () {
-      RG.startRun({ seed: 5 });
-      var lev = RG_secret('leviathan'); lev._streak = 2; lev._lastHole = 1; lev._done = false; RG.holeScores = [1, 1];
-      var h = tee(1); frame(h.teeX, h.cupX);
-      return '◆ <b>The Watcher.</b> You\'ve aced 2 in a row — sink <b>this hole in ONE shot</b> to open the eye.';
-    } },
-  ];
+  // (Removed 2026-06-29: the SCENARIOS list — the dev jump-to-secret setups; the secrets subsystem is gone.)
 
   // Shared button factory: a left-aligned accent button that runs fn, showing its returned
   // string in the hint banner (or an error if it throws). accent is an "r,g,b" string.
@@ -238,26 +207,14 @@
     cheats.body.appendChild(cfoot);
     document.body.appendChild(cheats.root);
 
-    // ── Secrets Lab (bottom-left) ──
-    var lab = panel('rg-lab', '<b style="color:#c98bff;letter-spacing:1px;">🔬 SECRETS&nbsp;LAB</b>', '178,77,255');
-    lab.root.style.bottom = '10px';
-    lab.body.id = 'rg-lab-body';
-    SCENARIOS.forEach(function (sc) {
-      var accent = sc.cls === 'crane' ? GOLD : PURPLE;
-      lab.body.appendChild(mkButton(sc.name, accent, sc.run));
-    });
-    var foot = document.createElement('div');
-    foot.style.cssText = 'margin-top:6px;color:rgba(242,236,255,0.3);font-size:10px;';
-    foot.textContent = '` toggles panel · then play the hole to trigger it';
-    lab.body.appendChild(foot);
-    document.body.appendChild(lab.root);
+    // (Removed 2026-06-29: the Secrets Lab panel — the secrets subsystem is gone. The Cheats panel stays.)
 
     window.addEventListener('keydown', function (e) {
       if (/INPUT|TEXTAREA/.test((e.target && e.target.tagName) || '')) return;
       if (e.key === '`') {
-        var show = lab.root.style.display === 'none';   // both panels share one toggle
+        var show = cheats.root.style.display === 'none';
         var disp = show ? 'block' : 'none';
-        lab.root.style.display = disp; cheats.root.style.display = disp;
+        cheats.root.style.display = disp;
         var hb = document.getElementById('rg-hint'); if (hb) hb.style.display = show ? hb.style.display : 'none';
       }
     });
