@@ -771,13 +771,14 @@ function drawTerrainDG() {
 
     // Draw one polygon: trace all vertices in order, then close along bottom
     ctx.fillStyle = mat.color || GROUND;
-    // At a SURFACE course's start, the terrain's left end (vertex 0) would otherwise show as a
-    // hard cliff against the sky. Extend that first run flat off the left screen edge so the
-    // ground just runs offscreen — you're on a planet, it shouldn't simply end. Only the left
-    // start is extended; the course's RIGHT end still shows (a deliberate "course is ending" cue).
-    // Skipped in the sunken secret rooms (camera.y > 0), where the left wall is intentional.
-    const onSurface = !((typeof camera !== 'undefined') && camera.y);
-    const leftX = (runStart === 0 && onSurface) ? Math.min(vertices[runStart].x, startX) : vertices[runStart].x;
+    // The terrain's left end (vertex 0) would otherwise show as a hard cliff against the sky.
+    // Extend that first run flat off the left screen edge so the ground just runs offscreen — you're
+    // on a planet, it shouldn't simply end. Only the left start is extended; the course's RIGHT end
+    // still shows (a deliberate "course is ending" cue). Applied on EVERY frame including the travel
+    // landing pan — the old `camera.y === 0` (on-surface) gate caused a one-frame terrain POP as the
+    // camera eased to 0 at landing and the fill suddenly switched on. (Secret rooms, which wanted the
+    // left wall, are removed, so the gate is no longer needed.)
+    const leftX = (runStart === 0) ? Math.min(vertices[runStart].x, startX) : vertices[runStart].x;
     ctx.beginPath();
     if (cv) {
       ctx.moveTo(leftX, cvY(leftX, vertices[runStart].y));

@@ -121,6 +121,20 @@
     },
   };
 
+  // ── ?reset — manual progress wipe for testing (any build) ──
+  // Add ?reset to the URL to wipe ALL saved progress to a virgin first-boot on THIS load, then it
+  // strips the param so the next refresh persists normally. Runs synchronously here — save.js loads
+  // before profile.js/run.js read progress — so the game simply boots cold. Not gated to ?dev.
+  if (typeof location !== 'undefined' && /[?&]reset\b/.test(location.search)) {
+    try {
+      var _wiped = wipe();
+      try { console.log('[RG_SAVE] ?reset: wiped ' + _wiped + ' rg- keys → virgin first-boot.'); } catch (e) {}
+      var _clean = location.search.replace(/[?&]reset(=[^&]*)?/g, '');
+      if (_clean === '?') _clean = '';
+      history.replaceState(null, '', location.pathname + _clean + location.hash);
+    } catch (e) {}
+  }
+
   // ── Dev-only reset control ─────────────────────────────────
   // A small button so the designer can wipe to virgin first-boot without the console. Lives in
   // the Secrets Lab panel when it exists (so it sits with the other dev tools); otherwise a tiny
@@ -144,22 +158,6 @@
     b.onclick = function (e) { e.stopPropagation(); doReset(); };
   }
 
-  // Try to land the button inside the Secrets Lab body; if the lab isn't present (e.g. minimal
-  // build with ?dev), drop a standalone chip near it. Poll briefly because lab.js may build
-  // after us (script order), and only ever insert once.
-  function placeButton() {
-    if (document.getElementById('rg-save-reset')) return true;
-    var b = document.createElement('button');
-    b.id = 'rg-save-reset';
-    styleResetBtn(b);
-    var labBody = document.getElementById('rg-lab-body');
-    if (labBody) {
-      labBody.appendChild(b);                       // sit with the other dev tools
-      return true;
-    }
-    return false;
-  }
-
   function standaloneChip() {
     if (document.getElementById('rg-save-reset')) return;
     var b = document.createElement('button');
@@ -173,18 +171,7 @@
     document.body.appendChild(b);
   }
 
-  function init() {
-    if (placeButton()) return;
-    // Lab body not up yet — retry a few times, then fall back to a standalone chip.
-    var tries = 0;
-    var iv = setInterval(function () {
-      tries++;
-      if (placeButton() || tries > 20) {
-        clearInterval(iv);
-        if (!document.getElementById('rg-save-reset')) standaloneChip();
-      }
-    }, 150);
-  }
+  function init() { standaloneChip(); }   // the Secrets Lab is gone — drop the reset chip standalone (bottom-left)
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

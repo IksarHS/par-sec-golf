@@ -183,7 +183,10 @@
         + 'border-radius:7px;padding:5px 9px;';
       document.body.appendChild(el);
     }
-    el.textContent = '▶ AUTO — press A to stop';
+    var _sp = (window.aiSpeed || 1);
+    el.textContent = window.aiEnabled
+      ? ('▶ AUTO ' + _sp + '× — A: stop · S: speed')
+      : ('speed ' + _sp + '× — A: autoplay · S: speed');
     el.style.display = on ? 'block' : 'none';
   }
 
@@ -213,12 +216,22 @@
     calculateShot: calculateShot,
   };
 
-  // A toggles autoplay anywhere (loops run after run until pressed again, or a hole sticks).
+  // A = toggle autoplay on/off (ONE press to stop). S = cycle SPEED 1×→2×→4× (separate control, so
+  // stopping is never more than one A press). aiSpeed persists across on/off; main.js reads it live, so
+  // changing speed mid-run is instant. (S is unbound elsewhere in the game.)
   window.addEventListener('keydown', function (e) {
     if (/INPUT|TEXTAREA/.test((e.target && e.target.tagName) || '')) return;
     if (e.key === 'a' || e.key === 'A') {
       if (window.aiEnabled) RG.bot.stop();
-      else RG.bot.start({ runs: Infinity, speed: 1 });
+      else RG.bot.start({ runs: Infinity, speed: window.aiSpeed || 1 });
+    } else if (e.key === 's' || e.key === 'S') {
+      var cur = window.aiSpeed || 1;
+      window.aiSpeed = (cur === 1) ? 2 : (cur === 2) ? 4 : 1;   // 1× → 2× → 4× → 1×
+      badge(true);                                              // show the new speed
+      if (!window.aiEnabled) {                                  // when stopped, flash the speed then hide
+        clearTimeout(window._aiSpeedHideT);
+        window._aiSpeedHideT = setTimeout(function () { if (!window.aiEnabled) badge(false); }, 1300);
+      }
     }
   });
 })();
