@@ -11,6 +11,7 @@
           url('../assets/fonts/DepartureMono-Regular.woff') format('woff');
       font-weight:normal;font-style:normal;font-display:swap;}
     html,body{margin:0;background:#0c0e14;overflow:hidden}
+    canvas{display:block}
   </style>
 </head>
 <body>
@@ -29,10 +30,15 @@
 // launch power to reach the next pin, fires, advances, looping the whole orbit. __testPlanet() runs the
 // bot around the entire globe headlessly and returns per-leg reachability + strokes (pass/fail).
 var cv = document.getElementById('c'), ctx = cv.getContext('2d'), W = 960, H = 540;
+// Fill the whole window (was a fixed 960×540 canvas in the top-left). The camera (updateView) re-centres
+// + re-fits to W/H every frame, so the globe just renders bigger; PL (world origin) stays fixed below.
+function fitCanvas(){ W = cv.width = window.innerWidth; H = cv.height = window.innerHeight; }
+fitCanvas();
+window.addEventListener('resize', fitCanvas);
 var FONT = "'Departure Mono', monospace";
 
 // ── planet ──────────────────────────────────────────────────────────────────────────────────────
-var PL = { x: W / 2, y: H / 2, r: 240 };       // planet center + base radius — big hero globe; flight forces a pull-back
+var PL = { x: 480, y: 270, r: 240 };           // FIXED world origin (window-independent) + base radius; the camera pans it to screen-centre
 var BALL_R = 8;
 
 // ── physics (radial gravity, no air drag — clean ballistic orbit arcs) ──
@@ -299,7 +305,9 @@ function updateView() {
   var dFocusPlanet = Math.hypot(fxWorld - PL.x, fyWorld - PL.y);
   var dFocusBall = Math.hypot(fxWorld - ball.x, fyWorld - ball.y);
   var need = Math.max(dFocusPlanet + PL.r * 1.06, dFocusBall + BALL_R * 7) + 30;
-  var targetZoom = Math.min(1.0, (H * 0.5) / need);
+  // Fit the globe (+ soaring ball) to the SMALLER window dimension so it's a big hero globe that fills
+  // the screen. (Was Math.min(1.0, (H*0.5)/need) — the 1.0 cap pinned it tiny on a fixed 960×540 canvas.)
+  var targetZoom = Math.min(2.4, (Math.min(W, H) * 0.46) / need);
   targetZoom = Math.max(0.18, targetZoom);
   var lerp = (targetZoom < view.zoom) ? 0.10 : 0.07;   // zoom out a touch faster than in
   view.zoom += (targetZoom - view.zoom) * lerp;
