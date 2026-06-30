@@ -78,16 +78,8 @@
      cross-device save sync. Unset = localStorage-only (fully playable). See dist/README.md. -->
 <script>
   // window.RG_SYNC_URL = 'https://<your-app>.vercel.app/api/save';  // ← set to enable cloud saves
-  // RG_MINIMAL: default minimal build (secrets/Codex content gated behind ?full / ?secrets), same as run.html.
-  window.RG_MINIMAL = !/[?&](full|secrets)(=|&|$)/.test(location.search);
 </script>
 <script src="parsec.min.js"></script>
-<script>
-  if (!window.RG_MINIMAL) {
-    document.write('<scr' + 'ipt src="src/roguelike/manual.js"><\/scr' + 'ipt>');
-    document.write('<scr' + 'ipt src="src/roguelike/progression.js"><\/scr' + 'ipt>');
-  }
-</script>
 <!-- Dev shortcut: jump straight to a BASE course (the Moon tiers) for testing. ?course= is otherwise
      intercepted by the atlas selector (galaxy.js), so this overrides it once RG is ready.
      SKIPPED under ?showcase — the showcase owns the course (its own dynamic 'showcase' course). -->

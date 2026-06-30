@@ -59,24 +59,20 @@ const SCRIPTS = [
   // Roguelike layer + META (save / profile / login / starmap / scorecard)
   'src/roguelike/save.js',
   'src/roguelike/profile.js',
-  'src/roguelike/login-ui.js',
   'src/roguelike/modifiers.js',
   'src/roguelike/run.js',
-  'src/roguelike/secrets.js',
   'src/roguelike/economy.js',
-  'src/roguelike/ship.js',
-  'src/roguelike/shop.js',
   'src/roguelike/wrap.js',
   'src/roguelike/audio.js',
   'src/roguelike/fx.js',
   'src/roguelike/juice.js',
   'src/roguelike/ambient.js',
-  'src/roguelike/onboard.js',
+  'src/roguelike/fx-lab.js',
+  'src/roguelike/gfx-lab.js',
   'src/roguelike/travel.js',
   'src/roguelike/starmap-ingame.js',
   'src/roguelike/event.js',
   'src/roguelike/terrain.js',
-  // (manual.js + progression.js are ?full-only via document.write — NOT in the default minimal build.)
   // RUNTIME-REQUIRED: the autoplay bot — RG.bot is consumed by level-design _validateHole (solvability).
   'src/roguelike/playtest-bot.js',
   // Atlas / experimental playable bodies (golf-orbit, puzzle, watersim, particlefluid, climb, blocks, …).
@@ -101,9 +97,6 @@ const SCRIPTS = [
   // src/showcase.js is dev-only (Generator Showcase) — EXCLUDED.
   // PORTRAIT MOBILE MODE (gated, inert unless ?portrait) — MUST be bundled so ?portrait works in the dist build.
   'src/roguelike/portrait.js',
-  // GALAXY RUN roguelike mode (gated, inert unless ?rogue) — bundled so ?portrait&rogue works on phone.
-  // Default public game (no ?rogue) is byte-unaffected; this only activates behind the flag.
-  'src/roguelike/galaxy-run.js',
   'src/main.js',
 ];
 
@@ -227,28 +220,14 @@ const indexHtml = `<!DOCTYPE html>
      cross-device save sync. Unset = localStorage-only (fully playable). See dist/README.md. -->
 <script>
   // window.RG_SYNC_URL = 'https://<your-app>.vercel.app/api/save';  // ← set to enable cloud saves
-  // RG_MINIMAL: default minimal build (secrets/Codex content gated behind ?full / ?secrets), same as run.html.
-  window.RG_MINIMAL = !/[?&](full|secrets)(=|&|$)/.test(location.search);
 </script>
 <script src="parsec.min.js"></script>
-<script>
-  if (!window.RG_MINIMAL) {
-    document.write('<scr' + 'ipt src="src/roguelike/manual.js"><\\/scr' + 'ipt>');
-    document.write('<scr' + 'ipt src="src/roguelike/progression.js"><\\/scr' + 'ipt>');
-  }
-</script>
 ${autostart}
 </body>
 </html>
 `;
 fs.writeFileSync(path.join(DIST, 'index.html'), indexHtml);
 log('wrote dist/index.html');
-
-// Under ?full, manual.js + progression.js are document.write'd — copy them so that path works too.
-fs.mkdirSync(path.join(DIST, 'src', 'roguelike'), { recursive: true });
-for (const f of ['manual.js', 'progression.js']) {
-  fs.copyFileSync(path.join(ROOT, 'src', 'roguelike', f), path.join(DIST, 'src', 'roguelike', f));
-}
 
 // ── 6. (intentionally empty) The PUBLIC build is the POLISHED GAME ONLY — experiments/prototypes are
 //      NOT published. Per owner policy: the online version is a clean, ready-to-show, stripped-down build;
